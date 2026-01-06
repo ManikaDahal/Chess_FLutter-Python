@@ -1,4 +1,7 @@
+import 'package:chess_python/bottom_navbar.dart';
+import 'package:chess_python/login.dart';
 import 'package:chess_python/sign_up.dart';
+import 'package:chess_python/ui/chess_board.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -12,12 +15,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Flutter Demo',
       theme: ThemeData(
        
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: SignUp(),
+      home: Login(),
     );
   }
 }
