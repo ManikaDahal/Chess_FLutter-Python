@@ -1,0 +1,51 @@
+import 'dart:convert';
+import 'package:chess_python/core/utils/const.dart';
+import 'package:chess_python/services/auth_services.dart';
+import 'package:chess_python/services/token_storage.dart';
+import 'package:http/http.dart' as http;
+
+class ApiService {
+  final TokenStorage _storage = TokenStorage();
+  final AuthServices _authService = AuthServices();
+
+  Future<Map<String, String>> _headers() async {
+    final token = await _storage.getAccessToken();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+  }
+
+  /// PROFILE
+  Future<Map<String, dynamic>> getProfile() async {
+    final response = await http.get(
+      Uri.parse('${Constants.baseUrl}/api/profile/'),
+      headers: await _headers(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+
+    if (response.statusCode == 401) {
+      final refreshed = await _authService.refreshToken();
+      if (refreshed) return getProfile();
+    }
+
+    throw Exception('Unauthorized');
+  }
+
+  /// SEND CHESS MOVE
+  // Future<void> sendMove(Map<String, dynamic> move) async {
+  //   final response = await http.post(
+  //     Uri.parse('${Constants.baseUrl}/api/move/'),
+  //     headers: await _headers(),
+  //     body: jsonEncode(move),
+  //   );
+
+  //   if (response.statusCode == 401) {
+  //     final refreshed = await _authService.refreshToken();
+  //     if (refreshed) return sendMove(move);
+  //   }
+  // }
+}

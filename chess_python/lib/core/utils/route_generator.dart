@@ -1,4 +1,5 @@
 
+import 'package:chess_python/bottom_navbar.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/forgot_password.dart';
 import 'package:chess_python/login.dart';
@@ -37,6 +38,8 @@ class RouteGenerator {
         return MaterialPageRoute(builder: (_) => const Login());
       case Routes.forgotPasswordRoute:
         return MaterialPageRoute(builder: (_) => const ForgotPassword());
+        case Routes.bottomNavBarRoute:
+        return MaterialPageRoute(builder: (_) => const BottomnavBar());
       // case Routes.enterOTPRoute:
       //   final args = settings.arguments as OtpArguments;
 

@@ -1,7 +1,9 @@
 import 'package:chess_python/core/utils/color_utils.dart';
+import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
+import 'package:chess_python/services/auth_services.dart';
 import 'package:chess_python/widgets/custom_Inkwell.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
 import 'package:chess_python/widgets/custom_text.dart';
@@ -17,11 +19,24 @@ class Login extends StatefulWidget {
 }
 
 class _LoginState extends State<Login> {
-  final TextEditingController _emailAddressController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+final AuthServices _authService=AuthServices();
   bool visible = false;
    bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
+
+  Future<void> login() async {
+    final success = await _authService.login(_nameController.text.trim(), _passwordController.text.trim());
+if(success){
+   RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+  
+}else{
+  DisplaySnackbar.show(context, loginFailedStr);
+}
+
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -61,11 +76,11 @@ class _LoginState extends State<Login> {
                     fontSize: 20,
                   ),
                   CustomTextformfield(
-                    controller: _emailAddressController,
-                    hintText: emailAddressStr,
+                    controller: _nameController,
+                    hintText: nameStr,
                     validator: (p0) {
                       if(p0==null||p0.isEmpty){
-                        return validateEmailAddressStr;
+                        return validateNameStr;
                       }
                       return null;
                     },),
@@ -131,7 +146,7 @@ class _LoginState extends State<Login> {
                   SizedBox(height: 20),
                   CustomElevatedbutton(
                     onPressed: () {
-                      //  RouteGenerator.navigateToPageWithoutStack(context, Routes.buttomNavbarRoute);
+                      login();
                     },
                     child: CustomText(
                       data: loginStr,
