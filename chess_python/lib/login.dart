@@ -71,7 +71,7 @@ if(success){
                   ),
                   SizedBox(height: 20),
                   CustomText(
-                    data: emailAddressStr,
+                    data: nameStr,
                     fontWeight: FontWeight.bold,
                     fontSize: 20,
                   ),

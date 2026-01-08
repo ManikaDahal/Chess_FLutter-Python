@@ -9,10 +9,11 @@ class ApiService {
   final AuthServices _authService = AuthServices();
 
   Future<Map<String, String>> _headers() async {
-    final token = await _storage.getAccessToken();
+    final accessToken = await _storage.getAccessToken();
+    if (accessToken == null) throw Exception('Access token missing');
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
+      'Authorization': 'Bearer $accessToken',
     };
   }
 
