@@ -1,8 +1,11 @@
-
 import 'package:chess_python/bottom_navbar.dart';
+import 'package:chess_python/core/utils/otp_args.dart';
+import 'package:chess_python/core/utils/resetPassword_args.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/forgot_password.dart';
 import 'package:chess_python/login.dart';
+import 'package:chess_python/otp_page.dart';
+import 'package:chess_python/reset_password.dart';
 import 'package:chess_python/sign_up.dart';
 import 'package:flutter/material.dart';
 
@@ -38,26 +41,24 @@ class RouteGenerator {
         return MaterialPageRoute(builder: (_) => const Login());
       case Routes.forgotPasswordRoute:
         return MaterialPageRoute(builder: (_) => const ForgotPassword());
-        case Routes.bottomNavBarRoute:
+      case Routes.bottomNavBarRoute:
         return MaterialPageRoute(builder: (_) => const BottomnavBar());
       // case Routes.enterOTPRoute:
-      //   final args = settings.arguments as OtpArguments;
+      // return MaterialPageRoute(builder: (_) => const OtpPage());
+      case Routes.enterOTPRoute:
+        final args = settings.arguments as OtpArguments;
 
-      //   return MaterialPageRoute(
-      //     builder: (_) => OtpPage(
-      //       isEmail: args.isEmail,
-      //       contact: args.contact,
-      //       verificationId: args.verificationId,
-      //     ),
-      //   );
+        return MaterialPageRoute(
+          builder: (_) => OtpPage(contact: args.contact),
+        );
 
-      // case Routes.resetPasswordRoute:
-      //   final args = settings.arguments as ResetPasswordArguments;
+      case Routes.resetPasswordRoute:
+        final args = settings.arguments as ResetPasswordArguments;
 
-      //   return MaterialPageRoute(
-      //     builder: (_) =>
-      //         ResetPassword(isEmail: args.isEmail, contact: args.contact),
-      //   );
+        return MaterialPageRoute(
+          builder: (_) =>
+              ResetPassword( contact: args.contact),
+        );
       // case Routes.gameBoardRoute:
       //   return MaterialPageRoute(builder: (_) => const GameBoard());
       // case Routes.bottomNavBarRoute:

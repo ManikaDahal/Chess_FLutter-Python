@@ -1,27 +1,35 @@
-
+import 'package:chess_python/core/utils/otp_args.dart';
+import 'package:chess_python/core/utils/resetPassword_args.dart';
+import 'package:chess_python/core/utils/route_const.dart';
+import 'package:chess_python/core/utils/route_generator.dart';
+import 'package:chess_python/services/auth_services.dart';
 import 'package:flutter/material.dart';
 
-
 class OtpPage extends StatefulWidget {
-  final bool isEmail; // true = email OTP, false = phone OTP
-  final String contact; // email or phone
-  final String verificationId; // only for phone OTP
-
-  const OtpPage({
-    super.key,
-    required this.isEmail,
-    required this.contact,
-    required this.verificationId,
-  });
+  final String contact;
+  const OtpPage({super.key, required this.contact});
 
   @override
   State<OtpPage> createState() => _OtpPageState();
 }
 
 class _OtpPageState extends State<OtpPage> {
-  final TextEditingController otpController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
+  AuthServices _authServices = AuthServices();
+  late String email;
 
   bool isVerifying = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args != null && args is OtpArguments) {
+      email = args.contact;
+    } else {
+      email = "";
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,17 +39,8 @@ class _OtpPageState extends State<OtpPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Text(
-              widget.isEmail
-                  ? "OTP sent to ${widget.contact}"
-                  : "OTP sent to ${widget.contact}",
-              style: const TextStyle(fontSize: 16),
-            ),
-
-            const SizedBox(height: 30),
-
             TextField(
-              controller: otpController,
+              controller: _otpController,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: "Enter 6-digit OTP",
@@ -55,62 +54,21 @@ class _OtpPageState extends State<OtpPage> {
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: (){
-                  
+                onPressed: () async {
+                  bool ok = await _authServices.verifyOtp(
+                    email,
+                    _otpController.text,
+                  );
+                  if (ok) {
+                    RouteGenerator.navigateToPage(
+                      context,
+                      Routes.resetPasswordRoute,
+                      arguments: ResetPasswordArguments(contact: email),
+                    );
+                  }
                 },
-                // onPressed: isVerifying
-                //     ? null
-                //     : () async {
-                //         String otp = otpController.text.trim();
 
-                //         if (otp.length != 6) {
-                //           ScaffoldMessenger.of(context).showSnackBar(
-                //             const SnackBar(content: Text("Enter valid 6-digit OTP")),
-                //           );
-                //           return;
-                //         }
-
-                //         setState(() => isVerifying = true);
-
-                //         bool isValid = false;
-
-                        
-                //         if (widget.isEmail) {
-                //           isValid = await authService.verifyOtp(
-                //             widget.contact,
-                //             otp,
-                //           );
-                //         }
-                //         // 🔹 Phone OTP verification
-                //         else {
-                //           isValid = await authService.verifyPhoneOtp(
-                //             widget.verificationId,
-                //             otp,
-                //           );
-                //         }
-
-                //         setState(() => isVerifying = false);
-
-                //         if (isValid) {
-                //           Navigator.pushReplacement(
-                //             context,
-                //             MaterialPageRoute(
-                //               builder: (_) => ResetPassword(
-                //                 isEmail: widget.isEmail,
-                //                 contact: widget.contact,
-                //               ),
-                //             ),
-                //           );
-                //         } else {
-                //           ScaffoldMessenger.of(context).showSnackBar(
-                //             const SnackBar(content: Text("Invalid or expired OTP")),
-                //           );
-                //         }
-                //       },
-                child:Text("Verify OTP"),
-                // isVerifying
-                //     ? const CircularProgressIndicator(color: Colors.white)
-                //     : const 
+                child: Text("Verify OTP"),
               ),
             ),
           ],

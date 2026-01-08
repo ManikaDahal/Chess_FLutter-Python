@@ -75,8 +75,38 @@ class _ProfilePageState extends State<ProfilePage> {
             Text("Email = ${profileData!['email']}"),
             Spacer(),
             CustomElevatedbutton(
-              onPressed: () {
-                _logout();
+              onPressed: () async {
+                try {
+                  bool? confirmLogout = await showDialog<bool>(
+                    builder: (context) => AlertDialog(
+                      title: Text(confirmLogoutStr),
+                      content: Text(reConfirmLogoutStr),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context, false);
+                          },
+                          child: Text(noStr),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context, true);
+                          },
+                          child: Text(yesStr),
+                        ),
+                      ],
+                    ),
+                    context: context,
+                  );
+                  if (confirmLogout == true) {
+                    _logout();
+
+                    RouteGenerator.navigateToPage(context, Routes.loginRoute);
+                    DisplaySnackbar.show(context, logoutSuccessfulStr);
+                  }
+                } catch (e) {
+                  DisplaySnackbar.show(context, e.toString());
+                }
               },
               child: Text(logoutStr),
             ),

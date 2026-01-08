@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:chess_python/core/utils/const.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
 import 'package:chess_python/services/token_storage.dart';
@@ -81,4 +80,79 @@ class AuthServices {
   Future<void> logout() async{
     await _storage.deleteAll();
   }
+
+
+
+
+  //Forgot Password
+Future<bool> forgotPassword(String email) async{
+  final response= await http.post(
+    Uri.parse('${Constants.baseUrl}/api/forgot-password/'),
+    headers: {'Content-Type':'application/json'},
+    body: jsonEncode(
+      {
+        'email':email
+      }
+    )
+  );
+  if(response.statusCode==200){
+return true;
+}
+else{
+  print("OTP sending failed : ${response.body}");
+  return false;
+}
+}
+
+
+//Verify OTP
+Future<bool> verifyOtp(String email, String otp)async{
+final response=await http.post(
+  Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
+  headers: {'Content-Type': 'application/json'},
+  body: jsonEncode(
+    
+  {
+    'email': email,
+    'otp': otp
+  }
+  )
+);
+if(response.statusCode==200){
+return true;
+}
+else{
+  print("OTP verification failed : ${response.body}");
+  return false;
+}
+
+
+}
+
+//Reset Password
+Future <bool> resetPassword(String email, String password)async{
+  final response=await http.post(
+    Uri.parse('${Constants.baseUrl}/api/reset-password/'),
+     headers: {'Content-Type': 'applicatio/json'},
+     body: jsonEncode({
+      'email':email,
+      'password':password
+     }),
+
+  );
+  if(response.statusCode==200){
+    return true;
+  }
+  else{
+    print("Password Reset failed ");
+    return false;
+  }
+}
+
+
+
+
+
+
+
 }

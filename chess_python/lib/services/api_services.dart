@@ -9,11 +9,13 @@ class ApiService {
   final AuthServices _authService = AuthServices();
 
   Future<Map<String, String>> _headers() async {
-    final accessToken = await _storage.getAccessToken();
-    if (accessToken == null) throw Exception('Access token missing');
+    final token = await _storage.getAccessToken();
+    print('Token before profile call: $token'); 
+
+    if (token == null) throw Exception('Access token missing');
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $accessToken',
+      'Authorization': 'Bearer $token',
     };
   }
 
@@ -35,6 +37,29 @@ class ApiService {
 
     throw Exception('Unauthorized');
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /// SEND CHESS MOVE
   // Future<void> sendMove(Map<String, dynamic> move) async {
