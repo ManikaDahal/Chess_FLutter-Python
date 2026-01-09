@@ -67,16 +67,21 @@ class _ForgotPasswordState extends State<ForgotPassword> {
             SizedBox(height: 50),
             CustomElevatedbutton(
               onPressed: () async {
-                await _authServices.forgotPassword(
+                bool ok=await _authServices.forgotPassword(
                   _emailAddressController.text,
                 );
+                if(ok){
                 RouteGenerator.navigateToPage(
                   context,
                   Routes.enterOTPRoute,
                   arguments: OtpArguments(
-                    contact: _emailAddressController.text,
+                    contact: _emailAddressController.text.trim(),
                   ),
                 );
+                }else{
+                  RouteGenerator.navigateToPage(context, Routes.forgotPasswordRoute);
+                  DisplaySnackbar.show(context, "OTP send failed");
+                }
               },
               child: Text(sendCodeStr, style: TextStyle(fontSize: 18)),
             ),

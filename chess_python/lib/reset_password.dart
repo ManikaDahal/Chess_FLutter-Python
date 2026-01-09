@@ -18,19 +18,18 @@ class ResetPassword extends StatefulWidget {
 }
 
 class _ResetPasswordState extends State<ResetPassword> {
-  AuthServices _authServices=AuthServices();
+  AuthServices _authServices = AuthServices();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
   bool isLoading = false;
   late String email;
-  @override
-  void didChangeDependencies(){
-    super.didChangeDependencies();
-    email=ModalRoute.of(context)!.settings.arguments as String;
-  }
-
   
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    email = ModalRoute.of(context)!.settings.arguments as String;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,14 +52,22 @@ class _ResetPasswordState extends State<ResetPassword> {
               obscureText: true,
             ),
             const SizedBox(height: 30),
-            CustomElevatedbutton(onPressed: () async{
-              bool ok = await _authServices.resetPassword(email, _passwordController.text.trim());
-              if(ok){
-                RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-                DisplaySnackbar.show(context, "Password reset successfull");
-              }
-
-            }, child: Text(resetStr)),
+            CustomElevatedbutton(
+              onPressed: () async {
+                bool ok = await _authServices.resetPassword(
+                  email,
+                  _passwordController.text.trim(),
+                );
+                if (ok) {
+                  RouteGenerator.navigateToPage(
+                    context,
+                    Routes.bottomNavBarRoute,
+                  );
+                  DisplaySnackbar.show(context, "Password reset successfull");
+                }
+              },
+              child: Text(resetStr),
+            ),
           ],
         ),
       ),

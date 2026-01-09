@@ -111,18 +111,19 @@ class AuthServices {
 
   //Verify OTP
   Future<bool> verifyOtp(String email, String otp) async {
-    final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'otp': otp}),
-    );
-    if (response.statusCode == 200) {
-      return true;
-    } else {
-      print("OTP verification failed : ${response.body}");
-      return false;
-    }
-  }
+  final response = await http.post(
+    Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'email': email.trim(),
+      'otp': otp.trim(),
+    }),
+  );
+
+  print("VERIFY OTP RESPONSE: ${response.body}");
+
+  return response.statusCode == 200;
+}
 
   //Reset Password
   Future<bool> resetPassword(String email, String password) async {
