@@ -26,10 +26,11 @@ class _ResetPasswordState extends State<ResetPassword> {
   late String email;
   
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    email = ModalRoute.of(context)!.settings.arguments as String;
-  }
+void initState() {
+  super.initState();
+  email = widget.contact; 
+}
+
 
   @override
   Widget build(BuildContext context) {
