@@ -21,22 +21,28 @@ class ApiService {
 
   /// PROFILE
   Future<Map<String, dynamic>> getProfile() async {
-    final response = await http.get(
-      Uri.parse('${Constants.baseUrl}/api/profile/'),
-      headers: await _headers(),
-    );
+  final token = await _storage.getAccessToken();
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    }
+  print("Token used for profile: $token");
 
-    if (response.statusCode == 401) {
-      final refreshed = await _authService.refreshToken();
-      if (refreshed) return getProfile();
-    }
+  final response = await http.get(
+    Uri.parse('${Constants.baseUrl}/api/profile/'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+  );
 
-    throw Exception('Unauthorized');
+  print("Profile status: ${response.statusCode}");
+  print("Profile raw body: ${response.body}");
+
+  if (response.statusCode == 200) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception("Profile failed");
   }
+}
+
 
 
 

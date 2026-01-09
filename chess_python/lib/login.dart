@@ -58,8 +58,8 @@ class _LoginState extends State<Login> {
                     backgroundColor: foregroundColor,
                     child: IconButton(
                       onPressed: () {
-                        //  RouteGenerator.navigateToPage(
-                        //           context, Routes.signupRoute);
+                         RouteGenerator.navigateToPage(
+                                  context, Routes.signupRoute);
                       },
                       icon: Icon(Icons.arrow_back),
                     ),
