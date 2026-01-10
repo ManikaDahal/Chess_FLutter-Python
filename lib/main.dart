@@ -1,10 +1,17 @@
 import 'package:chess_python/bottom_navbar.dart';
 import 'package:chess_python/login.dart';
+import 'package:chess_python/services/token_storage.dart';
 import 'package:chess_python/sign_up.dart';
 import 'package:chess_python/ui/chess_board.dart';
 import 'package:flutter/material.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized;
+  // final storage=TokenStorage();
+  // final access = await storage.getAccessToken();
+  // final refresh = await storage.getRefreshToken();
+  // print("Access token on start $access");
+  // print("Refresh token on start $refresh");
   runApp(const MyApp());
 }
 

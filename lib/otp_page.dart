@@ -1,27 +1,32 @@
-
+import 'package:chess_python/reset_password.dart';
 import 'package:flutter/material.dart';
+import 'package:chess_python/core/utils/display_snackbar.dart';
+import 'package:chess_python/services/auth_services.dart';
+import 'package:chess_python/core/utils/resetPassword_args.dart';
 
 
 class OtpPage extends StatefulWidget {
-  final bool isEmail; // true = email OTP, false = phone OTP
-  final String contact; // email or phone
-  final String verificationId; // only for phone OTP
+  final String contact; // this will receive the email from previous screen
 
-  const OtpPage({
-    super.key,
-    required this.isEmail,
-    required this.contact,
-    required this.verificationId,
-  });
+  const OtpPage({super.key, required this.contact});
 
   @override
   State<OtpPage> createState() => _OtpPageState();
 }
 
 class _OtpPageState extends State<OtpPage> {
-  final TextEditingController otpController = TextEditingController();
-
+  final TextEditingController _otpController = TextEditingController();
+  late String email;
   bool isVerifying = false;
+
+  AuthServices _authServices = AuthServices();
+
+  @override
+  void initState() {
+    super.initState();
+    email = widget.contact.trim(); // email is now guaranteed
+    print("OTP PAGE EMAIL = $email"); // debug check
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,86 +36,50 @@ class _OtpPageState extends State<OtpPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Text(
-              widget.isEmail
-                  ? "OTP sent to ${widget.contact}"
-                  : "OTP sent to ${widget.contact}",
-              style: const TextStyle(fontSize: 16),
-            ),
-
-            const SizedBox(height: 30),
-
             TextField(
-              controller: otpController,
+              controller: _otpController,
               keyboardType: TextInputType.number,
+              maxLength: 6,
               decoration: const InputDecoration(
                 labelText: "Enter 6-digit OTP",
                 border: OutlineInputBorder(),
+                counterText: "",
               ),
             ),
-
             const SizedBox(height: 30),
-
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: (){
-                  
+                onPressed: isVerifying ? null : () async {
+                  String otp = _otpController.text.trim();
+
+                  if (otp.length != 6) {
+                    DisplaySnackbar.show(context, "Please enter a valid 6-digit OTP");
+                    return;
+                  }
+
+                  setState(() => isVerifying = true);
+
+                  bool ok = await _authServices.verifyOtp(email, otp);
+
+                  setState(() => isVerifying = false);
+
+                  if (ok) {
+                    // Navigate to Reset Password page
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ResetPassword(contact: email), // pass email to reset password
+                      ),
+                    );
+                  } else {
+                    DisplaySnackbar.show(context, "Invalid OTP");
+                  }
                 },
-                // onPressed: isVerifying
-                //     ? null
-                //     : () async {
-                //         String otp = otpController.text.trim();
-
-                //         if (otp.length != 6) {
-                //           ScaffoldMessenger.of(context).showSnackBar(
-                //             const SnackBar(content: Text("Enter valid 6-digit OTP")),
-                //           );
-                //           return;
-                //         }
-
-                //         setState(() => isVerifying = true);
-
-                //         bool isValid = false;
-
-                        
-                //         if (widget.isEmail) {
-                //           isValid = await authService.verifyOtp(
-                //             widget.contact,
-                //             otp,
-                //           );
-                //         }
-                //         // 🔹 Phone OTP verification
-                //         else {
-                //           isValid = await authService.verifyPhoneOtp(
-                //             widget.verificationId,
-                //             otp,
-                //           );
-                //         }
-
-                //         setState(() => isVerifying = false);
-
-                //         if (isValid) {
-                //           Navigator.pushReplacement(
-                //             context,
-                //             MaterialPageRoute(
-                //               builder: (_) => ResetPassword(
-                //                 isEmail: widget.isEmail,
-                //                 contact: widget.contact,
-                //               ),
-                //             ),
-                //           );
-                //         } else {
-                //           ScaffoldMessenger.of(context).showSnackBar(
-                //             const SnackBar(content: Text("Invalid or expired OTP")),
-                //           );
-                //         }
-                //       },
-                child:Text("Verify OTP"),
-                // isVerifying
-                //     ? const CircularProgressIndicator(color: Colors.white)
-                //     : const 
+                child: isVerifying
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text("Verify OTP"),
               ),
             ),
           ],

@@ -4,13 +4,13 @@ import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
 import 'package:chess_python/core/utils/splin_kit.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
+import 'package:chess_python/services/auth_services.dart';
 import 'package:chess_python/widgets/custom_Inkwell.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
 import 'package:chess_python/widgets/custom_text.dart';
 import 'package:chess_python/widgets/custom_textformfield.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-
 
 class Signup extends StatefulWidget {
   const Signup({super.key});
@@ -23,11 +23,27 @@ class _SignupState extends State<Signup> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailAddressController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final AuthServices _authService = AuthServices();
   final _formKey = GlobalKey<FormState>();
   bool loader = false;
   bool visible = false;
   bool isTermsAndConditionedAgreed = false;
 
+  Future<void> signup() async {
+    final success = await _authService.signup(
+      _nameController.text.trim(),
+      _passwordController.text.trim(),
+      _emailAddressController.text.trim(),
+    );
+
+    if(success){
+      RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+    }
+    else{
+     DisplaySnackbar.show(context, signupFailedStr);
+
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,11 +68,14 @@ class _SignupState extends State<Signup> {
             children: [
               CircleAvatar(
                 backgroundColor: foregroundColor,
-                child: IconButton(onPressed: (){
-                  // RouteGenerator.navigateToPage(context, Routes.getStartedRoute);
-                }, icon:Icon(Icons.close)),
+                child: IconButton(
+                  onPressed: () {
+                    // RouteGenerator.navigateToPage(context, Routes.getStartedRoute);
+                  },
+                  icon: Icon(Icons.close),
+                ),
               ),
-      
+
               SizedBox(height: 20),
               Center(
                 child: CustomText(
@@ -77,7 +96,8 @@ class _SignupState extends State<Signup> {
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
                     return validateNameStr;
-                  } return null;
+                  }
+                  return null;
                 },
               ),
               SizedBox(height: 10),
@@ -92,7 +112,6 @@ class _SignupState extends State<Signup> {
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
                     return validateEmailAddressStr;
-                  
                   }
                   return null;
                 },
@@ -110,22 +129,20 @@ class _SignupState extends State<Signup> {
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
                     return validatePasswordStr;
-                  
                   }
                   return null;
                 },
                 suffixIcon: IconButton(
                   color: primaryColor,
-                    onPressed: () {
-                      setState(() {
-                        visible = !visible;
-                      });
-                    },
-                    icon:
-                        visible
-                            ? Icon(Icons.visibility_outlined)
-                            : Icon(Icons.visibility_off_outlined),
-                  ),
+                  onPressed: () {
+                    setState(() {
+                      visible = !visible;
+                    });
+                  },
+                  icon: visible
+                      ? Icon(Icons.visibility_outlined)
+                      : Icon(Icons.visibility_off_outlined),
+                ),
               ),
               SizedBox(height: 15),
               Row(
@@ -145,13 +162,20 @@ class _SignupState extends State<Signup> {
               SizedBox(height: 15),
               CustomElevatedbutton(
                 onPressed: () {
-                  // if (_formKey.currentState!.validate()) {
-                  //   if (!isTermsAndConditionedAgreed) {
-                  //     DisplaySnackbar.show(
-                  //       context,
-                  //       notagreedToTermsAndConditionStr,
-                  //     );
-                  //   }
+                  if (_formKey.currentState!.validate()) {
+                    if (!isTermsAndConditionedAgreed) {
+                      DisplaySnackbar.show(
+                        context,
+                        notagreedToTermsAndConditionStr,
+                      );
+                    }
+                    try{
+                      signup();
+
+                    }catch(e){
+                      DisplaySnackbar.show(context, signupFailedStr);
+
+                    }
                   //   Future.delayed(const Duration(seconds: 2), () async {
                   //     var data = {
                   //       "name": _nameController.text.trim(),
@@ -177,7 +201,7 @@ class _SignupState extends State<Signup> {
                   //       DisplaySnackbar.show(context, failedStr );
                   //     }
                   //   });
-                  // }
+                  }
                 },
                 child: Text(SignupStr, style: TextStyle(color: Colors.white)),
               ),
@@ -192,31 +216,37 @@ class _SignupState extends State<Signup> {
               ),
               SizedBox(height: 20),
               Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                         CustomElevatedbutton(
-                      onPressed: () {},
-                      width: MediaQuery.of(context).size.width * 0.25,
-                      backgroundColor: Colors.white,
-                      child: Image.asset("assets/images/google_logo.png"),
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CustomElevatedbutton(
+                    onPressed: () {},
+                    width: MediaQuery.of(context).size.width * 0.25,
+                    backgroundColor: Colors.white,
+                    child: Image.asset("assets/images/google_logo.png"),
+                  ),
+                  SizedBox(width: 30),
+                  CustomElevatedbutton(
+                    onPressed: () {},
+                    width: MediaQuery.of(context).size.width * 0.25,
+                    backgroundColor: Colors.white,
+                    child: Image.asset(
+                      "assets/images/facebook_logo.png",
+                      height: 40,
                     ),
-                    SizedBox(width: 30,),
-                    CustomElevatedbutton(
-                      onPressed: () {},
-                      width: MediaQuery.of(context).size.width * 0.25,
-                      backgroundColor: Colors.white,
-                      child: Image.asset("assets/images/facebook_logo.png",
-                      height: 40,),
-                    ),
-                        ],
-                      ),
+                  ),
+                ],
+              ),
               SizedBox(height: 20),
               Row(
                 children: [
                   Spacer(),
-                  CustomText(data: alreadyHaveanAccountStr,fontSize: 20,),
+                  CustomText(data: alreadyHaveanAccountStr, fontSize: 20),
                   CustomInkwell(
-                    child: CustomText(data: loginStr, color: primaryColor,fontSize: 20,),
+                    child: CustomText(
+                      data: loginStr,
+                      color: primaryColor,
+                      fontSize: 20,
+                    ),
                     onTap: () {
                       RouteGenerator.navigateToPage(context, Routes.loginRoute);
                     },
@@ -230,4 +260,4 @@ class _SignupState extends State<Signup> {
       ),
     ),
   );
-  }
+}
