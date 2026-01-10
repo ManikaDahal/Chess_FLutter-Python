@@ -3,6 +3,7 @@ import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
 import 'package:chess_python/services/auth_services.dart';
+import 'package:chess_python/services/token_storage.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
 import 'package:chess_python/widgets/custom_text.dart';
 import 'package:chess_python/widgets/custom_textformfield.dart';
@@ -22,15 +23,15 @@ class _ResetPasswordState extends State<ResetPassword> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
+  TokenStorage _storage = TokenStorage();
   bool isLoading = false;
   late String email;
-  
-  @override
-void initState() {
-  super.initState();
-  email = widget.contact; 
-}
 
+  @override
+  void initState() {
+    super.initState();
+    email = widget.contact;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,19 +56,29 @@ void initState() {
             const SizedBox(height: 30),
             CustomElevatedbutton(
               onPressed: () async {
-                bool ok = await _authServices.resetPassword(
+                setState(() => isLoading = true);
+                final response = await _authServices.resetPassword(
                   email,
                   _passwordController.text.trim(),
                 );
-                if (ok) {
+                setState(() => isLoading = false);
+
+                if (response['access'] != null && response['refresh'] != null) {
+                  await _storage.saveAccessToken(response['access']);
+                  await _storage.saveRefreshToken(response['refresh']);
+
                   RouteGenerator.navigateToPage(
                     context,
                     Routes.bottomNavBarRoute,
                   );
-                  DisplaySnackbar.show(context, "Password reset successfull");
+                  DisplaySnackbar.show(context, "Password reset successful!");
+                } else {
+                  DisplaySnackbar.show(context, "Password reset failed!");
                 }
               },
-              child: Text(resetStr),
+              child: isLoading
+                  ? CircularProgressIndicator(color: Colors.white)
+                  : Text(resetStr),
             ),
           ],
         ),

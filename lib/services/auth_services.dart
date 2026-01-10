@@ -126,17 +126,19 @@ class AuthServices {
 }
 
   //Reset Password
-  Future<bool> resetPassword(String email, String password) async {
-    final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/reset-password/'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
-    if (response.statusCode == 200) {
-      return true;
-    } else {
-      print("Password Reset failed ");
-      return false;
-    }
+  Future<Map<String, dynamic>> resetPassword(String email, String password) async {
+  final response = await http.post(
+    Uri.parse('${Constants.baseUrl}/api/reset-password/'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({'email': email, 'password': password}),
+  );
+
+  if (response.statusCode == 200) {
+    return jsonDecode(response.body); // contains 'access' and 'refresh'
+  } else {
+    print("Password reset failed: ${response.body}");
+    return {};
   }
+}
+
 }
