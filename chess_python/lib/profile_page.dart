@@ -43,7 +43,6 @@ class _ProfilePageState extends State<ProfilePage> {
   
 
   Future<void> _logout() async {
-    await _authService.logout();
     if (!mounted) return;
     RouteGenerator.navigateToPage(context, Routes.loginRoute);
     DisplaySnackbar.show(context, logoutSuccessfulStr);
@@ -61,119 +60,102 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: foregroundColor,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          children: [
-            CircleAvatar(
-              child: Center(
-                child: Image.asset(
-                  "assets/images/profileImg.png",
-                  height: 600,
-                  width: 600,
-                ),
-              ),
-            ),
-
-            SizedBox(height: 40),
-            Text("Username = ${profileData!['username']}"),
-            Text("Email = ${profileData!['email']}"),
-            Spacer(),
-            CustomElevatedbutton(
-              onPressed: () async {
-                try {
-                  bool? confirmLogout = await showDialog<bool>(
-                    builder: (context) => AlertDialog(
-                      title: Text(confirmLogoutStr),
-                      content: Text(reConfirmLogoutStr),
-                      actions: [
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context, false);
-                          },
-                          child: Text(noStr),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context, true);
-                          },
-                          child: Text(yesStr),
-                        ),
-                      ],
-                    ),
-                    context: context,
-                  );
-                  if (confirmLogout == true) {
-                    _logout();
-
-                    RouteGenerator.navigateToPage(context, Routes.loginRoute);
-                    DisplaySnackbar.show(context, logoutSuccessfulStr);
-                  }
-                } catch (e) {
-                  DisplaySnackbar.show(context, e.toString());
-                }
-              },
-              child: Text(logoutStr),
-            ),
-          ],
+  padding: const EdgeInsets.all(16.0),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      CircleAvatar(
+        radius: 60,
+        backgroundColor: Colors.grey.shade200,
+        child: ClipOval(
+          child: Image.asset(
+            "assets/images/profileImg.png",
+            fit: BoxFit.cover,
+            height: 120,
+            width: 120,
+          ),
         ),
       ),
-    );
+      const SizedBox(height: 30),
 
-    // return Scaffold(
-    //   appBar: AppBar(
-    //     title: Text(profilePageStr),
-    //     centerTitle: true,
-    //     backgroundColor: foregroundColor,
-    //   ),
-    //   body: Padding(
-    //     padding: const EdgeInsets.all(12.0),
-    //     child: Column(
-    //       children: [
-    //         CircleAvatar(
-    //           child: Center(
-    //             child: Image.asset(
-    //               "assets/images/profileImg.png",
-    //               height: 600,
-    //               width: 600,
-    //             ),
-    //           ),
-    //         ),
-    //         Spacer(),
-    //         CustomElevatedbutton(
-    //            onPressed:(){
+      // Profile info card
+      Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        child: ListTile(
+          leading: Icon(Icons.person, color: foregroundColor),
+          title: Text(
+            profileData!['username'] ?? '',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text("Username"),
+        ),
+      ),
 
-    //            },
-    //            child: Text(logoutStr),
-    //           //() async {
-    //           //  try{
-    //           //   bool? confirmLogout= await showDialog<bool>(
-    //           //     builder: (context)=>AlertDialog(title: Text(confirmLogoutStr),
-    //           //     content: Text(reConfirmLogoutStr),
-    //           //     actions: [
-    //           //       TextButton(onPressed: (){
-    //           //         Navigator.pop(context,false);
-    //           //       }, child: Text(noStr)),
-    //           //       TextButton(onPressed: (){
-    //           //           Navigator.pop(context,true);
-    //           //       }, child: Text(yesStr)),
-    //           //     ],
-    //           //     ), context: context);
-    //           //    if(confirmLogout==true){
-    //           //     await authServices.logout();
-    //           //     await SecureStorage().clear();
+      Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        child: ListTile(
+          leading: Icon(Icons.email, color: foregroundColor),
+          title: Text(
+            profileData!['email'] ?? '',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text("Email"),
+        ),
+      ),
 
-    //           //   RouteGenerator.navigateToPage(context, Routes.loginRoute);
-    //           //   DisplaySnackbar.show(context, logoutSuccessfulStr);
-    //           //    }
-    //           //  }catch(e){
-    //           //   DisplaySnackbar.show(context, e.toString());
-    //           //  }
-    //           // },
+      const Spacer(),
 
-    //         ),
-    //       ],
-    //     ),
-    //   ),
-    // );
-  }
+      CustomElevatedbutton(
+        onPressed: () async {
+          try {
+            bool? confirmLogout = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text(confirmLogoutStr),
+                content: Text(reConfirmLogoutStr),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(noStr),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text(yesStr),
+                  ),
+                ],
+              ),
+            );
+            if (confirmLogout == true) {
+              _logout();
+              RouteGenerator.navigateToPage(context, Routes.loginRoute);
+              DisplaySnackbar.show(context, logoutSuccessfulStr);
+            }
+          } catch (e) {
+            DisplaySnackbar.show(context, e.toString());
+          }
+        },
+        child: Text(logoutStr),
+      ),
+      const SizedBox(height: 20),
+    ],
+  ),
+),
+
+  
+  );
+}
 }

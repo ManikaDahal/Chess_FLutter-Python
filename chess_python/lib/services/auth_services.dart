@@ -90,9 +90,10 @@ class AuthServices {
   }
 
   //Logout
-  Future<void> logout() async {
-    await _storage.deleteAll();
-  }
+  // Future<void> logout() async {
+  //   await _storage.deleteAll();
+    
+  // }
 
   //Forgot Password
   Future<bool> forgotPassword(String email) async {
