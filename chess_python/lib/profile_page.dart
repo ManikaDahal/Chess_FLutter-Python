@@ -38,6 +38,10 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {});
   }
 
+
+
+  
+
   Future<void> _logout() async {
     await _authService.logout();
     if (!mounted) return;
@@ -71,7 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
 
             SizedBox(height: 40),
-            Text("Username = ${profileData!['name']}"),
+            Text("Username = ${profileData!['username']}"),
             Text("Email = ${profileData!['email']}"),
             Spacer(),
             CustomElevatedbutton(

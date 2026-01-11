@@ -5,6 +5,7 @@ import 'package:chess_python/core/utils/route_generator.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
 import 'package:chess_python/services/auth_biometrics.dart';
 import 'package:chess_python/services/auth_services.dart';
+import 'package:chess_python/services/token_storage.dart';
 import 'package:chess_python/widgets/custom_Inkwell.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
 import 'package:chess_python/widgets/custom_text.dart';
@@ -26,6 +27,7 @@ class _LoginState extends State<Login> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthServices _authService = AuthServices();
+  TokenStorage _storage=TokenStorage();
   bool visible = false;
   bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
@@ -36,6 +38,14 @@ class _LoginState extends State<Login> {
       _passwordController.text.trim(),
     );
     if (success) {
+      final success = await _authService.login(_nameController.text.trim(), _passwordController.text.trim());
+if (success) {
+  final token = await _storage.getAccessToken();
+  final refresh = await _storage.getRefreshToken();
+  print("Tokens after login -> Access: $token, Refresh: $refresh");
+}
+
+      
       RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
     } else {
       DisplaySnackbar.show(context, loginFailedStr);

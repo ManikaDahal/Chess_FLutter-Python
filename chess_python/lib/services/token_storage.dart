@@ -7,7 +7,8 @@ class TokenStorage{
 
   Future<void> saveAccessToken(String token)async{
     await _storage.write(key: 'access_token',value: token);
-    print("Access token saved :$token");
+   final check = await _storage.read(key: 'access_token');
+  print("Saved token: $check"); 
   }
 
   Future<String?> getAccessToken() async{

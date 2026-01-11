@@ -37,21 +37,29 @@ class BiometricAuth {
   if (!authenticated) return false;
 
   String? token = await _tokenStorage.getAccessToken();
-  print("Access token before profile call: $token");
+  if (token == null) {
+    print("Access token is null. Please login manually first.");
+    return false;
+  }
 
   try {
-    await _apiService.getProfile();
+    await _apiService.getProfile(); // uses stored token internally
     return true;
-  } catch (_) {
-    final refreshToken = await _tokenStorage.getRefreshToken();
-    print("Refresh token during fingerprint login: $refreshToken");
+  } catch (e) {
+    print("Profile fetch failed during biometric login: $e");
 
+    // Try refreshing token
     bool refreshed = await _authServices.refreshToken();
-    if (refreshed) return loginWithBiometrics();
+    if (refreshed) {
+      token = await _tokenStorage.getAccessToken();
+      if (token != null) {
+        await _apiService.getProfile();
+        return true;
+      }
+    }
     return false;
   }
 }
-
 
 
 }
