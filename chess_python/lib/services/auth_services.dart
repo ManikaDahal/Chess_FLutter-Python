@@ -97,11 +97,16 @@ class AuthServices {
   // }
 
   //Forgot Password
-  Future<bool> forgotPassword(String email) async {
+  Future<bool> forgotPassword({String? email, String?phone}) async {
+    final body =<String, String>{};
+    if(email!=null) body['email']=email;
+    if(phone!=null)body['phone']=phone;
     final response = await http.post(
       Uri.parse('${Constants.baseUrl}/api/forgot-password/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
+      body: jsonEncode(
+        body
+        ),
     );
     if (response.statusCode == 200) {
       return true;
