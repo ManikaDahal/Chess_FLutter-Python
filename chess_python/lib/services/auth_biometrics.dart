@@ -1,3 +1,4 @@
+import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 
@@ -47,16 +48,31 @@ class BiometricAuth {
     return true;
   } catch (e) {
     print("Profile fetch failed during biometric login: $e");
+    
+
+    bool refreshed= await _authServices.refreshToken();
+    if(!refreshed){
+      print("Token refresh failed.Login manually");
+      return false;
+
+    }
+    try{
+      await _apiService.getProfile();
+      return true;
+    }catch(e2){
+      print("Profile fetch failed even after refreshed $e");
+      return false;
+    }
 
     // Try refreshing token
-    bool refreshed = await _authServices.refreshToken();
-    if (refreshed) {
-      token = await _tokenStorage.getAccessToken();
-      if (token != null) {
-        await _apiService.getProfile();
-        return true;
-      }
-    }
+    // bool refreshed = await _authServices.refreshToken();
+    // if (refreshed) {
+    //   token = await _tokenStorage.getAccessToken();
+    //   if (token != null) {
+    //     await _apiService.getProfile();
+    //     return true;
+    //   }
+    // }
     return false;
   }
 }

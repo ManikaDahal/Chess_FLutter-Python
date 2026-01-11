@@ -24,13 +24,12 @@ class _ResetPasswordState extends State<ResetPassword> {
       TextEditingController();
   bool isLoading = false;
   late String email;
-  
-  @override
-void initState() {
-  super.initState();
-  email = widget.contact; 
-}
 
+  @override
+  void initState() {
+    super.initState();
+    email = widget.contact;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,18 +54,29 @@ void initState() {
             const SizedBox(height: 30),
             CustomElevatedbutton(
               onPressed: () async {
+                final password = _passwordController.text.trim();
+                final confirmPassword = _confirmPasswordController.text.trim();
+                if (password != confirmPassword) {
+                  DisplaySnackbar.show(
+                    context,
+                    "Password must be same in both boxes",
+                  );
+                  return;
+                }
+
                 bool ok = await _authServices.resetPassword(
                   email,
-                  _passwordController.text.trim(),
+                  password,
                 );
                 if (ok) {
-                  RouteGenerator.navigateToPage(
+                  RouteGenerator.navigateToPage(context, Routes.loginRoute);
+                  DisplaySnackbar.show(
                     context,
-                    Routes.bottomNavBarRoute,
+                    "Password reset successfull,Login using new password",
                   );
-                  DisplaySnackbar.show(context, "Password reset successfull");
                 }
               },
+
               child: Text(resetStr),
             ),
           ],

@@ -45,7 +45,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _logout() async {
     if (!mounted) return;
     RouteGenerator.navigateToPage(context, Routes.loginRoute);
-    DisplaySnackbar.show(context, logoutSuccessfulStr);
+    
   }
 
   @override
@@ -55,6 +55,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     return Scaffold(
       appBar: AppBar(
+        
         title: Text(profilePageStr),
         centerTitle: true,
         backgroundColor: foregroundColor,

@@ -82,6 +82,7 @@ class AuthServices {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       await _storage.saveAccessToken(data['access']);
+      print("Access token refreshed ${data['access']}");
       return true;
     }
 

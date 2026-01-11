@@ -263,7 +263,10 @@ class _GameBoardState extends State<GameBoard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(whiteTurn ? "White's Turn" : "Black's Turn")),
+      appBar: AppBar(
+        
+        
+        title: Text(whiteTurn ? "White's Turn" : "Black's Turn")),
       body: GridView.builder(
         itemCount: 64,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
