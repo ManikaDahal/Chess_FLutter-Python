@@ -1,3 +1,4 @@
+import 'package:chess_python/core/utils/color_utils.dart';
 import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
@@ -24,6 +25,7 @@ class _ResetPasswordState extends State<ResetPassword> {
       TextEditingController();
   bool isLoading = false;
   late String email;
+  bool visible = false;
 
   @override
   void initState() {
@@ -43,13 +45,47 @@ class _ResetPasswordState extends State<ResetPassword> {
             CustomTextformfield(
               controller: _passwordController,
               hintText: newPasswordStr,
-              obscureText: true,
+              validator: (p0) {
+                  if (p0 == null || p0.isEmpty) {
+                    return validatePasswordStr;
+                  }
+                  return null;
+              },
+              obscureText: visible ? false : true,
+               suffixIcon: IconButton(
+                  color: primaryColor,
+                  onPressed: () {
+                    setState(() {
+                      visible = !visible;
+                    });
+                  },
+                  icon: visible
+                      ? Icon(Icons.visibility_outlined)
+                      : Icon(Icons.visibility_off_outlined),
+                ),
             ),
             const SizedBox(height: 16),
             CustomTextformfield(
               controller: _confirmPasswordController,
               hintText: confirmPasswordStr,
-              obscureText: true,
+              validator: (p0) {
+                  if (p0 == null || p0.isEmpty) {
+                    return validatePasswordStr;
+                  }
+                  return null;
+              },
+              obscureText: visible ? false : true,
+               suffixIcon: IconButton(
+                  color: primaryColor,
+                  onPressed: () {
+                    setState(() {
+                      visible = !visible;
+                    });
+                  },
+                  icon: visible
+                      ? Icon(Icons.visibility_outlined)
+                      : Icon(Icons.visibility_off_outlined),
+                ),
             ),
             const SizedBox(height: 30),
             CustomElevatedbutton(
