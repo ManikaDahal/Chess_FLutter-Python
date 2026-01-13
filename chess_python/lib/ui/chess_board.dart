@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/chess_piece.dart';
 import '../ui/square_widget.dart';
 import '../helper/helper.dart';
+import '../ui/call_screen.dart';
 
 class GameBoard extends StatefulWidget {
   const GameBoard({super.key});
@@ -266,7 +267,22 @@ class _GameBoardState extends State<GameBoard> {
       appBar: AppBar(
         
         
-        title: Text(whiteTurn ? "White's Turn" : "Black's Turn")),
+        title: Text(whiteTurn ? "White's Turn" : "Black's Turn"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call),
+            onPressed: () {
+               // Generate a simple room ID for now or use a fixed one for testing "chess_room_1"
+               // In a real app, this should match the Game ID.
+               const roomId = "chess_room_1"; 
+               Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CallScreen(roomId: roomId)),
+              );
+            },
+          ),
+        ],
+      ),
       body: GridView.builder(
         itemCount: 64,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
