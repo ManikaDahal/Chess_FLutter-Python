@@ -56,8 +56,7 @@ class RouteGenerator {
         final args = settings.arguments as ResetPasswordArguments;
 
         return MaterialPageRoute(
-          builder: (_) =>
-              ResetPassword( contact: args.contact),
+          builder: (_) => ResetPassword(contact: args.contact, otp: args.otp),
         );
       // case Routes.gameBoardRoute:
       //   return MaterialPageRoute(builder: (_) => const GameBoard());

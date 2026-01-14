@@ -93,20 +93,18 @@ class AuthServices {
   //Logout
   // Future<void> logout() async {
   //   await _storage.deleteAll();
-    
+
   // }
 
   //Forgot Password
-  Future<bool> forgotPassword({String? email, String?phone}) async {
-    final body =<String, String>{};
-    if(email!=null) body['email']=email;
-    if(phone!=null)body['phone']=phone;
+  Future<bool> forgotPassword({String? email, String? phone}) async {
+    final body = <String, String>{};
+    if (email != null) body['email'] = email;
+    if (phone != null) body['phone'] = phone;
     final response = await http.post(
       Uri.parse('${Constants.baseUrl}/api/forgot-password/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(
-        body
-        ),
+      body: jsonEncode(body),
     );
     if (response.statusCode == 200) {
       return true;
@@ -118,26 +116,23 @@ class AuthServices {
 
   //Verify OTP
   Future<bool> verifyOtp(String email, String otp) async {
-  final response = await http.post(
-    Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({
-      'email': email.trim(),
-      'otp': otp.trim(),
-    }),
-  );
+    final response = await http.post(
+      Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email.trim(), 'otp': otp.trim()}),
+    );
 
-  print("VERIFY OTP RESPONSE: ${response.body}");
+    print("VERIFY OTP RESPONSE: ${response.body}");
 
-  return response.statusCode == 200;
-}
+    return response.statusCode == 200;
+  }
 
   //Reset Password
-  Future<bool> resetPassword(String email, String password) async {
+  Future<bool> resetPassword(String email, String new_password, String otp) async {
     final response = await http.post(
       Uri.parse('${Constants.baseUrl}/api/reset-password/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
+      body: jsonEncode({'email': email, 'new_password': new_password, 'otp': otp}),
     );
     if (response.statusCode == 200) {
       return true;
