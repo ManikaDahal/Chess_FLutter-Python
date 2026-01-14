@@ -5,6 +5,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 typedef StreamStateCallback = void Function(MediaStream stream);
 
 class SignalingService {
+  // Singleton pattern for global access
+  static final SignalingService _instance = SignalingService._internal();
+  factory SignalingService() => _instance;
+  SignalingService._internal();
+
   WebSocketChannel? _channel;
   String? _currentRoomId;
   RTCPeerConnection? _peerConnection;
@@ -16,6 +21,15 @@ class SignalingService {
   Function(RTCSignalingState)? onSignalingStateChange;
   Function(RTCPeerConnectionState)? onConnectionStateChange;
   Function(String)? onLog;
+
+  // Callback for incoming call - can be used globally
+  Function()? onIncomingCall;
+
+  // Callback for when the call is actually accepted by the remote peer
+  Function()? onCallAccepted;
+
+  bool _isConnected = false;
+  bool get isConnected => _isConnected;
 
   final Map<String, dynamic> _configuration = {
     'iceServers': [
@@ -29,35 +43,44 @@ class SignalingService {
   };
 
   Future<void> connect(String wsUrl, String roomId) async {
+    if (_isConnected && _currentRoomId == roomId) {
+      onLog?.call('Already connected to room: $roomId');
+      return;
+    }
+
     _currentRoomId = roomId;
     final url = '$wsUrl/ws/call/$roomId/';
-    print('Connecting to WebSocket: $url');
+    onLog?.call('Connecting to WebSocket: $url');
 
     try {
       _channel = WebSocketChannel.connect(Uri.parse(url));
+      _isConnected = true;
 
       _channel!.stream.listen(
         (message) {
-          print('Received message: $message');
           _handleMessage(message);
         },
         onError: (error) {
-          print('WebSocket Error: $error');
+          onLog?.call('WebSocket Error: $error');
+          _isConnected = false;
         },
         onDone: () {
-          print('WebSocket Closed');
+          onLog?.call('WebSocket Closed');
+          _isConnected = false;
         },
       );
 
       await _createPeerConnection();
     } catch (e) {
-      print('Signaling/Connection Error: $e');
-      // Rethrow so UI can handle it if needed
+      onLog?.call('Signaling/Connection Error: $e');
+      _isConnected = false;
       throw e;
     }
   }
 
   Future<void> _createPeerConnection() async {
+    if (_peerConnection != null) return;
+
     _peerConnection = await createPeerConnection(_configuration);
 
     _peerConnection!.onSignalingState = (state) {
@@ -85,11 +108,45 @@ class SignalingService {
         onRemoteStream?.call(_remoteStream!);
       }
     };
+  }
 
-    // Get user media
-    // Get user media
+  void _handleMessage(dynamic message) async {
+    final data = jsonDecode(message);
+    final type = data['type'];
+    onLog?.call('RX: $type');
+
+    if (type == 'call_offer') {
+      _pendingOffer = data['offer'];
+      onIncomingCall?.call();
+    } else if (type == 'call_answer') {
+      onCallAccepted?.call();
+      await _handleAnswer(data['answer']);
+    } else if (type == 'new_ice_candidate') {
+      await _handleCandidate(data['candidate']);
+    } else {
+      onLog?.call('Unknown msg: $type');
+    }
+  }
+
+  Map<String, dynamic>? _pendingOffer;
+
+  Future<void> acceptCall() async {
+    if (_pendingOffer == null) {
+      onLog?.call('No pending offer to accept');
+      return;
+    }
+
+    // Ensure we have local stream before accepting
+    await _setupLocalStream();
+
+    await _handleOffer(_pendingOffer!);
+    _pendingOffer = null;
+  }
+
+  Future<void> _setupLocalStream() async {
+    if (_localStream != null) return;
+
     final mediaConstraints = {'audio': true, 'video': false};
-
     try {
       _localStream = await navigator.mediaDevices.getUserMedia(
         mediaConstraints,
@@ -100,26 +157,8 @@ class SignalingService {
         _peerConnection!.addTrack(track, _localStream!);
       });
     } catch (e) {
-      print('getUserMedia Error: $e');
-      throw Exception(
-        'Failed to get microphone access. Ensure you are using HTTPS or localhost.',
-      );
-    }
-  }
-
-  void _handleMessage(dynamic message) async {
-    final data = jsonDecode(message);
-    final type = data['type'];
-    onLog?.call('RX: $type');
-
-    if (type == 'call_offer') {
-      await _handleOffer(data['offer']);
-    } else if (type == 'call_answer') {
-      await _handleAnswer(data['answer']);
-    } else if (type == 'new_ice_candidate') {
-      await _handleCandidate(data['candidate']);
-    } else {
-      onLog?.call('Unknown msg: $type');
+      onLog?.call('getUserMedia Error: $e');
+      throw Exception('Failed to get microphone access.');
     }
   }
 
@@ -154,6 +193,8 @@ class SignalingService {
   }
 
   Future<void> startCall() async {
+    await _setupLocalStream();
+
     if (_peerConnection == null) return;
 
     final offer = await _peerConnection!.createOffer();
@@ -170,9 +211,7 @@ class SignalingService {
       onLog?.call('TX: ${data['type']}');
       _channel!.sink.add(jsonEncode(data));
     } else {
-      onLog?.call(
-        'Error: Channel is null or closed, cannot send ${data['type']}',
-      );
+      onLog?.call('Error: Channel is null, cannot send ${data['type']}');
     }
   }
 
@@ -184,22 +223,27 @@ class SignalingService {
     }
   }
 
-  void hangUp() {
+  void endCall() {
     if (_localStream != null) {
+      _localStream!.getTracks().forEach((track) => track.stop());
       _localStream!.dispose();
       _localStream = null;
     }
-    if (_remoteStream != null) {
-      // Remote stream is disposed by peer connection usually, but good practice to clear ref
-      _remoteStream = null;
-    }
+    _remoteStream = null;
     if (_peerConnection != null) {
       _peerConnection!.close();
       _peerConnection = null;
     }
+    _pendingOffer = null;
+  }
+
+  void disconnect() {
+    endCall();
     if (_channel != null) {
       _channel!.sink.close();
       _channel = null;
     }
+    _isConnected = false;
+    _currentRoomId = null;
   }
 }
