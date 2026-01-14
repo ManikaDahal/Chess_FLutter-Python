@@ -37,7 +37,9 @@ class _SignupState extends State<Signup> {
     );
 
     if(success){
+      DisplaySnackbar.show(context, signupSuccessfullStr);
       RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+    
     }
     else{
      DisplaySnackbar.show(context, signupFailedStr);

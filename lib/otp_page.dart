@@ -4,7 +4,6 @@ import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:chess_python/services/auth_services.dart';
 import 'package:chess_python/core/utils/resetPassword_args.dart';
 
-
 class OtpPage extends StatefulWidget {
   final String contact; // this will receive the email from previous screen
 
@@ -51,32 +50,40 @@ class _OtpPageState extends State<OtpPage> {
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: isVerifying ? null : () async {
-                  String otp = _otpController.text.trim();
+                onPressed: isVerifying
+                    ? null
+                    : () async {
+                        String otp = _otpController.text.trim();
 
-                  if (otp.length != 6) {
-                    DisplaySnackbar.show(context, "Please enter a valid 6-digit OTP");
-                    return;
-                  }
+                        if (otp.length != 6) {
+                          DisplaySnackbar.show(
+                            context,
+                            "Please enter a valid 6-digit OTP",
+                          );
+                          return;
+                        }
 
-                  setState(() => isVerifying = true);
+                        setState(() => isVerifying = true);
 
-                  bool ok = await _authServices.verifyOtp(email, otp);
+                        bool ok = await _authServices.verifyOtp(email, otp);
 
-                  setState(() => isVerifying = false);
+                        setState(() => isVerifying = false);
 
-                  if (ok) {
-                    // Navigate to Reset Password page
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ResetPassword(contact: email), // pass email to reset password
-                      ),
-                    );
-                  } else {
-                    DisplaySnackbar.show(context, "Invalid OTP");
-                  }
-                },
+                        if (ok) {
+                          // Navigate to Reset Password page
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ResetPassword(
+                                contact: email,
+                                otp: otp,
+                              ), // pass email to reset password
+                            ),
+                          );
+                        } else {
+                          DisplaySnackbar.show(context, "Invalid OTP");
+                        }
+                      },
                 child: isVerifying
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text("Verify OTP"),

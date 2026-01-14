@@ -19,9 +19,42 @@ class ForgotPassword extends StatefulWidget {
 }
 
 class _ForgotPasswordState extends State<ForgotPassword> {
-  AuthServices _authServices = AuthServices();
-  // final TextEditingController _phoneController = TextEditingController();
+  final AuthServices _authServices = AuthServices();
+  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailAddressController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  bool loader = false;
+  String selectedMethod = 'email';
+
+  Future<void> forgotPassword() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => loader = true);
+
+    bool ok = await _authServices.forgotPassword(
+      email: selectedMethod == 'email'
+          ? _emailAddressController.text.trim()
+          : null,
+      phone: selectedMethod == 'phone' ? _phoneController.text.trim() : null,
+    );
+
+    setState(() => loader = false);
+
+    if (ok) {
+      RouteGenerator.navigateToPage(
+        context,
+        Routes.enterOTPRoute,
+        arguments: OtpArguments(
+          contact: selectedMethod == 'email'
+              ? _emailAddressController.text.trim()
+              : _phoneController.text.trim(),
+        ),
+      );
+    } else {
+      DisplaySnackbar.show(context, "OTP send failed");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,17 +64,17 @@ class _ForgotPasswordState extends State<ForgotPassword> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             CircleAvatar(
               backgroundColor: foregroundColor,
               child: IconButton(
                 onPressed: () {
                   RouteGenerator.navigateToPage(context, Routes.loginRoute);
                 },
-                icon: Icon(Icons.arrow_back),
+                icon: const Icon(Icons.arrow_back),
               ),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Center(
               child: CustomText(
                 data: forgotPasswordStr,
@@ -49,42 +82,71 @@ class _ForgotPasswordState extends State<ForgotPassword> {
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 20),
 
-            SizedBox(height: 20),
-            CustomText(data: emailAddressStr, fontWeight: FontWeight.bold),
-
-            CustomTextformfield(
-              controller: _emailAddressController,
-              hintText: emailAddressStr,
-              validator: (p0) {
-                if (p0 == null || p0.isEmpty) {
-                  return validateEmailAddressStr;
-                }
-                return null;
-              },
+            // Email / Phone selection
+            Row(
+              children: [
+                Radio<String>(
+                  value: 'email',
+                  groupValue: selectedMethod,
+                  onChanged: (value) => setState(() => selectedMethod = value!),
+                ),
+                CustomText(data: emailAddressStr, fontWeight: FontWeight.bold),
+                Radio<String>(
+                  value: 'phone',
+                  groupValue: selectedMethod,
+                  onChanged: (value) => setState(() => selectedMethod = value!),
+                ),
+                CustomText(data: phoneStr, fontWeight: FontWeight.bold),
+              ],
             ),
 
-            SizedBox(height: 50),
-            CustomElevatedbutton(
-              onPressed: () async {
-                bool ok=await _authServices.forgotPassword(
-                  _emailAddressController.text,
-                );
-                if(ok){
-                RouteGenerator.navigateToPage(
-                  context,
-                  Routes.enterOTPRoute,
-                  arguments: OtpArguments(
-                    contact: _emailAddressController.text.trim(),
+            const SizedBox(height: 10),
+
+            // Form Fields
+            Form(
+              key: _formKey,
+              child: selectedMethod == 'email'
+                  ? CustomTextformfield(
+                      controller: _emailAddressController,
+                      hintText: emailAddressStr,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return validateEmailAddressStr;
+                        }
+                        // Basic email format check
+                        if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
+                          return "Enter a valid email";
+                        }
+                        return null;
+                      },
+                    )
+                  : CustomTextformfield(
+                      controller: _phoneController,
+                      hintText: phoneStr,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return validatePhoneStr;
+                        }
+                        
+                        return null;
+                      },
+                    ),
+            ),
+
+            const SizedBox(height: 50),
+
+            // Send OTP button or loader
+            loader
+                ? const Center(child: CircularProgressIndicator())
+                : CustomElevatedbutton(
+                    onPressed: forgotPassword,
+                    child: const Text(
+                      sendCodeStr,
+                      style: TextStyle(fontSize: 18),
+                    ),
                   ),
-                );
-                }else{
-                  RouteGenerator.navigateToPage(context, Routes.forgotPasswordRoute);
-                  DisplaySnackbar.show(context, "OTP send failed");
-                }
-              },
-              child: Text(sendCodeStr, style: TextStyle(fontSize: 18)),
-            ),
           ],
         ),
       ),

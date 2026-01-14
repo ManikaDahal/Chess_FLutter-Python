@@ -82,6 +82,7 @@ class AuthServices {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       await _storage.saveAccessToken(data['access']);
+      print("Access token refreshed ${data['access']}");
       return true;
     }
 
@@ -90,16 +91,20 @@ class AuthServices {
   }
 
   //Logout
-  Future<void> logout() async {
-    await _storage.deleteAll();
-  }
+  // Future<void> logout() async {
+  //   await _storage.deleteAll();
+
+  // }
 
   //Forgot Password
-  Future<bool> forgotPassword(String email) async {
+  Future<bool> forgotPassword({String? email, String? phone}) async {
+    final body = <String, String>{};
+    if (email != null) body['email'] = email;
+    if (phone != null) body['phone'] = phone;
     final response = await http.post(
       Uri.parse('${Constants.baseUrl}/api/forgot-password/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
+      body: jsonEncode(body),
     );
     if (response.statusCode == 200) {
       return true;
@@ -111,34 +116,29 @@ class AuthServices {
 
   //Verify OTP
   Future<bool> verifyOtp(String email, String otp) async {
-  final response = await http.post(
-    Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({
-      'email': email.trim(),
-      'otp': otp.trim(),
-    }),
-  );
+    final response = await http.post(
+      Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email.trim(), 'otp': otp.trim()}),
+    );
 
-  print("VERIFY OTP RESPONSE: ${response.body}");
+    print("VERIFY OTP RESPONSE: ${response.body}");
 
-  return response.statusCode == 200;
-}
+    return response.statusCode == 200;
+  }
 
   //Reset Password
-  Future<Map<String, dynamic>> resetPassword(String email, String password) async {
-  final response = await http.post(
-    Uri.parse('${Constants.baseUrl}/api/reset-password/'),
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({'email': email, 'password': password}),
-  );
-
-  if (response.statusCode == 200) {
-    return jsonDecode(response.body); // contains 'access' and 'refresh'
-  } else {
-    print("Password reset failed: ${response.body}");
-    return {};
+  Future<bool> resetPassword(String email, String new_password, String otp) async {
+    final response = await http.post(
+      Uri.parse('${Constants.baseUrl}/api/reset-password/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'new_password': new_password, 'otp': otp}),
+    );
+    if (response.statusCode == 200) {
+      return true;
+    } else {
+      print("Password Reset failed ");
+      return false;
+    }
   }
-}
-
 }

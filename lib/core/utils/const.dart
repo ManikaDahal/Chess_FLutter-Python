@@ -1,3 +1,4 @@
-class Constants{
-  static const String baseUrl="http://192.168.18.3:8000";
+class Constants {
+  static const String baseUrl =
+      "https://uncoddled-charita-nonlymphatic.ngrok-free.dev";
 }

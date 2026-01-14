@@ -1,18 +1,19 @@
+import 'package:chess_python/core/utils/color_utils.dart';
 import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
 import 'package:chess_python/services/auth_services.dart';
-import 'package:chess_python/services/token_storage.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
-import 'package:chess_python/widgets/custom_text.dart';
+
 import 'package:chess_python/widgets/custom_textformfield.dart';
 import 'package:flutter/material.dart';
 
 class ResetPassword extends StatefulWidget {
   final String contact;
+  final String otp;
 
-  const ResetPassword({required this.contact});
+  const ResetPassword({required this.contact, required this.otp});
 
   @override
   State<ResetPassword> createState() => _ResetPasswordState();
@@ -23,9 +24,9 @@ class _ResetPasswordState extends State<ResetPassword> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
-  TokenStorage _storage = TokenStorage();
   bool isLoading = false;
   late String email;
+  bool visible = false;
 
   @override
   void initState() {
@@ -45,40 +46,76 @@ class _ResetPasswordState extends State<ResetPassword> {
             CustomTextformfield(
               controller: _passwordController,
               hintText: newPasswordStr,
-              obscureText: true,
+              validator: (p0) {
+                if (p0 == null || p0.isEmpty) {
+                  return validatePasswordStr;
+                }
+                return null;
+              },
+              obscureText: visible ? false : true,
+              suffixIcon: IconButton(
+                color: primaryColor,
+                onPressed: () {
+                  setState(() {
+                    visible = !visible;
+                  });
+                },
+                icon: visible
+                    ? Icon(Icons.visibility_outlined)
+                    : Icon(Icons.visibility_off_outlined),
+              ),
             ),
             const SizedBox(height: 16),
             CustomTextformfield(
               controller: _confirmPasswordController,
               hintText: confirmPasswordStr,
-              obscureText: true,
+              validator: (p0) {
+                if (p0 == null || p0.isEmpty) {
+                  return validatePasswordStr;
+                }
+                return null;
+              },
+              obscureText: visible ? false : true,
+              suffixIcon: IconButton(
+                color: primaryColor,
+                onPressed: () {
+                  setState(() {
+                    visible = !visible;
+                  });
+                },
+                icon: visible
+                    ? Icon(Icons.visibility_outlined)
+                    : Icon(Icons.visibility_off_outlined),
+              ),
             ),
             const SizedBox(height: 30),
             CustomElevatedbutton(
               onPressed: () async {
-                setState(() => isLoading = true);
-                final response = await _authServices.resetPassword(
-                  email,
-                  _passwordController.text.trim(),
-                );
-                setState(() => isLoading = false);
-
-                if (response['access'] != null && response['refresh'] != null) {
-                  await _storage.saveAccessToken(response['access']);
-                  await _storage.saveRefreshToken(response['refresh']);
-
-                  RouteGenerator.navigateToPage(
+                final password = _passwordController.text.trim();
+                final confirmPassword = _confirmPasswordController.text.trim();
+                if (password != confirmPassword) {
+                  DisplaySnackbar.show(
                     context,
-                    Routes.bottomNavBarRoute,
+                    "Password must be same in both boxes",
                   );
-                  DisplaySnackbar.show(context, "Password reset successful!");
-                } else {
-                  DisplaySnackbar.show(context, "Password reset failed!");
+                  return;
+                }
+
+                bool ok = await _authServices.resetPassword(
+                  email,
+                  password,
+                  widget.otp,
+                );
+                if (ok) {
+                  RouteGenerator.navigateToPage(context, Routes.loginRoute);
+                  DisplaySnackbar.show(
+                    context,
+                    "Password reset successfull,Login using new password",
+                  );
                 }
               },
-              child: isLoading
-                  ? CircularProgressIndicator(color: Colors.white)
-                  : Text(resetStr),
+
+              child: Text(resetStr),
             ),
           ],
         ),

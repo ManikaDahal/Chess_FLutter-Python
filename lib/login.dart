@@ -2,9 +2,11 @@ import 'package:chess_python/core/utils/color_utils.dart';
 import 'package:chess_python/core/utils/display_snackbar.dart';
 import 'package:chess_python/core/utils/route_const.dart';
 import 'package:chess_python/core/utils/route_generator.dart';
+import 'package:chess_python/core/utils/splin_kit.dart';
 import 'package:chess_python/core/utils/string_utils.dart';
 import 'package:chess_python/services/auth_biometrics.dart';
 import 'package:chess_python/services/auth_services.dart';
+import 'package:chess_python/services/token_storage.dart';
 import 'package:chess_python/widgets/custom_Inkwell.dart';
 import 'package:chess_python/widgets/custom_elevatedbutton.dart';
 import 'package:chess_python/widgets/custom_text.dart';
@@ -26,9 +28,11 @@ class _LoginState extends State<Login> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthServices _authService = AuthServices();
+  TokenStorage _storage = TokenStorage();
   bool visible = false;
   bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
+  bool loader=false;
 
   Future<void> login() async {
     final success = await _authService.login(
@@ -36,6 +40,17 @@ class _LoginState extends State<Login> {
       _passwordController.text.trim(),
     );
     if (success) {
+      final success = await _authService.login(
+        _nameController.text.trim(),
+        _passwordController.text.trim(),
+      );
+      if (success) {
+        final token = await _storage.getAccessToken();
+        final refresh = await _storage.getRefreshToken();
+        print("Tokens after login -> Access: $token, Refresh: $refresh");
+      }
+      DisplaySnackbar.show(context, loginSuccessfullStr);
+
       RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
     } else {
       DisplaySnackbar.show(context, loginFailedStr);
@@ -45,7 +60,15 @@ class _LoginState extends State<Login> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: Stack(
+        children: [
+          ui(),
+          loader? Loader.backdropFilter(context): const SizedBox(),
+        ],
+      )
+    );
+  }
+     Widget ui()=> SafeArea(
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -58,8 +81,10 @@ class _LoginState extends State<Login> {
                     backgroundColor: foregroundColor,
                     child: IconButton(
                       onPressed: () {
-                         RouteGenerator.navigateToPage(
-                                  context, Routes.signupRoute);
+                        RouteGenerator.navigateToPage(
+                          context,
+                          Routes.signupRoute,
+                        );
                       },
                       icon: Icon(Icons.arrow_back),
                     ),
@@ -120,22 +145,26 @@ class _LoginState extends State<Login> {
                   ),
 
                   Center(
-                    child: ElevatedButton.icon(onPressed: ()async {
-                        try{
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        try {
                           bool ok = await _biometricAuth.loginWithBiometrics();
-                        if(ok){
-                          RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-                           DisplaySnackbar.show(context, loginSuccessfullStr);
-                    
-                        }else{
-                           DisplaySnackbar.show(context, loginFailedStr);
-                        }
-                        }catch(e){
+                          if (ok) {
+                            RouteGenerator.navigateToPage(
+                              context,
+                              Routes.bottomNavBarRoute,
+                            );
+                            DisplaySnackbar.show(context, loginSuccessfullStr);
+                          } else {
+                            DisplaySnackbar.show(context, loginFailedStr);
+                          }
+                        } catch (e) {
                           DisplaySnackbar.show(context, loginFailedStr);
                         }
-                      }, icon: Icon(Icons.fingerprint),
+                      },
+                      icon: Icon(Icons.fingerprint),
                       label: Text("Login with fingerprint"),
-                      ),
+                    ),
                   ),
 
                   Row(
@@ -232,7 +261,7 @@ class _LoginState extends State<Login> {
             ),
           ),
         ),
-      ),
-    );
+      );
+    
   }
-}
+
