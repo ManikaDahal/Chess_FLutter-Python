@@ -20,24 +20,24 @@ class _BottomnavBarState extends State<BottomnavBar> {
   @override
   void initState() {
     super.initState();
-    _initSignaling();
+    // _initSignaling();
   }
 
-  void _initSignaling() {
-    // For now using the same hardcoded roomId as in GameBoard
-    // In a real app, this might be a user-specific room or a list of rooms.
-    const roomId = "chess_room_1";
+  // void _initSignaling() {
+  //   // For now using the same hardcoded roomId as in GameBoard
+  //   // In a real app, this might be a user-specific room or a list of rooms.
+  //   const roomId = "chess_room_1";
 
-    String wsUrl;
-    if (Constants.baseUrl.startsWith("https")) {
-      wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-    } else {
-      wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-    }
+  //   String wsUrl;
+  //   if (Constants.baseUrl.startsWith("https")) {
+  //     wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
+  //   } else {
+  //     wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
+  //   }
 
-    // Connect to signaling
-    _signalingService.connect(wsUrl, roomId);
-  }
+  //   // Connect to signaling
+  //   _signalingService.connect(wsUrl, roomId);
+  // }
 
   List<BottomNavigationBarItem> bottomNavItemList = [
     const BottomNavigationBarItem(icon: Icon(Icons.home), label: ""),

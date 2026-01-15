@@ -7,11 +7,13 @@ import '../core/utils/const.dart';
 class CallScreen extends StatefulWidget {
   final String roomId;
   final bool isIncomingCall;
+  final bool isInitialVideo;
 
   const CallScreen({
     super.key,
     required this.roomId,
     this.isIncomingCall = false,
+    this.isInitialVideo = true,
   });
 
   @override
@@ -24,7 +26,10 @@ class _CallScreenState extends State<CallScreen>
   bool _isMuted = false;
   late String _status;
   final List<String> _logs = [];
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
 
+  bool _isVideoOn = true;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -35,7 +40,11 @@ class _CallScreenState extends State<CallScreen>
     super.initState();
 
     // Set initial status based on call type
-    _status = widget.isIncomingCall ? "Incoming Call..." : "Calling...";
+    String callType = widget.isInitialVideo ? "Video" : "Audio";
+    _status = widget.isIncomingCall
+        ? "Incoming $callType Call..."
+        : "${callType} Calling...";
+    _isVideoOn = widget.isInitialVideo;
 
     // Pulse animation for avatar
     _pulseController = AnimationController(
@@ -46,6 +55,8 @@ class _CallScreenState extends State<CallScreen>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _initRenderers();
 
     if (Constants.baseUrl.startsWith("https")) {
       _wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
@@ -91,9 +102,20 @@ class _CallScreenState extends State<CallScreen>
       }
     };
 
+    _signalingService.onLocalStream = (stream) {
+      if (mounted) {
+        setState(() {
+          _localRenderer.srcObject = stream;
+        });
+      }
+    };
+
     _signalingService.onRemoteStream = (stream) {
       if (mounted) {
-        setState(() => _status = "Audio Connected");
+        setState(() {
+          _status = "Connected";
+          _remoteRenderer.srcObject = stream;
+        });
       }
     };
   }
@@ -107,7 +129,7 @@ class _CallScreenState extends State<CallScreen>
 
       // If we are the caller, start the call
       if (!widget.isIncomingCall) {
-        await _signalingService.startCall();
+        await _signalingService.startCall(isVideo: widget.isInitialVideo);
       }
     } catch (e) {
       if (mounted) {
@@ -121,7 +143,11 @@ class _CallScreenState extends State<CallScreen>
 
   @override
   void dispose() {
-    // If we leave the screen, we stop the call tracks but keep the websocket (endCall vs disconnect)
+    _remoteRenderer.srcObject = null;
+    _localRenderer.srcObject = null;
+    _remoteRenderer.dispose();
+    _localRenderer.dispose();
+
     _signalingService.endCall();
     FlutterRingtonePlayer().stop();
     _pulseController.dispose();
@@ -133,137 +159,240 @@ class _CallScreenState extends State<CallScreen>
     _signalingService.toggleMute(_isMuted);
   }
 
+  void _toggleVideo() {
+    setState(() {
+      _isVideoOn = !_isVideoOn;
+      // Update status if connected
+      if (_status == "Connected") {
+        // We keep it as "Connected" but we can add a subtype if we want
+      }
+    });
+    _signalingService.toggleVideo(_isVideoOn);
+  }
+
+  void _switchCamera() {
+    _signalingService.switchCamera();
+  }
+
+  Future<void> _initRenderers() async {
+    await _remoteRenderer.initialize();
+    await _localRenderer.initialize();
+  }
+
   void _acceptCall() {
     FlutterRingtonePlayer().stop();
-    _signalingService.acceptCall();
+    _signalingService.acceptCall(isVideo: widget.isInitialVideo);
     setState(() => _status = "Connecting...");
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF2C3E50), Color(0xFF000000)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    Text(
-                      _status,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w300,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Room: ${widget.roomId}",
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // Remote Video (Background)
+          if (_remoteRenderer.srcObject != null)
+            Positioned.fill(
+              child: RTCVideoView(
+                _remoteRenderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
               ),
+            )
+          else
+            _buildAvatarPlaceholder(),
 
-              // Avatar with Pulse
-              Center(
-                child: ScaleTransition(
-                  scale: _pulseAnimation,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white24, width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              (_status == "Connected" ||
-                                  _status == "Audio Connected")
-                              ? Colors.greenAccent.withOpacity(0.3)
-                              : Colors.white10,
-                          blurRadius: 30,
-                          spreadRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: const CircleAvatar(
-                      radius: 80,
-                      backgroundColor: Colors.white10,
-                      child: Icon(Icons.person, size: 80, color: Colors.white),
-                    ),
+          // Local Video (PiP)
+          if (_localRenderer.srcObject != null && _isVideoOn)
+            Positioned(
+              right: 20,
+              top: 50,
+              width: 120,
+              height: 180,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  color: Colors.black26,
+                  child: RTCVideoView(
+                    _localRenderer,
+                    mirror: true,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                   ),
                 ),
               ),
+            ),
 
-              // Controls
-              Padding(
-                padding: const EdgeInsets.only(bottom: 50.0),
-                child: Column(
-                  children: [
-                    // Mute Toggle (Only show if connected or calling)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 30.0),
-                      child: IconButton(
-                        icon: Icon(
-                          _isMuted ? Icons.mic_off : Icons.mic,
-                          color: _isMuted ? Colors.redAccent : Colors.white,
-                          size: 30,
-                        ),
-                        onPressed: _toggleMute,
-                      ),
-                    ),
+          // Overlay Content
+          SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Header
+                _buildHeader(),
 
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        // Decline / Hangup Button
-                        _buildCallButton(
-                          color: Colors.redAccent,
-                          icon: Icons.call_end,
-                          label: "End",
-                          onPressed: () => Navigator.pop(context),
-                        ),
+                // Controls
+                _buildControls(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                        // Answer Button (Only if incoming and not yet connected)
-                        if (widget.isIncomingCall &&
-                            _status == "Incoming Call...")
-                          _buildCallButton(
-                            color: Colors.green,
-                            icon: Icons.call,
-                            label: "Accept",
-                            onPressed: _acceptCall,
-                          ),
-                      ],
+  Widget _buildAvatarPlaceholder() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF2C3E50), Color(0xFF000000)],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ScaleTransition(
+              scale: _pulseAnimation,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_status == "Connected")
+                          ? Colors.greenAccent.withOpacity(0.3)
+                          : Colors.white10,
+                      blurRadius: 30,
+                      spreadRadius: 10,
                     ),
                   ],
                 ),
+                child: const CircleAvatar(
+                  radius: 80,
+                  backgroundColor: Colors.white10,
+                  child: Icon(Icons.person, size: 80, color: Colors.white),
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildCallButton({
-    required Color color,
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              _status == "Connected"
+                  ? (_isVideoOn
+                        ? "Video Call - Connected"
+                        : "Audio Call - Connected")
+                  : _status,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Room: ${widget.roomId}",
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControls() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 40.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Middle Row: Mic, Camera, Switch
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildRoundButton(
+                icon: _isMuted ? Icons.mic_off : Icons.mic,
+                color: _isMuted ? Colors.redAccent : Colors.white24,
+                onPressed: _toggleMute,
+              ),
+              const SizedBox(width: 20),
+              _buildRoundButton(
+                icon: _isVideoOn ? Icons.videocam : Icons.videocam_off,
+                color: _isVideoOn ? Colors.white24 : Colors.redAccent,
+                onPressed: _toggleVideo,
+              ),
+              const SizedBox(width: 20),
+              _buildRoundButton(
+                icon: Icons.flip_camera_ios,
+                color: Colors.white24,
+                onPressed: _switchCamera,
+              ),
+            ],
+          ),
+          const SizedBox(height: 40),
+          // Bottom Row: Hangup/Accept
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildActionButton(
+                icon: Icons.call_end,
+                color: Colors.redAccent,
+                label: "End",
+                onPressed: () => Navigator.pop(context),
+              ),
+              if (widget.isIncomingCall &&
+                  (_status == "Incoming Video Call..." ||
+                      _status == "Incoming Call..."))
+                _buildActionButton(
+                  icon: Icons.call,
+                  color: Colors.green,
+                  label: "Accept",
+                  onPressed: _acceptCall,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoundButton({
     required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        width: 55,
+        height: 55,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.white, size: 28),
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required Color color,
     required String label,
     required VoidCallback onPressed,
   }) {
@@ -272,8 +401,8 @@ class _CallScreenState extends State<CallScreen>
         GestureDetector(
           onTap: onPressed,
           child: Container(
-            width: 70,
-            height: 70,
+            width: 75,
+            height: 75,
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
@@ -285,13 +414,17 @@ class _CallScreenState extends State<CallScreen>
                 ),
               ],
             ),
-            child: Icon(icon, color: Colors.white, size: 32),
+            child: Icon(icon, color: Colors.white, size: 35),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(
           label,
-          style: const TextStyle(color: Colors.white70, fontSize: 14),
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
