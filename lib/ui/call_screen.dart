@@ -130,6 +130,9 @@ class _CallScreenState extends State<CallScreen>
       // If we are the caller, start the call
       if (!widget.isIncomingCall) {
         await _signalingService.startCall(isVideo: widget.isInitialVideo);
+      } else {
+        // If it's an incoming call, we auto-accept since the user already clicked "Accept" in the dialog
+        _acceptCall();
       }
     } catch (e) {
       if (mounted) {
@@ -192,7 +195,9 @@ class _CallScreenState extends State<CallScreen>
       body: Stack(
         children: [
           // Remote Video (Background)
-          if (_remoteRenderer.srcObject != null)
+          // We show the renderer only if we have a stream AND we have video tracks in it
+          if (_remoteRenderer.srcObject != null &&
+              _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty)
             Positioned.fill(
               child: RTCVideoView(
                 _remoteRenderer,
@@ -359,8 +364,8 @@ class _CallScreenState extends State<CallScreen>
                 onPressed: () => Navigator.pop(context),
               ),
               if (widget.isIncomingCall &&
-                  (_status == "Incoming Video Call..." ||
-                      _status == "Incoming Call..."))
+                  (_status.contains("Incoming") &&
+                      !_status.contains("Connected")))
                 _buildActionButton(
                   icon: Icons.call,
                   color: Colors.green,

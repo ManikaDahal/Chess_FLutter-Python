@@ -236,8 +236,16 @@ class SignalingService {
     final data = jsonDecode(message);
     final type = data['type'];
 
-    // Ignore if we are the caller (self-signaling fix)
-    if (type == 'call_offer' && _isCaller) return;
+    // For initial call setup:
+    // Ignore duplicate setup offers if we are already connected or calling
+    if (type == 'call_offer' &&
+        _isCaller &&
+        _peerConnection?.signalingState ==
+            RTCSignalingState.RTCSignalingStateStable) {
+      // This might be a renegotiation offer from the remote side
+    } else if (type == 'call_offer' && _isCaller) {
+      return;
+    }
     // Also ignore duplicate offers
     if (type == 'call_offer' && _pendingOffer != null) return;
 
