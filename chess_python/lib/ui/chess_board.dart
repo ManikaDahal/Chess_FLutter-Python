@@ -160,7 +160,7 @@ class _GameBoardState extends State<GameBoard> {
     if ((row == 6 && piece.isWhite) || (row == 1 && !piece.isWhite))
       if (board[row + dir][col] == null && board[row + 2 * dir][col] == null)
         moves.add([row + 2 * dir, col]);
-        
+
     for (int dc in [-1, 1])
       if (isInBoard(row + dir, col + dc) &&
           board[row + dir][col + dc] != null &&
@@ -265,19 +265,39 @@ class _GameBoardState extends State<GameBoard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        
-        
         title: Text(whiteTurn ? "White's Turn" : "Black's Turn"),
         actions: [
           IconButton(
-            icon: const Icon(Icons.call),
+            icon: const Icon(Icons.phone),
+            tooltip: "Audio Call",
             onPressed: () {
-               // Generate a simple room ID for now or use a fixed one for testing "chess_room_1"
-               // In a real app, this should match the Game ID.
-               const roomId = "chess_room_1"; 
-               Navigator.push(
+              const roomId = "chess_room_1";
+              Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const CallScreen(roomId: roomId)),
+                MaterialPageRoute(
+                  builder: (_) => const CallScreen(
+                    roomId: roomId,
+                    isIncomingCall: false,
+                    isInitialVideo: false,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam),
+            tooltip: "Video Call",
+            onPressed: () {
+              const roomId = "chess_room_1";
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CallScreen(
+                    roomId: roomId,
+                    isIncomingCall: false,
+                    isInitialVideo: true,
+                  ),
+                ),
               );
             },
           ),
