@@ -1,5 +1,6 @@
 import 'package:chess_python/profile_page.dart';
 import 'package:chess_python/ui/chess_board.dart';
+import 'package:chess_python/ui/user_list.dart';
 import 'package:flutter/material.dart';
 import 'package:chess_python/core/utils/color_utils.dart';
 import 'package:chess_python/services/signaling_service.dart';
@@ -41,10 +42,15 @@ class _BottomnavBarState extends State<BottomnavBar> {
 
   List<BottomNavigationBarItem> bottomNavItemList = [
     const BottomNavigationBarItem(icon: Icon(Icons.home), label: ""),
+    const BottomNavigationBarItem(icon: Icon(Icons.people), label: ""),
     const BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ""),
   ];
 
-  List<Widget> widgets = [const GameBoard(), const ProfilePage()];
+  List<Widget> widgets = [
+    const GameBoard(),
+    const UserList(),
+    const ProfilePage(),
+  ];
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:chess_python/ui/call_screen.dart';
+import 'package:vibration/vibration.dart';
 import 'package:chess_python/services/signaling_service.dart';
 import 'package:chess_python/core/utils/const.dart';
 
@@ -105,6 +106,7 @@ class GlobalCallHandler {
     bool isVideo = true,
   }) {
     FlutterRingtonePlayer().playRingtone(looping: true);
+    Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
 
     showDialog(
       context: context,
@@ -118,6 +120,7 @@ class GlobalCallHandler {
           TextButton(
             onPressed: () {
               FlutterRingtonePlayer().stop();
+              Vibration.cancel();
               Navigator.pop(context);
               signalingService.disconnect(); // Decline
             },
@@ -126,6 +129,7 @@ class GlobalCallHandler {
           ElevatedButton(
             onPressed: () {
               FlutterRingtonePlayer().stop();
+              Vibration.cancel();
               Navigator.pop(context);
               Constants.navigatorKey.currentState?.push(
                 MaterialPageRoute(

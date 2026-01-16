@@ -23,6 +23,7 @@ class SignalingService {
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
   bool _isReconnecting = false;
+  final List<RTCIceCandidate> _remoteCandidatesBuffer = [];
 
   StreamStateCallback? onLocalStream;
   StreamStateCallback? onRemoteStream;
@@ -43,34 +44,47 @@ class SignalingService {
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
+  bool _isRemoteDescriptionSet = false;
 
   final Map<String, dynamic> _configuration = {
     'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:3478'},
+      {'urls': 'stun:stun2.l.google.com:19302'},
+      {'urls': 'stun:stun2.l.google.com:3478'},
+      {'urls': 'stun:stun3.l.google.com:19302'},
+      {'urls': 'stun:stun3.l.google.com:3478'},
+      {'urls': 'stun:stun4.l.google.com:19302'},
+      {'urls': 'stun:stun4.l.google.com:3478'},
+      {'urls': 'stun:stun.services.mozilla.com'},
       {
         'urls': [
-          'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302',
-          'stun:stun3.l.google.com:19302',
-          'stun:stun4.l.google.com:19302',
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:3478',
         ],
-      },
-      {
-        'urls': 'turn:openrelay.metered.ca:80',
         'username': 'openrelayproject',
         'credential': 'openrelayproject',
       },
       {
-        'urls': 'turn:openrelay.metered.ca:443',
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject',
-      },
-      {
-        'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+        'urls': [
+          'turns:openrelay.metered.ca:443?transport=tcp',
+          'turns:openrelay.metered.ca:3478?transport=tcp',
+        ],
         'username': 'openrelayproject',
         'credential': 'openrelayproject',
       },
     ],
+    'iceCandidatePoolSize': 10,
+    'bundlePolicy':
+        'balanced', // Balanced is often more compatible than max-bundle
+    'rtcpMuxPolicy': 'require',
+    'sdpSemantics': 'unified-plan',
+    'iceTransportPolicy': 'all',
   };
+
+  Timer? _iceRestartTimer;
 
   // Future<void> connect(String wsUrl, String roomId) async {
   //   if (_isConnected && _currentRoomId == roomId) {
@@ -190,27 +204,62 @@ class SignalingService {
     _peerConnection!.onConnectionState = (state) {
       _log('Connection State: ${state.name}');
       onConnectionStateChange?.call(state);
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _log('ICE Connection Failed - check STUN/TURN servers');
+    };
+
+    _peerConnection!.onIceConnectionState = (state) {
+      _log('🧊 ICE Connection State: ${state.name}');
+      if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
+        _startIceRestartTimer();
+      } else if (state ==
+              RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        _stopIceRestartTimer();
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _log('❌ ICE Connection Failed - attempting restart...');
+        _stopIceRestartTimer();
+        if (_isCaller) _triggerIceRestart();
       }
     };
 
+    _peerConnection!.onIceGatheringState = (state) {
+      _log('📡 ICE Gathering State: ${state.name}');
+    };
+
     _peerConnection!.onIceCandidate = (candidate) {
-      _sendSignal({
-        'type': 'new_ice_candidate',
-        'candidate': {
-          'candidate': candidate.candidate,
-          'sdpMid': candidate.sdpMid,
-          'sdpMLineIndex': candidate.sdpMLineIndex,
-        },
-      });
+      if (candidate.candidate != null) {
+        String type = "unknown";
+        if (candidate.candidate!.contains("typ host")) {
+          type = "HOST (Local)";
+        }
+        if (candidate.candidate!.contains("typ srflx")) {
+          type = "SRFLX (Public IP)";
+        }
+        if (candidate.candidate!.contains("typ relay")) {
+          type = "RELAY (TURN Server)";
+        }
+
+        _log('🧊 Local ICE Candidate: $type');
+        _sendSignal({
+          'type': 'new_ice_candidate',
+          'candidate': {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+          },
+        });
+      }
     };
 
     _peerConnection!.onTrack = (event) {
+      _log(
+        '🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}',
+      );
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
         onRemoteStream?.call(_remoteStream!);
       }
+      // If there are no streams (rare), the track is still part of the session
+      // but we need a stream to render it.
     };
   }
 
@@ -340,8 +389,18 @@ class SignalingService {
 
         _localStream!.getTracks().forEach((track) {
           _log('➕ Adding track to PC: ${track.kind}');
+          // In Unified Plan, using addTransceiver or addTrack with stream is preferred
           _peerConnection!.addTrack(track, _localStream!);
         });
+
+        // Ensure transceivers are set to receive immediately
+        final transceivers = await _peerConnection!.getTransceivers();
+        for (var t in transceivers) {
+          final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
+          if (kind == 'audio' || kind == 'video') {
+            await t.setDirection(TransceiverDirection.SendRecv);
+          }
+        }
         return; // Success
       } catch (e) {
         attempts++;
@@ -361,30 +420,71 @@ class SignalingService {
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(offerData['sdp'], offerData['type']),
     );
+    _isRemoteDescriptionSet = true;
 
-    final answer = await _peerConnection!.createAnswer();
+    final constraints = {
+      'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true},
+      'optional': [],
+    };
+
+    final answer = await _peerConnection!.createAnswer(constraints);
     await _peerConnection!.setLocalDescription(answer);
 
     _sendSignal({
       'type': 'call_answer',
       'answer': {'type': answer.type, 'sdp': answer.sdp},
     });
+
+    // Drain buffered candidates
+    _drainRemoteCandidates();
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> answerData) async {
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(answerData['sdp'], answerData['type']),
     );
+    _isRemoteDescriptionSet = true;
+
+    // Drain buffered candidates
+    _drainRemoteCandidates();
   }
 
   Future<void> _handleCandidate(Map<String, dynamic> candidateData) async {
-    await _peerConnection!.addCandidate(
-      RTCIceCandidate(
-        candidateData['candidate'],
-        candidateData['sdpMid'],
-        candidateData['sdpMLineIndex'],
-      ),
+    try {
+      final String? candidateStr = candidateData['candidate'];
+      final String? sdpMid = candidateData['sdpMid'];
+      final int? sdpMLineIndex = candidateData['sdpMLineIndex'] is String
+          ? int.tryParse(candidateData['sdpMLineIndex'])
+          : candidateData['sdpMLineIndex'];
+
+      if (candidateStr == null) {
+        _log('ℹ️ End of candidates signal received');
+        return;
+      }
+
+      final candidate = RTCIceCandidate(candidateStr, sdpMid, sdpMLineIndex);
+
+      if (_peerConnection != null && _isRemoteDescriptionSet) {
+        _log('🧊 Adding Remote ICE Candidate immediately');
+        await _peerConnection!.addCandidate(candidate);
+      } else {
+        _log('📦 Buffering Remote ICE Candidate');
+        _remoteCandidatesBuffer.add(candidate);
+      }
+    } catch (e) {
+      _log('❌ Error parsing/adding ICE candidate: $e');
+    }
+  }
+
+  void _drainRemoteCandidates() async {
+    if (_peerConnection == null || _remoteCandidatesBuffer.isEmpty) return;
+    _log(
+      '📥 Draining ${_remoteCandidatesBuffer.length} buffered ICE candidates',
     );
+    for (var candidate in _remoteCandidatesBuffer) {
+      await _peerConnection!.addCandidate(candidate);
+    }
+    _remoteCandidatesBuffer.clear();
   }
 
   // Future<void> startCall() async {
@@ -409,7 +509,15 @@ class SignalingService {
 
     if (_peerConnection == null) return;
 
-    final offer = await _peerConnection!.createOffer();
+    final constraints = {
+      'mandatory': {
+        'OfferToReceiveAudio': true,
+        'OfferToReceiveVideo': isVideo,
+      },
+      'optional': [],
+    };
+
+    final offer = await _peerConnection!.createOffer(constraints);
     await _peerConnection!.setLocalDescription(offer);
 
     _sendSignal({
@@ -497,7 +605,42 @@ class SignalingService {
     }
     _pendingOffer = null;
     _pendingMediaType = null;
+    _remoteCandidatesBuffer.clear();
+    _isRemoteDescriptionSet = false;
     _isCaller = false;
+  }
+
+  void _startIceRestartTimer() {
+    _iceRestartTimer?.cancel();
+    _iceRestartTimer = Timer(const Duration(seconds: 15), () {
+      if (_peerConnection != null && _isCaller) {
+        _log('⏳ ICE stuck in checking. Triggering restart...');
+        _triggerIceRestart();
+      }
+    });
+  }
+
+  void _stopIceRestartTimer() {
+    _iceRestartTimer?.cancel();
+    _iceRestartTimer = null;
+  }
+
+  Future<void> _triggerIceRestart() async {
+    if (_peerConnection == null || !_isCaller) return;
+    try {
+      final offer = await _peerConnection!.createOffer({'iceRestart': true});
+      await _peerConnection!.setLocalDescription(offer);
+      _sendSignal({
+        'type': 'call_offer',
+        'offer': {'type': offer.type, 'sdp': offer.sdp},
+        'mediaType': _localStream?.getVideoTracks().isNotEmpty == true
+            ? 'video'
+            : 'audio',
+        'iceRestart': true,
+      });
+    } catch (e) {
+      _log('Failed to restart ICE: $e');
+    }
   }
 
   void disconnect() {
@@ -505,6 +648,7 @@ class SignalingService {
     _currentRoomId = null; // Prevent auto-reconnect
     _reconnectTimer?.cancel();
     _stopHeartbeat();
+    _stopIceRestartTimer();
     endCall();
     if (_channel != null) {
       _channel!.sink.close();

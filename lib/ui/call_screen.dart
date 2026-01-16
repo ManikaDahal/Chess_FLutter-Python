@@ -26,6 +26,7 @@ class _CallScreenState extends State<CallScreen>
   bool _isMuted = false;
   late String _status;
   final List<String> _logs = [];
+  bool _showDiagnostics = false;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
 
@@ -56,16 +57,18 @@ class _CallScreenState extends State<CallScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _initRenderers();
-
-    if (Constants.baseUrl.startsWith("https")) {
-      _wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-    } else {
-      _wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-    }
-
-    _setupSignalingListeners();
-    _connectAndInitiate();
+    // Initialize renderers first, then start signaling
+    _initRenderers().then((_) {
+      if (mounted) {
+        if (Constants.baseUrl.startsWith("https")) {
+          _wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
+        } else {
+          _wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
+        }
+        _setupSignalingListeners();
+        _connectAndInitiate();
+      }
+    });
   }
 
   void _setupSignalingListeners() {
@@ -235,8 +238,75 @@ class _CallScreenState extends State<CallScreen>
                 // Header
                 _buildHeader(),
 
+                if (_status != "Connected" || _showDiagnostics)
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                "DEBUG DIAGNOSTICS",
+                                style: TextStyle(
+                                  color: Colors.yellow,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _showDiagnostics = false),
+                              ),
+                            ],
+                          ),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _logs.length,
+                              itemBuilder: (context, index) => Text(
+                                _logs[index],
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // Controls
-                _buildControls(),
+                Column(
+                  children: [
+                    if (_status == "Connected")
+                      TextButton(
+                        onPressed: () => setState(
+                          () => _showDiagnostics = !_showDiagnostics,
+                        ),
+                        child: const Text(
+                          "Show Debug Info",
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ),
+                    _buildControls(),
+                  ],
+                ),
               ],
             ),
           ),
@@ -305,7 +375,11 @@ class _CallScreenState extends State<CallScreen>
                   ? (_isVideoOn
                         ? "Video Call - Connected"
                         : "Audio Call - Connected")
-                  : _status,
+                  : (_status == "RTCIceConnectionStateChecking" ||
+                            _status ==
+                                "RTCIceConnectionState.RTCIceConnectionStateChecking"
+                        ? "Searching for best connection path..."
+                        : _status),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,

@@ -11,13 +11,22 @@ class GameBoard extends StatefulWidget {
   State<GameBoard> createState() => _GameBoardState();
 }
 
-class _GameBoardState extends State<GameBoard> {
+class _GameBoardState extends State<GameBoard>
+    with AutomaticKeepAliveClientMixin {
   late List<List<ChessPiece?>> board;
   ChessPiece? selectedPiece;
   int selectedRow = -1;
   int selectedCol = -1;
   List<List<int>> validMoves = [];
   bool whiteTurn = true;
+
+  // Add position of kings to track them easily
+  List<int> whiteKingPosition = [7, 4];
+  List<int> blackKingPosition = [0, 4];
+  bool checkStatus = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -89,6 +98,12 @@ class _GameBoardState extends State<GameBoard> {
 
     placeBackRow(0, false);
     placeBackRow(7, true);
+
+    // Reset king positions
+    whiteKingPosition = [7, 4];
+    blackKingPosition = [0, 4];
+    whiteTurn = true;
+    checkStatus = false;
   }
 
   void onSquareTap(int row, int col) {
@@ -98,6 +113,15 @@ class _GameBoardState extends State<GameBoard> {
       // Move selected piece
       if (selectedPiece != null &&
           validMoves.any((m) => m[0] == row && m[1] == col)) {
+        // Update king position if king is moved
+        if (selectedPiece!.type == ChessPieceType.king) {
+          if (selectedPiece!.isWhite) {
+            whiteKingPosition = [row, col];
+          } else {
+            blackKingPosition = [row, col];
+          }
+        }
+
         board[row][col] = selectedPiece;
         board[selectedRow][selectedCol] = null;
 
@@ -115,6 +139,15 @@ class _GameBoardState extends State<GameBoard> {
         selectedPiece = null;
         validMoves.clear();
         whiteTurn = !whiteTurn;
+
+        // Check if the other king is in check
+        checkStatus = isKingInCheck(!whiteTurn);
+
+        // Check for checkmate
+        if (isCheckMate(whiteTurn)) {
+          _showGameOverDialog(whiteTurn ? "Black Wins!" : "White Wins!");
+        }
+
         return;
       }
 
@@ -123,7 +156,7 @@ class _GameBoardState extends State<GameBoard> {
         selectedPiece = piece;
         selectedRow = row;
         selectedCol = col;
-        validMoves = calculateValidMoves(row, col, piece);
+        validMoves = calculateRealValidMoves(row, col, piece, true);
       } else {
         selectedPiece = null;
         validMoves.clear();
@@ -131,7 +164,7 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
-  List<List<int>> calculateValidMoves(int row, int col, ChessPiece piece) {
+  List<List<int>> calculateRawValidMoves(int row, int col, ChessPiece piece) {
     switch (piece.type) {
       case ChessPieceType.pawn:
         return _pawnMoves(row, col, piece);
@@ -151,6 +184,114 @@ class _GameBoardState extends State<GameBoard> {
     }
   }
 
+  // Filter moves that would put/keep the king in check
+  List<List<int>> calculateRealValidMoves(
+    int row,
+    int col,
+    ChessPiece piece,
+    bool checkCheck,
+  ) {
+    List<List<int>> rawMoves = calculateRawValidMoves(row, col, piece);
+    if (!checkCheck) return rawMoves;
+
+    List<List<int>> realMoves = [];
+    for (var move in rawMoves) {
+      int endRow = move[0];
+      int endCol = move[1];
+
+      // Simulate the move
+      ChessPiece? targetPiece = board[endRow][endCol];
+
+      // If moving king, update simulated king position
+      List<int> originalKingPos = piece.isWhite
+          ? [...whiteKingPosition]
+          : [...blackKingPosition];
+      if (piece.type == ChessPieceType.king) {
+        if (piece.isWhite)
+          whiteKingPosition = [endRow, endCol];
+        else
+          blackKingPosition = [endRow, endCol];
+      }
+
+      board[endRow][endCol] = piece;
+      board[row][col] = null;
+
+      // Check if king is in check after move
+      bool inCheck = isKingInCheck(piece.isWhite);
+
+      // Undo the move
+      board[row][col] = piece;
+      board[endRow][endCol] = targetPiece;
+      if (piece.type == ChessPieceType.king) {
+        if (piece.isWhite)
+          whiteKingPosition = originalKingPos;
+        else
+          blackKingPosition = originalKingPos;
+      }
+
+      if (!inCheck) {
+        realMoves.add(move);
+      }
+    }
+    return realMoves;
+  }
+
+  bool isKingInCheck(bool isWhite) {
+    List<int> kingPos = isWhite ? whiteKingPosition : blackKingPosition;
+
+    // Check all opponent pieces to see if any can hit the king
+    for (int r = 0; r < 8; r++) {
+      for (int c = 0; c < 8; c++) {
+        ChessPiece? p = board[r][c];
+        if (p != null && p.isWhite != isWhite) {
+          List<List<int>> pieceMoves = calculateRawValidMoves(r, c, p);
+          if (pieceMoves.any((m) => m[0] == kingPos[0] && m[1] == kingPos[1])) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  bool isCheckMate(bool isWhite) {
+    if (!isKingInCheck(isWhite)) return false;
+
+    // If king is in check, see if any move can get him out of it
+    for (int r = 0; r < 8; r++) {
+      for (int c = 0; c < 8; c++) {
+        ChessPiece? p = board[r][c];
+        if (p != null && p.isWhite == isWhite) {
+          List<List<int>> moves = calculateRealValidMoves(r, c, p, true);
+          if (moves.isNotEmpty) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  void _showGameOverDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Game Over"),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _initializeBoard();
+              });
+            },
+            child: const Text("Play Again"),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<List<int>> _pawnMoves(int row, int col, ChessPiece piece) {
     List<List<int>> moves = [];
     int dir = piece.isWhite ? -1 : 1;
@@ -158,7 +299,10 @@ class _GameBoardState extends State<GameBoard> {
       moves.add([row + dir, col]);
 
     if ((row == 6 && piece.isWhite) || (row == 1 && !piece.isWhite))
-      if (board[row + dir][col] == null && board[row + 2 * dir][col] == null)
+      if (isInBoard(row + dir, col) &&
+          board[row + dir][col] == null &&
+          isInBoard(row + 2 * dir, col) &&
+          board[row + 2 * dir][col] == null)
         moves.add([row + 2 * dir, col]);
 
     for (int dc in [-1, 1])
@@ -263,9 +407,14 @@ class _GameBoardState extends State<GameBoard> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
-        title: Text(whiteTurn ? "White's Turn" : "Black's Turn"),
+        title: Text(
+          whiteTurn
+              ? "White's Turn"
+              : "Black's Turn" + (checkStatus ? " - CHECK!" : ""),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.phone),

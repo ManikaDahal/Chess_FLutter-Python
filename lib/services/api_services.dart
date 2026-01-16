@@ -10,7 +10,7 @@ class ApiService {
 
   Future<Map<String, String>> _headers() async {
     final token = await _storage.getAccessToken();
-    print('Token before profile call: $token'); 
+    print('Token before profile call: $token');
 
     if (token == null) throw Exception('Access token missing');
     return {
@@ -21,51 +21,44 @@ class ApiService {
 
   /// PROFILE
   Future<Map<String, dynamic>> getProfile() async {
-  final token = await _storage.getAccessToken();
+    final token = await _storage.getAccessToken();
 
-  print("Token used for profile: $token");
+    print("Token used for profile: $token");
 
-  final response = await http.get(
-    Uri.parse('${Constants.baseUrl}/api/profile/'),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
-    },
-  );
+    final response = await http.get(
+      Uri.parse('${Constants.baseUrl}/api/profile/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
 
-  print("Profile status: ${response.statusCode}");
-  print("Profile raw body: ${response.body}");
+    print("Profile status: ${response.statusCode}");
+    print("Profile raw body: ${response.body}");
 
-  if (response.statusCode == 200) {
-    return jsonDecode(response.body);
-  } else {
-    throw Exception("Profile failed");
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("Profile failed");
+    }
   }
-}
 
+  Future<List<dynamic>> getUsers() async {
+    final token = await _storage.getAccessToken();
+    final response = await http.get(
+      Uri.parse('${Constants.baseUrl}/api/users/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("Failed to fetch users");
+    }
+  }
 
   /// SEND CHESS MOVE
   // Future<void> sendMove(Map<String, dynamic> move) async {
