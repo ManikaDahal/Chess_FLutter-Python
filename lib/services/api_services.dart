@@ -60,17 +60,4 @@ class ApiService {
     }
   }
 
-  /// SEND CHESS MOVE
-  // Future<void> sendMove(Map<String, dynamic> move) async {
-  //   final response = await http.post(
-  //     Uri.parse('${Constants.baseUrl}/api/move/'),
-  //     headers: await _headers(),
-  //     body: jsonEncode(move),
-  //   );
-
-  //   if (response.statusCode == 401) {
-  //     final refreshed = await _authService.refreshToken();
-  //     if (refreshed) return sendMove(move);
-  //   }
-  // }
 }
