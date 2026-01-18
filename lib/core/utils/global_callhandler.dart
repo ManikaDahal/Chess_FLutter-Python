@@ -73,12 +73,8 @@ class GlobalCallHandler {
 
     const roomId = "chess_room_1";
 
-    String wsUrl;
-    if (Constants.baseUrl.startsWith("https")) {
-      wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-    } else {
-      wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-    }
+    // CHANGE: Using wsBaseUrl for WebSocket (Render)
+    String wsUrl = Constants.wsBaseUrl;
 
     // Listen for incoming calls
     signalingService.onIncomingCall = () {
@@ -114,12 +110,8 @@ class GlobalCallHandler {
   Future<void> connectForUser(int userId) async {
     final roomId = "user_$userId";
 
-    String wsUrl;
-    if (Constants.baseUrl.startsWith("https")) {
-      wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-    } else {
-      wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-    }
+    // CHANGE: Using wsBaseUrl for WebSocket (Render)
+    String wsUrl = Constants.wsBaseUrl;
 
     try {
       debugPrint(

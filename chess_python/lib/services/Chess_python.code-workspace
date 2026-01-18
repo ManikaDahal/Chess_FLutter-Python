@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../../../../Python_Project"
+		},
+		{
+			"path": "../../../../../Chess_WebSocket"
 		}
 	],
 	"settings": {}

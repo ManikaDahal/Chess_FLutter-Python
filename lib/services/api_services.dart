@@ -26,7 +26,8 @@ class ApiService {
     print("Token used for profile: $token");
 
     final response = await http.get(
-      Uri.parse('${Constants.baseUrl}/api/profile/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/profile/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -46,7 +47,8 @@ class ApiService {
   Future<List<dynamic>> getUsers() async {
     final token = await _storage.getAccessToken();
     final response = await http.get(
-      Uri.parse('${Constants.baseUrl}/api/users/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/users/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -59,5 +61,4 @@ class ApiService {
       throw Exception("Failed to fetch users");
     }
   }
-
 }

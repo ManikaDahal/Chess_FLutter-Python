@@ -29,21 +29,58 @@ class _SignupState extends State<Signup> {
   bool visible = false;
   bool isTermsAndConditionedAgreed = false;
 
+  // CHANGE: Added loading state and better error handling
   Future<void> signup() async {
-    final success = await _authService.signup(
-      _nameController.text.trim(),
-      _passwordController.text.trim(),
-      _emailAddressController.text.trim(),
-    );
+    // Show loader
+    setState(() {
+      loader = true;
+    });
 
-    if(success){
-      DisplaySnackbar.show(context, signupSuccessfullStr);
-      RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-    
-    }
-    else{
-     DisplaySnackbar.show(context, signupFailedStr);
+    try {
+      final success = await _authService.signup(
+        _nameController.text.trim(),
+        _passwordController.text.trim(),
+        _emailAddressController.text.trim(),
+      );
 
+      // Hide loader
+      setState(() {
+        loader = false;
+      });
+
+      if (success) {
+        if (mounted) {
+          DisplaySnackbar.show(context, signupSuccessfullStr);
+          RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+        }
+      } else {
+        if (mounted) {
+          DisplaySnackbar.show(context, signupFailedStr);
+        }
+      }
+    } catch (e) {
+      // Hide loader on error
+      setState(() {
+        loader = false;
+      });
+
+      if (mounted) {
+        // CHANGE: Extract specific error message from exception
+        String errorMessage = signupFailedStr;
+
+        // Parse the exception message
+        String exceptionMsg = e.toString();
+        if (exceptionMsg.contains('Username already exists')) {
+          errorMessage = 'Username already exists';
+        } else if (exceptionMsg.contains('Email already registered')) {
+          errorMessage = 'Email already registered';
+        } else if (exceptionMsg.contains('Exception:')) {
+          // Extract message after "Exception: "
+          errorMessage = exceptionMsg.split('Exception: ').last;
+        }
+
+        DisplaySnackbar.show(context, errorMessage);
+      }
     }
   }
 
@@ -111,9 +148,17 @@ class _SignupState extends State<Signup> {
               CustomTextformfield(
                 controller: _emailAddressController,
                 hintText: emailAddressStr,
+                // CHANGE: Added email format validation
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
                     return validateEmailAddressStr;
+                  }
+                  // Check email format
+                  final emailRegex = RegExp(
+                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                  );
+                  if (!emailRegex.hasMatch(p0)) {
+                    return 'Please enter a valid email address';
                   }
                   return null;
                 },
@@ -128,9 +173,13 @@ class _SignupState extends State<Signup> {
                 obscureText: visible ? false : true,
                 controller: _passwordController,
                 hintText: passwordStr,
+                // CHANGE: Added password length validation (minimum 8 characters)
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
                     return validatePasswordStr;
+                  }
+                  if (p0.length < 8) {
+                    return 'Password must be at least 8 characters';
                   }
                   return null;
                 },
@@ -165,44 +214,16 @@ class _SignupState extends State<Signup> {
               CustomElevatedbutton(
                 onPressed: () {
                   if (_formKey.currentState!.validate()) {
+                    // CHANGE: Check terms and conditions first
                     if (!isTermsAndConditionedAgreed) {
                       DisplaySnackbar.show(
                         context,
                         notagreedToTermsAndConditionStr,
                       );
+                      return;
                     }
-                    try{
-                      signup();
-
-                    }catch(e){
-                      DisplaySnackbar.show(context, signupFailedStr);
-
-                    }
-                  //   Future.delayed(const Duration(seconds: 2), () async {
-                  //     var data = {
-                  //       "name": _nameController.text.trim(),
-                  //       "email": _emailAddressController.text.trim(),
-                  //       "password": _passwordController.text.trim(),
-                  //     };
-                  //     try {
-                  //       FirebaseFirestore firestore =
-                  //           FirebaseFirestore.instance;
-                  //       await firestore.collection("Register").add(data);
-                  //       setState(() {
-                  //         loader = false;
-                  //       });
-                  //       RouteGenerator.navigateToPage(
-                  //         context,
-                  //         Routes.loginRoute,
-                  //       );
-                  //       DisplaySnackbar.show(context, signupSuccessfullyStr);
-                  //     } catch (e) {
-                  //       setState(() {
-                  //         loader=false;
-                  //       });
-                  //       DisplaySnackbar.show(context, failedStr );
-                  //     }
-                  //   });
+                    // Call signup function (loader handled inside)
+                    signup();
                   }
                 },
                 child: Text(SignupStr, style: TextStyle(color: Colors.white)),

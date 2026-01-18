@@ -60,11 +60,8 @@ class _CallScreenState extends State<CallScreen>
     // Initialize renderers first, then start signaling
     _initRenderers().then((_) {
       if (mounted) {
-        if (Constants.baseUrl.startsWith("https")) {
-          _wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-        } else {
-          _wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-        }
+        // CHANGE: Using wsBaseUrl for WebSocket (Render)
+        _wsUrl = Constants.wsBaseUrl;
         _setupSignalingListeners();
         _connectAndInitiate();
       }

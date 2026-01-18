@@ -32,28 +32,60 @@ class _LoginState extends State<Login> {
   bool visible = false;
   bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
-  bool loader=false;
+  bool loader = false;
 
+  // CHANGE: Added loading state and better error handling
   Future<void> login() async {
-    final success = await _authService.login(
-      _nameController.text.trim(),
-      _passwordController.text.trim(),
-    );
-    if (success) {
+    // Show loader
+    setState(() {
+      loader = true;
+    });
+
+    try {
       final success = await _authService.login(
         _nameController.text.trim(),
         _passwordController.text.trim(),
       );
+
+      // Hide loader
+      setState(() {
+        loader = false;
+      });
+
       if (success) {
         final token = await _storage.getAccessToken();
         final refresh = await _storage.getRefreshToken();
         print("Tokens after login -> Access: $token, Refresh: $refresh");
-      }
-      DisplaySnackbar.show(context, loginSuccessfullStr);
 
-      RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-    } else {
-      DisplaySnackbar.show(context, loginFailedStr);
+        if (mounted) {
+          DisplaySnackbar.show(context, loginSuccessfullStr);
+          RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+        }
+      } else {
+        if (mounted) {
+          // CHANGE: Show specific error for invalid credentials
+          DisplaySnackbar.show(context, 'Invalid username or password');
+        }
+      }
+    } catch (e) {
+      // Hide loader on error
+      setState(() {
+        loader = false;
+      });
+
+      if (mounted) {
+        // CHANGE: Extract specific error message from exception
+        String errorMessage = 'Invalid username or password';
+
+        // Parse the exception message
+        String exceptionMsg = e.toString();
+        if (exceptionMsg.contains('Exception:')) {
+          // Extract message after "Exception: "
+          errorMessage = exceptionMsg.split('Exception: ').last;
+        }
+
+        DisplaySnackbar.show(context, errorMessage);
+      }
     }
   }
 
@@ -63,205 +95,204 @@ class _LoginState extends State<Login> {
       body: Stack(
         children: [
           ui(),
-          loader? Loader.backdropFilter(context): const SizedBox(),
+          loader ? Loader.backdropFilter(context) : const SizedBox(),
         ],
-      )
+      ),
     );
   }
-     Widget ui()=> SafeArea(
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    backgroundColor: foregroundColor,
-                    child: IconButton(
-                      onPressed: () {
+
+  Widget ui() => SafeArea(
+    child: Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: foregroundColor,
+                child: IconButton(
+                  onPressed: () {
+                    RouteGenerator.navigateToPage(context, Routes.signupRoute);
+                  },
+                  icon: Icon(Icons.arrow_back),
+                ),
+              ),
+
+              SizedBox(height: 20),
+
+              Center(
+                child: CustomText(
+                  data: welcomeBackStr,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 30,
+                ),
+              ),
+              SizedBox(height: 20),
+              CustomText(
+                data: nameStr,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+              CustomTextformfield(
+                controller: _nameController,
+                hintText: nameStr,
+                validator: (p0) {
+                  if (p0 == null || p0.isEmpty) {
+                    return validateNameStr;
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 20),
+              CustomText(
+                data: passwordStr,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+              CustomTextformfield(
+                controller: _passwordController,
+                hintText: passwordStr,
+                validator: (p0) {
+                  if (p0 == null || p0.isEmpty) {
+                    return validatePasswordStr;
+                  }
+                  return null;
+                },
+                obscureText: visible ? true : false,
+                suffixIcon: IconButton(
+                  color: primaryColor,
+                  onPressed: () {
+                    setState(() {
+                      visible = !visible;
+                    });
+                  },
+                  icon: visible
+                      ? Icon(Icons.visibility_off_outlined)
+                      : Icon(Icons.visibility_outlined),
+                ),
+              ),
+
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    try {
+                      bool ok = await _biometricAuth.loginWithBiometrics();
+                      if (ok) {
                         RouteGenerator.navigateToPage(
                           context,
-                          Routes.signupRoute,
+                          Routes.bottomNavBarRoute,
                         );
-                      },
-                      icon: Icon(Icons.arrow_back),
-                    ),
+                        DisplaySnackbar.show(context, loginSuccessfullStr);
+                      } else {
+                        DisplaySnackbar.show(context, loginFailedStr);
+                      }
+                    } catch (e) {
+                      DisplaySnackbar.show(context, loginFailedStr);
+                    }
+                  },
+                  icon: Icon(Icons.fingerprint),
+                  label: Text("Login with fingerprint"),
+                ),
+              ),
+
+              Row(
+                children: [
+                  Checkbox(
+                    value: rememberMe,
+                    onChanged: (bool? value) {
+                      setState(() {
+                        rememberMe = value! ? true : false;
+                      });
+                    },
                   ),
-
-                  SizedBox(height: 20),
-
-                  Center(
+                  CustomText(
+                    data: rememberMeStr,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  Spacer(),
+                  CustomInkwell(
+                    onTap: () {
+                      RouteGenerator.navigateToPage(
+                        context,
+                        Routes.forgotPasswordRoute,
+                      );
+                    },
                     child: CustomText(
-                      data: welcomeBackStr,
+                      data: forgotPasswordStr,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      fontSize: 30,
+                      color: Colors.red,
                     ),
-                  ),
-                  SizedBox(height: 20),
-                  CustomText(
-                    data: nameStr,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                  CustomTextformfield(
-                    controller: _nameController,
-                    hintText: nameStr,
-                    validator: (p0) {
-                      if (p0 == null || p0.isEmpty) {
-                        return validateNameStr;
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 20),
-                  CustomText(
-                    data: passwordStr,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                  CustomTextformfield(
-                    controller: _passwordController,
-                    hintText: passwordStr,
-                    validator: (p0) {
-                      if (p0 == null || p0.isEmpty) {
-                        return validatePasswordStr;
-                      }
-                      return null;
-                    },
-                    obscureText: visible ? true : false,
-                    suffixIcon: IconButton(
-                      color: primaryColor,
-                      onPressed: () {
-                        setState(() {
-                          visible = !visible;
-                        });
-                      },
-                      icon: visible
-                          ? Icon(Icons.visibility_off_outlined)
-                          : Icon(Icons.visibility_outlined),
-                    ),
-                  ),
-
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        try {
-                          bool ok = await _biometricAuth.loginWithBiometrics();
-                          if (ok) {
-                            RouteGenerator.navigateToPage(
-                              context,
-                              Routes.bottomNavBarRoute,
-                            );
-                            DisplaySnackbar.show(context, loginSuccessfullStr);
-                          } else {
-                            DisplaySnackbar.show(context, loginFailedStr);
-                          }
-                        } catch (e) {
-                          DisplaySnackbar.show(context, loginFailedStr);
-                        }
-                      },
-                      icon: Icon(Icons.fingerprint),
-                      label: Text("Login with fingerprint"),
-                    ),
-                  ),
-
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: rememberMe,
-                        onChanged: (bool? value) {
-                          setState(() {
-                            rememberMe = value! ? true : false;
-                          });
-                        },
-                      ),
-                      CustomText(
-                        data: rememberMeStr,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      Spacer(),
-                      CustomInkwell(
-                        onTap: () {
-                          RouteGenerator.navigateToPage(
-                            context,
-                            Routes.forgotPasswordRoute,
-                          );
-                        },
-                        child: CustomText(
-                          data: forgotPasswordStr,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 20),
-                  CustomElevatedbutton(
-                    onPressed: () {
-                      login();
-                    },
-                    child: CustomText(data: loginStr, color: Colors.white),
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(child: Divider()),
-                      Text("Or"),
-                      Expanded(child: Divider()),
-                    ],
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      CustomElevatedbutton(
-                        onPressed: () {},
-                        width: MediaQuery.of(context).size.width * 0.25,
-                        backgroundColor: Colors.white,
-                        child: Image.asset("assets/images/google_logo.png"),
-                      ),
-                      CustomElevatedbutton(
-                        onPressed: () {},
-                        width: MediaQuery.of(context).size.width * 0.25,
-                        backgroundColor: Colors.white,
-                        child: Image.asset(
-                          "assets/images/facebook_logo.png",
-                          height: 40,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CustomText(data: dontHAveanAccountStr, fontSize: 20),
-                      CustomInkwell(
-                        child: CustomText(
-                          data: SignupStr,
-                          color: primaryColor,
-                          fontSize: 20,
-                        ),
-                        onTap: () {
-                          RouteGenerator.navigateToPage(
-                            context,
-                            Routes.signupRoute,
-                          );
-                        },
-                      ),
-                    ],
                   ),
                 ],
               ),
-            ),
+              SizedBox(height: 20),
+              CustomElevatedbutton(
+                onPressed: () {
+                  // CHANGE: Validate form and call login (loader handled inside)
+                  if (_formKey.currentState!.validate()) {
+                    login();
+                  }
+                },
+                child: CustomText(data: loginStr, color: Colors.white),
+              ),
+              SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Text("Or"),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  CustomElevatedbutton(
+                    onPressed: () {},
+                    width: MediaQuery.of(context).size.width * 0.25,
+                    backgroundColor: Colors.white,
+                    child: Image.asset("assets/images/google_logo.png"),
+                  ),
+                  CustomElevatedbutton(
+                    onPressed: () {},
+                    width: MediaQuery.of(context).size.width * 0.25,
+                    backgroundColor: Colors.white,
+                    child: Image.asset(
+                      "assets/images/facebook_logo.png",
+                      height: 40,
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CustomText(data: dontHAveanAccountStr, fontSize: 20),
+                  CustomInkwell(
+                    child: CustomText(
+                      data: SignupStr,
+                      color: primaryColor,
+                      fontSize: 20,
+                    ),
+                    onTap: () {
+                      RouteGenerator.navigateToPage(
+                        context,
+                        Routes.signupRoute,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-      );
-    
-  }
-
+      ),
+    ),
+  );
+}

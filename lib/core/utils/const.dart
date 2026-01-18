@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 class Constants {
-  // NOTE: Vercel does NOT support WebSockets (Django Channels).
-  // For production, use Heroku, DigitalOcean, or AWS.
-  // For local testing across networks, use ngrok: ngrok http 8000
-  static const String baseUrl =
-      "https://uncoddled-charita-nonlymphatic.ngrok-free.dev";
+  // CHANGE: Split into two URLs for dual deployment architecture
+  // REST API endpoint (Vercel) - handles login, signup, profile, users, etc.
+  static const String apiBaseUrl = "https://chess-backend-ochre.vercel.app";
+
+  // WebSocket endpoint (Render) - handles call signaling only
+  static const String wsBaseUrl = "wss://chess-websocket-dor6.onrender.com";
+
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
-  //https://chess-backend-ochre.vercel.app
 }

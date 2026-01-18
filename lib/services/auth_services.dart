@@ -10,8 +10,10 @@ class AuthServices {
   final TokenStorage _storage = TokenStorage();
 
   //Signup
+  // CHANGE: Now throws exceptions with specific error messages from backend
   Future<bool> signup(String username, String password, String email) async {
-    final url = Uri.parse("${Constants.baseUrl}/api/signup/");
+    // CHANGE: Using apiBaseUrl for REST API (Vercel)
+    final url = Uri.parse("${Constants.apiBaseUrl}/api/signup/");
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -29,14 +31,32 @@ class AuthServices {
       return true;
     } else {
       print("Signup Failed:${response.body}");
-      return false;
+
+      // Parse error message from backend
+      try {
+        final errorData = jsonDecode(response.body);
+        if (errorData['error'] != null) {
+          throw Exception(errorData['error']);
+        }
+      } catch (e) {
+        // If parsing fails, check for common error patterns
+        if (response.body.contains('Username already exists')) {
+          throw Exception('Username already exists');
+        } else if (response.body.contains('Email already registered')) {
+          throw Exception('Email already registered');
+        }
+      }
+
+      throw Exception('Signup failed. Please try again.');
     }
   }
 
   //Login
+  // CHANGE: Now throws exceptions with specific error messages
   Future<bool> login(String username, String password) async {
     final response = await http.post(
-      Uri.parse("${Constants.baseUrl}/api/token/"),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse("${Constants.apiBaseUrl}/api/token/"),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'username': username, 'password': password}),
     );
@@ -60,12 +80,20 @@ class AuthServices {
         return true;
       } else {
         print("Login api didnot return token");
+        throw Exception('Login failed. Please try again.');
       }
     } else {
       print("Login failed: ${response.body}");
-      return false;
+
+      // Parse error message from backend
+      final errorData = jsonDecode(response.body);
+      if (errorData['detail'] != null) {
+        throw Exception(errorData['detail']);
+      }
+
+      // Default error message for invalid credentials
+      throw Exception('Invalid username or password');
     }
-    return false;
   }
 
   //Refresh token
@@ -74,7 +102,8 @@ class AuthServices {
     if (refresh == null) return false;
 
     final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/token/refresh/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/token/refresh/'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'refresh': refresh}),
     );
@@ -102,7 +131,8 @@ class AuthServices {
     if (email != null) body['email'] = email;
     if (phone != null) body['phone'] = phone;
     final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/forgot-password/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/forgot-password/'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
     );
@@ -117,7 +147,8 @@ class AuthServices {
   //Verify OTP
   Future<bool> verifyOtp(String email, String otp) async {
     final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/verify-otp/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/verify-otp/'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email.trim(), 'otp': otp.trim()}),
     );
@@ -128,11 +159,20 @@ class AuthServices {
   }
 
   //Reset Password
-  Future<bool> resetPassword(String email, String new_password, String otp) async {
+  Future<bool> resetPassword(
+    String email,
+    String new_password,
+    String otp,
+  ) async {
     final response = await http.post(
-      Uri.parse('${Constants.baseUrl}/api/reset-password/'),
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/reset-password/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'new_password': new_password, 'otp': otp}),
+      body: jsonEncode({
+        'email': email,
+        'new_password': new_password,
+        'otp': otp,
+      }),
     );
     if (response.statusCode == 200) {
       return true;
