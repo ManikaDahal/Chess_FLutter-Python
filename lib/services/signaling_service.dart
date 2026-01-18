@@ -44,6 +44,11 @@ class SignalingService {
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
+
+  // CHANGE: Added getter to expose current room ID
+  // This allows GlobalCallHandler to know which room incoming calls are from
+  String? get currentRoomId => _currentRoomId;
+
   bool _isRemoteDescriptionSet = false;
 
   final Map<String, dynamic> _configuration = {

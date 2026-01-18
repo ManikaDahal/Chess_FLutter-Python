@@ -65,6 +65,8 @@ class GlobalCallHandler {
   final SignalingService signalingService = SignalingService();
   bool _initialized = false;
 
+  // CHANGE: Modified init() to connect to general chess_room_1
+  // This room is used for chess board calls (everyone can hear)
   void init() async {
     if (_initialized) return;
     _initialized = true;
@@ -84,19 +86,49 @@ class GlobalCallHandler {
       final context = Constants.navigatorKey.currentContext;
       if (context != null) {
         bool isVideo = signalingService.pendingMediaType == 'video';
-        _showIncomingCallDialog(context, roomId, isVideo: isVideo);
+        // CHANGE: Use currentRoomId to determine which room the call is from
+        String? currentRoom = signalingService.currentRoomId;
+        _showIncomingCallDialog(
+          context,
+          currentRoom ?? roomId,
+          isVideo: isVideo,
+        );
       } else {
         debugPrint('❌ Cannot show incoming call dialog: context is null');
       }
     };
 
-    // ✅ START SIGNALING
+    // ✅ START SIGNALING for general chess room
     try {
-      debugPrint('🌐 Connecting to signaling: $wsUrl');
+      debugPrint('🌐 Connecting to general signaling: $wsUrl (Room: $roomId)');
       await signalingService.connect(wsUrl, roomId);
-      debugPrint('✅ Connected to signaling');
+      debugPrint('✅ Connected to general signaling room: $roomId');
     } catch (e) {
-      debugPrint('❌ Failed to connect to signaling: $e');
+      debugPrint('❌ Failed to connect to general signaling: $e');
+    }
+  }
+
+  // CHANGE: Added connectForUser() to enable user-specific signaling
+  // This allows users to receive calls targeted specifically at them
+  // Each user listens on their own room: user_{userId}
+  Future<void> connectForUser(int userId) async {
+    final roomId = "user_$userId";
+
+    String wsUrl;
+    if (Constants.baseUrl.startsWith("https")) {
+      wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
+    } else {
+      wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
+    }
+
+    try {
+      debugPrint(
+        '🌐 Connecting to user-specific signaling: $wsUrl (Room: $roomId)',
+      );
+      await signalingService.connect(wsUrl, roomId);
+      debugPrint('✅ Connected to user-specific signaling room: $roomId');
+    } catch (e) {
+      debugPrint('❌ Failed to connect to user-specific signaling: $e');
     }
   }
 

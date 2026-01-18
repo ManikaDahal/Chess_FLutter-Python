@@ -3,7 +3,9 @@ import 'package:chess_python/ui/chess_board.dart';
 import 'package:chess_python/ui/user_list.dart';
 import 'package:flutter/material.dart';
 import 'package:chess_python/core/utils/color_utils.dart';
+import 'package:chess_python/services/api_services.dart'; // CHANGE: Added for profile fetching
 import 'package:chess_python/services/signaling_service.dart';
+import 'package:chess_python/core/utils/global_callhandler.dart'; // CHANGE: Added for user-specific signaling
 import 'package:chess_python/core/utils/const.dart';
 
 class BottomnavBar extends StatefulWidget {
@@ -21,24 +23,34 @@ class _BottomnavBarState extends State<BottomnavBar> {
   @override
   void initState() {
     super.initState();
-    // _initSignaling();
+    // CHANGE: Initialize user-specific signaling for targeted calls
+    _initUserSignaling();
   }
 
-  // void _initSignaling() {
-  //   // For now using the same hardcoded roomId as in GameBoard
-  //   // In a real app, this might be a user-specific room or a list of rooms.
-  //   const roomId = "chess_room_1";
+  // CHANGE: Added _initUserSignaling() to connect user to their personal room
+  // This allows them to receive calls targeted specifically at them from the user list
+  // Note: General chess_room_1 is already connected in GlobalCallHandler.init()
+  Future<void> _initUserSignaling() async {
+    try {
+      final apiService = ApiService();
+      final profile = await apiService.getProfile();
+      final int? userId = profile['id'];
 
-  //   String wsUrl;
-  //   if (Constants.baseUrl.startsWith("https")) {
-  //     wsUrl = Constants.baseUrl.replaceAll("https://", "wss://");
-  //   } else {
-  //     wsUrl = Constants.baseUrl.replaceAll("http://", "ws://");
-  //   }
-
-  //   // Connect to signaling
-  //   _signalingService.connect(wsUrl, roomId);
-  // }
+      if (userId != null) {
+        debugPrint('🚀 Initializing user-specific signaling for user: $userId');
+        // Connect to user's personal room: user_{userId}
+        await GlobalCallHandler().connectForUser(userId);
+      } else {
+        debugPrint(
+          '⚠️ Could not find user ID in profile for user-specific signaling',
+        );
+      }
+    } catch (e) {
+      debugPrint(
+        '❌ Error initializing user-specific signaling in BottomnavBar: $e',
+      );
+    }
+  }
 
   List<BottomNavigationBarItem> bottomNavItemList = [
     const BottomNavigationBarItem(icon: Icon(Icons.home), label: ""),

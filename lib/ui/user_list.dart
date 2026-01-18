@@ -70,9 +70,10 @@ class _UserListState extends State<UserList> {
               final username = user['username'] ?? "Unknown User";
               final email = user['email'] ?? "";
 
-              // For now, we use a simple room ID based on the user's ID or similar.
-              // In a real app, this would be more secure.
-              final roomId = "call_${user['id']}";
+              // CHANGE: Using 'user_' prefix to call the target user's personal room
+              // This ensures only the specific user receives the call notification
+              // Format: user_{targetUserId}
+              final roomId = "user_${user['id']}";
 
               return ListTile(
                 leading: CircleAvatar(
