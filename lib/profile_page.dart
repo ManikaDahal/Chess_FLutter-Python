@@ -1,16 +1,14 @@
 import 'dart:convert';
 
-import 'package:chess_python/core/utils/display_snackbar.dart';
-import 'package:chess_python/core/utils/route_const.dart';
-import 'package:chess_python/core/utils/route_generator.dart';
-import 'package:chess_python/services/api_services.dart';
-import 'package:chess_python/services/auth_services.dart';
-import 'package:chess_python/services/token_storage.dart';
-import 'package:chess_python/widgets/custom_elevatedbutton.dart';
-import 'package:chess_python/core/utils/color_utils.dart';
-
-import 'package:chess_python/core/utils/string_utils.dart';
-import 'package:chess_python/widgets/custom_text.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/display_snackbar.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
+import 'package:chess_game_manika/core/utils/string_utils.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/services/auth_services.dart';
+import 'package:chess_game_manika/services/token_storage.dart';
+import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 

@@ -1,11 +1,8 @@
-import 'package:chess_python/core/utils/display_snackbar.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/services/auth_services.dart';
+import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
-
-import 'package:chess_python/services/api_services.dart';
-import 'package:chess_python/services/auth_services.dart';
-import 'package:chess_python/services/token_storage.dart';
-
 class BiometricAuth {
   final LocalAuthentication _auth = LocalAuthentication();
   final AuthServices _authServices = AuthServices();

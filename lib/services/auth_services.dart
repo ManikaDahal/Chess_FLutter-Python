@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'package:chess_python/core/utils/const.dart';
-import 'package:chess_python/core/utils/string_utils.dart';
-import 'package:chess_python/services/token_storage.dart';
+import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;

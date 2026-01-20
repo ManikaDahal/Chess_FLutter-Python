@@ -1,15 +1,26 @@
-import 'package:chess_python/bottom_navbar.dart';
-import 'package:chess_python/core/utils/const.dart';
-import 'package:chess_python/core/utils/global_callhandler.dart';
-import 'package:chess_python/login.dart';
+import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:chess_game_manika/core/utils/global_callhandler.dart';
+import 'package:chess_game_manika/login.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // final int currentUserId = await getCurrentUserId();
   // Start global call listener
   GlobalCallHandler().init();
   runApp(MyApp());
 }
+
+// Future<int> getCurrentUserId() async {
+//   final prefs = await SharedPreferences.getInstance();
+//   return prefs.getInt('userId') ?? 0; // fallback if not saved
+// }
+
+// Future<void> setCurrentUserId(int id) async {
+//   final prefs = await SharedPreferences.getInstance();
+//   await prefs.setInt('userId', id);
+//}
 
 class MyApp extends StatelessWidget {
   // final GlobalCallHandler _callHandler = GlobalCallHandler();
@@ -31,6 +42,4 @@ class MyApp extends StatelessWidget {
       home: Login(),
     );
   }
-
-  
 }

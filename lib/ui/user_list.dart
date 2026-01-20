@@ -1,10 +1,10 @@
-import 'package:chess_python/bottom_navbar.dart';
-import 'package:chess_python/core/utils/route_const.dart';
-import 'package:chess_python/core/utils/route_generator.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/ui/call_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:chess_python/services/api_services.dart';
-import 'package:chess_python/ui/call_screen.dart';
-import 'package:chess_python/core/utils/color_utils.dart';
+
 
 class UserList extends StatefulWidget {
   const UserList({super.key});
@@ -22,6 +22,15 @@ class _UserListState extends State<UserList> {
     super.initState();
     _usersFuture = _apiService.getUsers();
   }
+//   void _startChessGame(int friendId){
+// String roomId="game_${DateTime.now().millisecondsSinceEpoch}";
+// GlobalCallHandler().sendToGeneral({
+//   "type":"game_invite",
+//   "to":friendId,
+//   "room":roomId,
+//   });
+//   RouteGenerator.navigateToPage(context, Routes.gameRoomRoute, arguments: RoomArguments(roomId: roomId));
+//   }
 
   void _startCall(String roomId, bool isVideo) {
     Navigator.push(
@@ -96,6 +105,8 @@ class _UserListState extends State<UserList> {
                       icon: const Icon(Icons.videocam, color: Colors.blue),
                       onPressed: () => _startCall(roomId, true),
                     ),
+                    // IconButton(onPressed:() =>_startChessGame(user.id),
+                    //  icon:Icon(Icons.group,color: Colors.blue) )
                   ],
                 ),
               );

@@ -1,4 +1,4 @@
-name: chess_python
+name: chess_game_manika
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -45,6 +45,7 @@ dependencies:
   flutter_ringtone_player: ^4.0.0+4
   permission_handler: ^12.0.1
   vibration: ^2.0.1
+  shared_preferences: ^2.5.4
 
 dev_dependencies:
   flutter_test:

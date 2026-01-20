@@ -1,6 +1,5 @@
-
-import 'package:chess_python/core/utils/color_utils.dart';
-import 'package:chess_python/widgets/custom_text.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/widgets/custom_text.dart';
 import 'package:flutter/material.dart';
 
 class CustomDropdown extends StatefulWidget {

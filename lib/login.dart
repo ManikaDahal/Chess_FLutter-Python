@@ -1,19 +1,21 @@
-import 'package:chess_python/core/utils/color_utils.dart';
-import 'package:chess_python/core/utils/display_snackbar.dart';
-import 'package:chess_python/core/utils/route_const.dart';
-import 'package:chess_python/core/utils/route_generator.dart';
-import 'package:chess_python/core/utils/splin_kit.dart';
-import 'package:chess_python/core/utils/string_utils.dart';
-import 'package:chess_python/services/auth_biometrics.dart';
-import 'package:chess_python/services/auth_services.dart';
-import 'package:chess_python/services/token_storage.dart';
-import 'package:chess_python/widgets/custom_Inkwell.dart';
-import 'package:chess_python/widgets/custom_elevatedbutton.dart';
-import 'package:chess_python/widgets/custom_text.dart';
-import 'package:chess_python/widgets/custom_textformfield.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/display_snackbar.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
+import 'package:chess_game_manika/core/utils/splin_kit.dart';
+import 'package:chess_game_manika/core/utils/string_utils.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/services/auth_biometrics.dart';
+import 'package:chess_game_manika/services/auth_services.dart';
+import 'package:chess_game_manika/services/token_storage.dart';
+import 'package:chess_game_manika/widgets/custom_Inkwell.dart';
+import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
+import 'package:chess_game_manika/widgets/custom_text.dart';
+import 'package:chess_game_manika/widgets/custom_textformfield.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -23,6 +25,7 @@ class Login extends StatefulWidget {
 }
 
 class _LoginState extends State<Login> {
+  final ApiService api = ApiService();
   final BiometricAuth _biometricAuth = BiometricAuth();
   final LocalAuthentication auth = LocalAuthentication();
   final TextEditingController _nameController = TextEditingController();
@@ -53,6 +56,14 @@ class _LoginState extends State<Login> {
       });
 
       if (success) {
+        // final int userId = _nameController.text.hashCode;
+
+        // // Save user ID in SharedPreferences
+        // final prefs = await SharedPreferences.getInstance();
+        // await prefs.setInt('userId', userId);
+
+        // // Initialize GlobalCallHandler for this user
+        // GlobalCallHandler().init();
         final token = await _storage.getAccessToken();
         final refresh = await _storage.getRefreshToken();
         print("Tokens after login -> Access: $token, Refresh: $refresh");

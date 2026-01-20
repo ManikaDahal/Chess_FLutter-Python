@@ -1,12 +1,12 @@
-import 'package:chess_python/profile_page.dart';
-import 'package:chess_python/ui/chess_board.dart';
-import 'package:chess_python/ui/user_list.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/global_callhandler.dart';
+import 'package:chess_game_manika/profile_page.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/services/signaling_service.dart';
+import 'package:chess_game_manika/ui/chess_board.dart';
+import 'package:chess_game_manika/ui/user_list.dart';
 import 'package:flutter/material.dart';
-import 'package:chess_python/core/utils/color_utils.dart';
-import 'package:chess_python/services/api_services.dart'; // CHANGE: Added for profile fetching
-import 'package:chess_python/services/signaling_service.dart';
-import 'package:chess_python/core/utils/global_callhandler.dart'; // CHANGE: Added for user-specific signaling
-import 'package:chess_python/core/utils/const.dart';
+
 
 class BottomnavBar extends StatefulWidget {
   const BottomnavBar({super.key});

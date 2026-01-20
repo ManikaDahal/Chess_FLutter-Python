@@ -8,10 +8,8 @@ import 'dart:async';
 typedef StreamStateCallback = void Function(MediaStream stream);
 
 class SignalingService {
-  // Singleton pattern for global access
-  static final SignalingService _instance = SignalingService._internal();
-  factory SignalingService() => _instance;
-  SignalingService._internal();
+  // REMOVED: Singleton pattern to allow multiple instances (e.g., for general and user-specific rooms)
+  // Now, create separate instances in GlobalCallHandler and CallScreen as needed
 
   WebSocketChannel? _channel;
   String? _currentRoomId;
@@ -36,17 +34,15 @@ class SignalingService {
     onLog?.call(message);
   }
 
-  // Callback for incoming call - can be used globally
+  // Callback for incoming call
   Function()? onIncomingCall;
 
-  // Callback for when the call is actually accepted by the remote peer
+  // Callback for when the call is accepted
   Function()? onCallAccepted;
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
-  // CHANGE: Added getter to expose current room ID
-  // This allows GlobalCallHandler to know which room incoming calls are from
   String? get currentRoomId => _currentRoomId;
 
   bool _isRemoteDescriptionSet = false;
@@ -82,50 +78,13 @@ class SignalingService {
       },
     ],
     'iceCandidatePoolSize': 10,
-    'bundlePolicy':
-        'balanced', // Balanced is often more compatible than max-bundle
+    'bundlePolicy': 'balanced',
     'rtcpMuxPolicy': 'require',
     'sdpSemantics': 'unified-plan',
     'iceTransportPolicy': 'all',
   };
 
   Timer? _iceRestartTimer;
-
-  // Future<void> connect(String wsUrl, String roomId) async {
-  //   if (_isConnected && _currentRoomId == roomId) {
-  //     onLog?.call('Already connected to room: $roomId');
-  //     return;
-  //   }
-
-  //   _currentRoomId = roomId;
-  //   final url = '$wsUrl/ws/call/$roomId/';
-  //   onLog?.call('Connecting to WebSocket: $url');
-
-  //   try {
-  //     _channel = WebSocketChannel.connect(Uri.parse(url));
-  //     _isConnected = true;
-
-  //     _channel!.stream.listen(
-  //       (message) {
-  //         _handleMessage(message);
-  //       },
-  //       onError: (error) {
-  //         _log('WebSocket Error: $error');
-  //         _isConnected = false;
-  //       },
-  //       onDone: () {
-  //         _log('WebSocket Closed');
-  //         _isConnected = false;
-  //       },
-  //     );
-
-  //     await _createPeerConnection();
-  //   } catch (e) {
-  //     onLog?.call('Signaling/Connection Error: $e');
-  //     _isConnected = false;
-  //     throw e;
-  //   }
-  // }
 
   Future<void> connect(String wsUrl, String roomId) async {
     _wsUrl = wsUrl;
@@ -141,7 +100,6 @@ class SignalingService {
 
     try {
       await _ensurePeerConnection();
-
       _channel = WebSocketChannel.connect(Uri.parse(url));
 
       _channel!.stream.listen(
@@ -171,7 +129,6 @@ class SignalingService {
     _stopHeartbeat();
     _reconnectTimer?.cancel();
 
-    // Only auto-reconnect if we have a room ID and didn't manually disconnect
     if (_currentRoomId != null) {
       _isReconnecting = true;
       _reconnectTimer = Timer(const Duration(seconds: 3), () {
@@ -215,8 +172,7 @@ class SignalingService {
       _log('🧊 ICE Connection State: ${state.name}');
       if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
         _startIceRestartTimer();
-      } else if (state ==
-              RTCIceConnectionState.RTCIceConnectionStateConnected ||
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         _stopIceRestartTimer();
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
@@ -233,15 +189,9 @@ class SignalingService {
     _peerConnection!.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
         String type = "unknown";
-        if (candidate.candidate!.contains("typ host")) {
-          type = "HOST (Local)";
-        }
-        if (candidate.candidate!.contains("typ srflx")) {
-          type = "SRFLX (Public IP)";
-        }
-        if (candidate.candidate!.contains("typ relay")) {
-          type = "RELAY (TURN Server)";
-        }
+        if (candidate.candidate!.contains("typ host")) type = "HOST (Local)";
+        if (candidate.candidate!.contains("typ srflx")) type = "SRFLX (Public IP)";
+        if (candidate.candidate!.contains("typ relay")) type = "RELAY (TURN Server)";
 
         _log('🧊 Local ICE Candidate: $type');
         _sendSignal({
@@ -256,68 +206,35 @@ class SignalingService {
     };
 
     _peerConnection!.onTrack = (event) {
-      _log(
-        '🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}',
-      );
+      _log('🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}');
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
         onRemoteStream?.call(_remoteStream!);
       }
-      // If there are no streams (rare), the track is still part of the session
-      // but we need a stream to render it.
     };
   }
 
-  // void _handleMessage(dynamic message) async {
-  //   final data = jsonDecode(message);
-  //   final type = data['type'];
-  //   onLog?.call('RX: $type');
+ void _handleMessage(dynamic message) async {
+  final data = jsonDecode(message);
+  final type = data['type'];
 
-  //   if (type == 'call_offer') {
-  //     _pendingOffer = data['offer'];
-  //     onIncomingCall?.call();
-  //   } else if (type == 'call_answer') {
-  //     onCallAccepted?.call();
-  //     await _handleAnswer(data['answer']);
-  //   } else if (type == 'new_ice_candidate') {
-  //     await _handleCandidate(data['candidate']);
-  //   } else {
-  //     onLog?.call('Unknown msg: $type');
-  //   }
-  // }
+  // Ignore self messages
+  if (data['sender'] == _channel?.hashCode.toString()) return;
 
-  void _handleMessage(dynamic message) async {
-    final data = jsonDecode(message);
-    final type = data['type'];
+  _log('RX: $type');
 
-    // For initial call setup:
-    // Ignore duplicate setup offers if we are already connected or calling
-    if (type == 'call_offer' &&
-        _isCaller &&
-        _peerConnection?.signalingState ==
-            RTCSignalingState.RTCSignalingStateStable) {
-      // This might be a renegotiation offer from the remote side
-    } else if (type == 'call_offer' && _isCaller) {
-      return;
-    }
-    // Also ignore duplicate offers
-    if (type == 'call_offer' && _pendingOffer != null) return;
-
-    _log('RX: $type');
-
-    if (type == 'call_offer') {
-      _pendingOffer = data['offer'];
-      _pendingMediaType = data['mediaType'] ?? 'video';
-      onIncomingCall?.call();
-    } else if (type == 'call_answer') {
-      onCallAccepted?.call();
-      await _handleAnswer(data['answer']);
-    } else if (type == 'new_ice_candidate') {
-      await _handleCandidate(data['candidate']);
-    } else {
-      _log('Unknown msg: $type');
-    }
+  if (type == 'call_offer') {
+    _pendingOffer = data['offer'];
+    _pendingMediaType = data['mediaType'] ?? 'video';
+    onIncomingCall?.call();
+  } else if (type == 'call_answer') {
+    onCallAccepted?.call();
+    await _handleAnswer(data['answer']);
+  } else if (type == 'new_ice_candidate') {
+    await _handleCandidate(data['candidate']);
   }
+}
+
 
   Map<String, dynamic>? _pendingOffer;
   String? _pendingMediaType;
@@ -331,10 +248,7 @@ class SignalingService {
     }
 
     await _ensurePeerConnection();
-
-    // Ensure we have local stream before accepting
     await _setupLocalStream(isVideo: isVideo);
-
     await _handleOffer(_pendingOffer!);
     _pendingOffer = null;
   }
@@ -342,7 +256,6 @@ class SignalingService {
   Future<void> _setupLocalStream({bool isVideo = true}) async {
     if (_localStream != null) return;
 
-    // Explicitly check/request permissions
     var micStatus = await Permission.microphone.status;
     if (!micStatus.isGranted) {
       micStatus = await Permission.microphone.request();
@@ -363,42 +276,21 @@ class SignalingService {
     }
 
     final mediaConstraints = {
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-      },
-      'video': isVideo
-          ? {
-              'facingMode': 'user',
-              'width': '640',
-              'height': '480',
-              'frameRate': '30',
-            }
-          : false,
+      'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
+      'video': isVideo ? {'facingMode': 'user', 'width': '640', 'height': '480', 'frameRate': '30'} : false,
     };
 
     int attempts = 0;
     while (attempts < 2) {
       try {
-        if (attempts > 0) {
-          _log('⏳ Waiting before media retry (attempt ${attempts + 1})...');
-          await Future.delayed(const Duration(milliseconds: 500));
-        }
-
-        _localStream = await navigator.mediaDevices.getUserMedia(
-          mediaConstraints,
-        );
+        _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         _log('✅ Got Local Stream: ${_localStream!.id}');
         onLocalStream?.call(_localStream!);
 
         _localStream!.getTracks().forEach((track) {
-          _log('➕ Adding track to PC: ${track.kind}');
-          // In Unified Plan, using addTransceiver or addTrack with stream is preferred
           _peerConnection!.addTrack(track, _localStream!);
         });
 
-        // Ensure transceivers are set to receive immediately
         final transceivers = await _peerConnection!.getTransceivers();
         for (var t in transceivers) {
           final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
@@ -406,14 +298,12 @@ class SignalingService {
             await t.setDirection(TransceiverDirection.SendRecv);
           }
         }
-        return; // Success
+        return;
       } catch (e) {
         attempts++;
         _log('❌ getUserMedia Trial $attempts Failed: $e');
         if (attempts >= 2) {
-          throw Exception(
-            'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.',
-          );
+          throw Exception('Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.');
         }
       }
     }
@@ -422,45 +312,28 @@ class SignalingService {
   Future<void> _handleOffer(Map<String, dynamic> offerData) async {
     await _ensurePeerConnection();
     _log('📨 Handling Offer: ${offerData['type']}');
-    await _peerConnection!.setRemoteDescription(
-      RTCSessionDescription(offerData['sdp'], offerData['type']),
-    );
+    await _peerConnection!.setRemoteDescription(RTCSessionDescription(offerData['sdp'], offerData['type']));
     _isRemoteDescriptionSet = true;
 
-    final constraints = {
-      'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true},
-      'optional': [],
-    };
-
+    final constraints = {'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true}, 'optional': []};
     final answer = await _peerConnection!.createAnswer(constraints);
     await _peerConnection!.setLocalDescription(answer);
 
-    _sendSignal({
-      'type': 'call_answer',
-      'answer': {'type': answer.type, 'sdp': answer.sdp},
-    });
-
-    // Drain buffered candidates
+    _sendSignal({'type': 'call_answer', 'answer': {'type': answer.type, 'sdp': answer.sdp}});
     _drainRemoteCandidates();
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> answerData) async {
-    await _peerConnection!.setRemoteDescription(
-      RTCSessionDescription(answerData['sdp'], answerData['type']),
-    );
+    await _peerConnection!.setRemoteDescription(RTCSessionDescription(answerData['sdp'], answerData['type']));
     _isRemoteDescriptionSet = true;
-
-    // Drain buffered candidates
     _drainRemoteCandidates();
   }
 
   Future<void> _handleCandidate(Map<String, dynamic> candidateData) async {
     try {
-      final String? candidateStr = candidateData['candidate'];
-      final String? sdpMid = candidateData['sdpMid'];
-      final int? sdpMLineIndex = candidateData['sdpMLineIndex'] is String
-          ? int.tryParse(candidateData['sdpMLineIndex'])
-          : candidateData['sdpMLineIndex'];
+      final candidateStr = candidateData['candidate'];
+      final sdpMid = candidateData['sdpMid'];
+      final sdpMLineIndex = candidateData['sdpMLineIndex'] is String ? int.tryParse(candidateData['sdpMLineIndex']) : candidateData['sdpMLineIndex'];
 
       if (candidateStr == null) {
         _log('ℹ️ End of candidates signal received');
@@ -483,34 +356,18 @@ class SignalingService {
 
   void _drainRemoteCandidates() async {
     if (_peerConnection == null || _remoteCandidatesBuffer.isEmpty) return;
-    _log(
-      '📥 Draining ${_remoteCandidatesBuffer.length} buffered ICE candidates',
-    );
+    _log('📥 Draining ${_remoteCandidatesBuffer.length} buffered ICE candidates');
     for (var candidate in _remoteCandidatesBuffer) {
       await _peerConnection!.addCandidate(candidate);
     }
     _remoteCandidatesBuffer.clear();
   }
 
-  // Future<void> startCall() async {
-  //   await _setupLocalStream();
-
-  //   if (_peerConnection == null) return;
-
-  //   final offer = await _peerConnection!.createOffer();
-  //   await _peerConnection!.setLocalDescription(offer);
-
-  //   _sendSignal({
-  //     'type': 'call_offer',
-  //     'offer': {'type': offer.type, 'sdp': offer.sdp},
-  //   });
-  // }
-
   Future<void> startCall({bool isVideo = true}) async {
     _isCaller = true;
     _log('📞 Starting Call (video: $isVideo)');
     await _ensurePeerConnection();
-    await _setupLocalStream(isVideo: isVideo); // MUST be first
+    await _setupLocalStream(isVideo: isVideo);
 
     if (_peerConnection == null) return;
 
@@ -552,7 +409,6 @@ class SignalingService {
   void toggleVideo(bool videoOn) async {
     if (_localStream == null) return;
 
-    // If we want to turn it ON but don't have video tracks, we need to get them
     if (videoOn && _localStream!.getVideoTracks().isEmpty) {
       try {
         final videoStream = await navigator.mediaDevices.getUserMedia({
@@ -569,7 +425,6 @@ class SignalingService {
         await _localStream!.addTrack(videoTrack);
         _peerConnection!.addTrack(videoTrack, _localStream!);
 
-        // Renegotiate
         final offer = await _peerConnection!.createOffer();
         await _peerConnection!.setLocalDescription(offer);
         _sendSignal({
@@ -638,9 +493,7 @@ class SignalingService {
       _sendSignal({
         'type': 'call_offer',
         'offer': {'type': offer.type, 'sdp': offer.sdp},
-        'mediaType': _localStream?.getVideoTracks().isNotEmpty == true
-            ? 'video'
-            : 'audio',
+        'mediaType': _localStream?.getVideoTracks().isNotEmpty == true ? 'video' : 'audio',
         'iceRestart': true,
       });
     } catch (e) {
@@ -650,7 +503,7 @@ class SignalingService {
 
   void disconnect() {
     _log('🔌 Manually disconnecting from signaling');
-    _currentRoomId = null; // Prevent auto-reconnect
+    _currentRoomId = null;
     _reconnectTimer?.cancel();
     _stopHeartbeat();
     _stopIceRestartTimer();

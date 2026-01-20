@@ -1,12 +1,14 @@
-import 'package:chess_python/bottom_navbar.dart';
-import 'package:chess_python/core/utils/otp_args.dart';
-import 'package:chess_python/core/utils/resetPassword_args.dart';
-import 'package:chess_python/core/utils/route_const.dart';
-import 'package:chess_python/forgot_password.dart';
-import 'package:chess_python/login.dart';
-import 'package:chess_python/otp_page.dart';
-import 'package:chess_python/reset_password.dart';
-import 'package:chess_python/sign_up.dart';
+import 'package:chess_game_manika/bottom_navbar.dart';
+import 'package:chess_game_manika/core/utils/otp_args.dart';
+import 'package:chess_game_manika/core/utils/resetPassword_args.dart';
+import 'package:chess_game_manika/core/utils/room_args.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/forgot_password.dart';
+import 'package:chess_game_manika/login.dart';
+import 'package:chess_game_manika/otp_page.dart';
+import 'package:chess_game_manika/reset_password.dart';
+import 'package:chess_game_manika/sign_up.dart';
+import 'package:chess_game_manika/ui/gameScreen.dart';
 import 'package:flutter/material.dart';
 
 class RouteGenerator {
@@ -57,6 +59,12 @@ class RouteGenerator {
 
         return MaterialPageRoute(
           builder: (_) => ResetPassword(contact: args.contact, otp: args.otp),
+        );
+         case Routes.gameRoomRoute:
+        final args = settings.arguments as RoomArguments;
+
+        return MaterialPageRoute(
+          builder: (_) => Gamescreen(roomId: args.roomId),
         );
       // case Routes.gameBoardRoute:
       //   return MaterialPageRoute(builder: (_) => const GameBoard());

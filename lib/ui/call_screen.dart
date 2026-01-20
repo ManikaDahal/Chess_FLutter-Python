@@ -8,12 +8,14 @@ class CallScreen extends StatefulWidget {
   final String roomId;
   final bool isIncomingCall;
   final bool isInitialVideo;
+  final SignalingService? signalingService; // For incoming calls, use existing instance
 
   const CallScreen({
     super.key,
     required this.roomId,
     this.isIncomingCall = false,
     this.isInitialVideo = true,
+    this.signalingService,
   });
 
   @override
@@ -22,7 +24,7 @@ class CallScreen extends StatefulWidget {
 
 class _CallScreenState extends State<CallScreen>
     with SingleTickerProviderStateMixin {
-  final SignalingService _signalingService = SignalingService();
+  late final SignalingService _signalingService;
   bool _isMuted = false;
   late String _status;
   final List<String> _logs = [];
@@ -39,6 +41,9 @@ class _CallScreenState extends State<CallScreen>
   @override
   void initState() {
     super.initState();
+
+    // Use provided signaling service for incoming calls, or create new for outgoing
+    _signalingService = widget.signalingService ?? SignalingService();
 
     // Set initial status based on call type
     String callType = widget.isInitialVideo ? "Video" : "Audio";
@@ -107,6 +112,7 @@ class _CallScreenState extends State<CallScreen>
         setState(() {
           _localRenderer.srcObject = stream;
         });
+        _logs.add('📹 Local renderer set');
       }
     };
 
@@ -116,8 +122,12 @@ class _CallScreenState extends State<CallScreen>
           _status = "Connected";
           _remoteRenderer.srcObject = stream;
         });
+        _logs.add('📹 Remote renderer set');
       }
     };
+
+
+    
   }
 
   void _connectAndInitiate() async {

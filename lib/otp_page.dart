@@ -1,8 +1,9 @@
-import 'package:chess_python/reset_password.dart';
+
+import 'package:chess_game_manika/core/utils/display_snackbar.dart';
+import 'package:chess_game_manika/reset_password.dart';
+import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:flutter/material.dart';
-import 'package:chess_python/core/utils/display_snackbar.dart';
-import 'package:chess_python/services/auth_services.dart';
-import 'package:chess_python/core/utils/resetPassword_args.dart';
+
 
 class OtpPage extends StatefulWidget {
   final String contact; // this will receive the email from previous screen
