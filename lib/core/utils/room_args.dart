@@ -1,5 +1,6 @@
 class RoomArguments {
-  final String roomId;
+  final int roomId;
+  final int userId;
 
-  RoomArguments({required this.roomId});
+  RoomArguments({required this.roomId, required this.userId});
 }

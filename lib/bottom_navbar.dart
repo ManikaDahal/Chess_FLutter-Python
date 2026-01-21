@@ -1,99 +1,137 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:badges/badges.dart' as badges;
+
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
-import 'package:chess_game_manika/profile_page.dart';
+import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/api_services.dart';
-import 'package:chess_game_manika/services/signaling_service.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/ui/user_list.dart';
-import 'package:flutter/material.dart';
+import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:chess_game_manika/profile_page.dart';
 
-
-class BottomnavBar extends StatefulWidget {
-  const BottomnavBar({super.key});
+class BottomNavBarWrapper extends StatefulWidget {
+  const BottomNavBarWrapper({super.key});
 
   @override
-  State<BottomnavBar> createState() => _BottomnavBarState();
+  State<BottomNavBarWrapper> createState() => _BottomNavBarWrapperState();
 }
 
-class _BottomnavBarState extends State<BottomnavBar> {
-  PageController _pageController = PageController();
-  int index = 0;
-  final SignalingService _signalingService = SignalingService();
+class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
+  int _currentIndex = 0;
+  late final PageController _pageController;
+  int? _currentUserId;
+  int? _currentRoomId;
+  bool _loading = true;
+
+  late ChatProvider _chatProvider;
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
-    // CHANGE: Initialize user-specific signaling for targeted calls
-    _initUserSignaling();
+    _pageController = PageController();
+    _initUser();
   }
 
-  // CHANGE: Added _initUserSignaling() to connect user to their personal room
-  // This allows them to receive calls targeted specifically at them from the user list
-  // Note: General chess_room_1 is already connected in GlobalCallHandler.init()
-  Future<void> _initUserSignaling() async {
+  Future<void> _initUser() async {
     try {
-      final apiService = ApiService();
-      final profile = await apiService.getProfile();
+      // 1️⃣ Fetch profile
+      final profile = await ApiService().getProfile();
       final int? userId = profile['id'];
+      final int roomId = profile['current_room_id'] ?? 1;
 
-      if (userId != null) {
-        debugPrint('🚀 Initializing user-specific signaling for user: $userId');
-        // Connect to user's personal room: user_{userId}
-        await GlobalCallHandler().connectForUser(userId);
-      } else {
-        debugPrint(
-          '⚠️ Could not find user ID in profile for user-specific signaling',
-        );
-      }
-    } catch (e) {
-      debugPrint(
-        '❌ Error initializing user-specific signaling in BottomnavBar: $e',
-      );
+      if (userId == null) throw Exception("User ID not found");
+
+      // 2️⃣ Initialize ChatProvider once
+      _chatProvider = ChatProvider();
+      Future.microtask(() => _chatProvider.init(roomId, userId));
+
+      // 3️⃣ Connect user-specific signaling
+      await GlobalCallHandler().connectForUser(userId);
+
+      if (!mounted) return;
+
+      // 4️⃣ Initialize pages
+      setState(() {
+        _currentUserId = userId;
+        _currentRoomId = roomId;
+        _loading = false;
+        _pages = [
+          GameBoard(currentUserId: _currentUserId!, roomId: _currentRoomId!),
+          const UserList(),
+          ChatPage(roomId: _currentRoomId!, currentUserId: _currentUserId!),
+          const ProfilePage(),
+        ];
+      });
+    } catch (e, st) {
+      debugPrint("Error initializing user: $e\n$st");
     }
   }
 
-  List<BottomNavigationBarItem> bottomNavItemList = [
-    const BottomNavigationBarItem(icon: Icon(Icons.home), label: ""),
-    const BottomNavigationBarItem(icon: Icon(Icons.people), label: ""),
-    const BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ""),
-  ];
-
-  List<Widget> widgets = [
-    const GameBoard(),
-    const UserList(),
-    const ProfilePage(),
-  ];
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        children: widgets,
-        onPageChanged: (value) {
-          setState(() {
-            index = value;
-          });
-        },
-      ),
-      bottomNavigationBar: Theme(
-        data: ThemeData(splashFactory: NoSplash.splashFactory),
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-        child: BottomNavigationBar(
-          items: bottomNavItemList,
-          currentIndex: index,
-          backgroundColor: whiteColor,
-          unselectedItemColor: foregroundColor,
-          selectedItemColor: backgroundColor,
-          type: BottomNavigationBarType.fixed,
-          showSelectedLabels: false,
-          showUnselectedLabels: false,
-          onTap: (value) {
-            setState(() {
-              index = value;
-              _pageController.jumpToPage(value);
-            });
-          },
-        ),
+    // 5️⃣ Provide ChatProvider safely without recreating
+    return ChangeNotifierProvider<ChatProvider>.value(
+      value: _chatProvider,
+      child: Consumer<ChatProvider>(
+        builder: (context, chatProvider, _) {
+          return Scaffold(
+            body: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: _pages,
+            ),
+            bottomNavigationBar: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              currentIndex: _currentIndex,
+              backgroundColor: whiteColor,
+              selectedItemColor: backgroundColor,
+              unselectedItemColor: foregroundColor,
+              showSelectedLabels: false,
+              showUnselectedLabels: false,
+              onTap: (index) {
+                setState(() => _currentIndex = index);
+                _pageController.jumpToPage(index);
+
+                // Reset unread count if chat tab opened
+                if (index == 2) chatProvider.resetUnreadCount();
+              },
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.home),
+                  label: "Board",
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.people),
+                  label: "Players",
+                ),
+                BottomNavigationBarItem(
+                  icon: badges.Badge(
+                    showBadge: chatProvider.unreadCount > 0,
+                    badgeContent: Text(
+                      chatProvider.unreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                    child: const Icon(Icons.chat),
+                  ),
+                  label: "Chat",
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline),
+                  label: "Profile",
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

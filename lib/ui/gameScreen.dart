@@ -10,18 +10,18 @@ class Gamescreen extends StatefulWidget {
 }
 
 class _GamescreenState extends State<Gamescreen> {
-  final GameSocketService socket=GameSocketService();
+  // final WebSocketService socket=WebSocketService();
 
   @override
-  void initState(){
-    super.initState();
-    socket.onMessage=(data){
-      if(data["type"]=="move"){
+  // void initState(){
+  //   super.initState();
+  //   socket.onMessage=(data){
+  //     if(data["type"]=="move"){
 
-      }
-    };
-    socket.connect(widget.roomId);
-  }
+  //     }
+  //   };
+  //   socket.connect(widget.roomId);
+  // }
   @override
   Widget build(BuildContext context) {
     return const Placeholder();

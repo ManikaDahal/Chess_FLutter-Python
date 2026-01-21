@@ -4,6 +4,7 @@ import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthServices {
   final TokenStorage _storage = TokenStorage();
@@ -62,6 +63,8 @@ class AuthServices {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
+      // SharedPreferences prefs = await SharedPreferences.getInstance();
+      // await prefs.setString("jwt", data['access']);
       if (data['access'] != null && data['refresh'] != null) {
         print("Login response : $response");
 
@@ -181,3 +184,10 @@ class AuthServices {
     }
   }
 }
+
+
+// sendChessInvite(int userId) aync{
+//   final response= await http.post(
+    
+//   ) 
+// }

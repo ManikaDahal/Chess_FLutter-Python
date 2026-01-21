@@ -1,7 +1,10 @@
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/login.dart';
+import 'package:chess_game_manika/provider/chat_provider.dart';
+import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
@@ -9,6 +12,7 @@ Future<void> main() async {
   // final int currentUserId = await getCurrentUserId();
   // Start global call listener
   GlobalCallHandler().init();
+  await NotificationService.init(navKey: Constants.navigatorKey);
   runApp(MyApp());
 }
 
@@ -32,14 +36,19 @@ class MyApp extends StatelessWidget {
     // Initialize the global call listener
     // _callHandler.init();
 
-    return MaterialApp(
-      navigatorKey: Constants.navigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+    return MultiProvider(
+       providers: [
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
+      ],
+      child: MaterialApp(
+        navigatorKey: Constants.navigatorKey,
+        debugShowCheckedModeBanner: false,
+        title: 'Flutter Demo',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        ),
+        home: Login(),
       ),
-      home: Login(),
     );
   }
 }

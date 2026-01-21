@@ -1,3 +1,4 @@
+import 'package:chess_game_manika/bottom_navbar.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/display_snackbar.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
@@ -69,8 +70,14 @@ class _LoginState extends State<Login> {
         print("Tokens after login -> Access: $token, Refresh: $refresh");
 
         if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => BottomNavBarWrapper()),
+            );
+          });
           DisplaySnackbar.show(context, loginSuccessfullStr);
-          RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+          //RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
         }
       } else {
         if (mounted) {

@@ -8,6 +8,7 @@ import 'package:chess_game_manika/login.dart';
 import 'package:chess_game_manika/otp_page.dart';
 import 'package:chess_game_manika/reset_password.dart';
 import 'package:chess_game_manika/sign_up.dart';
+import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/ui/gameScreen.dart';
 import 'package:flutter/material.dart';
 
@@ -44,7 +45,7 @@ class RouteGenerator {
       case Routes.forgotPasswordRoute:
         return MaterialPageRoute(builder: (_) => const ForgotPassword());
       case Routes.bottomNavBarRoute:
-        return MaterialPageRoute(builder: (_) => const BottomnavBar());
+        return MaterialPageRoute(builder: (_) => const BottomNavBarWrapper());
       // case Routes.enterOTPRoute:
       // return MaterialPageRoute(builder: (_) => const OtpPage());
       case Routes.enterOTPRoute:
@@ -64,10 +65,9 @@ class RouteGenerator {
         final args = settings.arguments as RoomArguments;
 
         return MaterialPageRoute(
-          builder: (_) => Gamescreen(roomId: args.roomId),
+          builder: (_) => GameBoard(roomId: args.roomId, currentUserId:args.userId,),
         );
-      // case Routes.gameBoardRoute:
-      //   return MaterialPageRoute(builder: (_) => const GameBoard());
+      
       // case Routes.bottomNavBarRoute:
       //   return MaterialPageRoute(builder: (_) => const BottomnavBar());
       // case Routes.profileRoute:
