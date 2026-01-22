@@ -10,6 +10,7 @@ import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/ui/user_list.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
+import 'package:chess_game_manika/services/foreground_service_manager.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -25,7 +26,6 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
   int? _currentRoomId;
   bool _loading = true;
 
-  late ChatProvider _chatProvider;
   late final List<Widget> _pages;
 
   @override
@@ -45,11 +45,16 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       if (userId == null) throw Exception("User ID not found");
 
       // 2️⃣ Initialize ChatProvider once
-      _chatProvider = ChatProvider();
-      Future.microtask(() => _chatProvider.init(roomId, userId));
+      if (mounted) {
+        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+        chatProvider.init(roomId, userId);
+      }
 
       // 3️⃣ Connect user-specific signaling
       await GlobalCallHandler().connectForUser(userId);
+
+      // 3.5 Start MQTT Foreground Service
+      await ForegroundServiceManager.start(userId);
 
       if (!mounted) return;
 
@@ -73,66 +78,61 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // 5️⃣ Provide ChatProvider safely without recreating
-    return ChangeNotifierProvider<ChatProvider>.value(
-      value: _chatProvider,
-      child: Consumer<ChatProvider>(
-        builder: (context, chatProvider, _) {
-          return Scaffold(
-            body: PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: _pages,
-            ),
-            bottomNavigationBar: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              currentIndex: _currentIndex,
-              backgroundColor: whiteColor,
-              selectedItemColor: backgroundColor,
-              unselectedItemColor: foregroundColor,
-              showSelectedLabels: false,
-              showUnselectedLabels: false,
-              onTap: (index) {
-                setState(() => _currentIndex = index);
-                _pageController.jumpToPage(index);
+    // 5️⃣ User the global ChatProvider provided in main.dart
+    return Consumer<ChatProvider>(
+      builder: (context, chatProvider, _) {
+        return Scaffold(
+          body: PageView(
+            controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            children: _pages,
+          ),
+          bottomNavigationBar: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            currentIndex: _currentIndex,
+            backgroundColor: whiteColor,
+            selectedItemColor: backgroundColor,
+            unselectedItemColor: foregroundColor,
+            showSelectedLabels: false,
+            showUnselectedLabels: false,
+            onTap: (index) {
+              setState(() => _currentIndex = index);
+              _pageController.jumpToPage(index);
 
-                // Reset unread count if chat tab opened
-                if (index == 2) chatProvider.resetUnreadCount();
-              },
-              items: [
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.home),
-                  label: "Board",
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.people),
-                  label: "Players",
-                ),
-                BottomNavigationBarItem(
-                  icon: badges.Badge(
-                    showBadge: chatProvider.unreadCount > 0,
-                    badgeContent: Text(
-                      chatProvider.unreadCount.toString(),
-                      style: const TextStyle(color: Colors.white, fontSize: 10),
-                    ),
-                    child: const Icon(Icons.chat),
+              // Reset unread count if chat tab opened
+              if (index == 2) chatProvider.resetUnreadCount();
+            },
+            items: [
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.home),
+                label: "Board",
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.people),
+                label: "Players",
+              ),
+              BottomNavigationBarItem(
+                icon: badges.Badge(
+                  showBadge: chatProvider.unreadCount > 0,
+                  badgeContent: Text(
+                    chatProvider.unreadCount.toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 10),
                   ),
-                  label: "Chat",
+                  child: const Icon(Icons.chat),
                 ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.person_outline),
-                  label: "Profile",
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+                label: "Chat",
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.person_outline),
+                label: "Profile",
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
