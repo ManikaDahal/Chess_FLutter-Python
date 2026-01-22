@@ -3,6 +3,7 @@ import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
@@ -26,15 +27,21 @@ class NotificationService {
       onDidReceiveNotificationResponse: (details) {
         if (details.payload != null) {
           final payload = jsonDecode(details.payload!);
-          final roomId = payload['room_id'];
-          final userId = payload['user_id'];
+          final int roomId = payload['room_id'] ?? 1;
+          final int senderUserId = payload['user_id'] ?? 0;
 
-          // Navigate to chat page using navigatorKey
-          navigatorKey?.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) => ChatPage(roomId: roomId, currentUserId: userId),
-            ),
-          );
+          // Retrieve current user ID from SharedPreferences
+          SharedPreferences.getInstance().then((prefs) {
+            final currentUserId = prefs.getInt('userId') ?? senderUserId;
+
+            // Navigate to chat page using navigatorKey
+            navigatorKey?.currentState?.push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ChatPage(roomId: roomId, currentUserId: currentUserId),
+              ),
+            );
+          });
         }
       },
     );
@@ -58,7 +65,7 @@ class NotificationService {
 
     await _notificationsPlugin.show(
       msg.userId, // notification id
-      "New Message",
+      msg.senderName, // Use sender name as title
       msg.message,
       platformDetails,
       payload: jsonEncode({

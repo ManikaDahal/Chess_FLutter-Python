@@ -46,31 +46,65 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FB), // Premium light background
       appBar: AppBar(
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: whiteColor),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: whiteColor,
+            size: 20,
+          ),
           onPressed: () {
             RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
           },
         ),
-        title: const Text("Chat Room")),
+        title: Consumer<ChatProvider>(
+          builder: (_, provider, __) => Column(
+            children: [
+              Text(
+                "Chat Room (${provider.messages.length})",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              const Text(
+                "Online",
+                style: TextStyle(fontSize: 12, color: Colors.greenAccent),
+              ),
+            ],
+          ),
+        ),
+        backgroundColor: backgroundColor,
+        foregroundColor: whiteColor,
+        centerTitle: true,
+        actions: [
+          IconButton(icon: const Icon(Icons.info_outline), onPressed: () {}),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
             child: Consumer<ChatProvider>(
               builder: (_, provider, __) {
+                print(
+                  "ChatPage: Rebuilding Consumer. Messages: ${provider.messages.length}",
+                );
                 // Scroll to bottom when new messages arrive
                 _scrollToBottom();
                 return ListView.builder(
                   controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
                   itemCount: provider.messages.length,
                   itemBuilder: (_, index) {
                     final msg = provider.messages[index];
                     final isMe = msg.userId == widget.currentUserId;
-                    return Align(
-                      alignment: isMe
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
                       child: Column(
                         crossAxisAlignment: isMe
                             ? CrossAxisAlignment.end
@@ -79,33 +113,59 @@ class _ChatPageState extends State<ChatPage> {
                           if (!isMe)
                             Padding(
                               padding: const EdgeInsets.only(
-                                left: 4,
-                                bottom: 2,
+                                left: 12,
+                                bottom: 4,
                               ),
                               child: Text(
                                 msg.senderName,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey[600],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blueGrey,
                                 ),
                               ),
                             ),
                           Container(
-                            padding: const EdgeInsets.all(10),
-                            margin: const EdgeInsets.symmetric(
-                              vertical: 2,
-                              horizontal: 8,
+                            constraints: BoxConstraints(
+                              maxWidth:
+                                  MediaQuery.of(context).size.width * 0.75,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 16,
                             ),
                             decoration: BoxDecoration(
-                              color: isMe ? Colors.blue : Colors.grey[300],
-                              borderRadius: BorderRadius.circular(8),
+                              gradient: isMe
+                                  ? const LinearGradient(
+                                      colors: [
+                                        Color(0xFF6A11CB),
+                                        Color(0xFF2575FC),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : null,
+                              color: isMe ? null : Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 5,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                              borderRadius: BorderRadius.only(
+                                topLeft: const Radius.circular(20),
+                                topRight: const Radius.circular(20),
+                                bottomLeft: Radius.circular(isMe ? 20 : 0),
+                                bottomRight: Radius.circular(isMe ? 0 : 20),
+                              ),
                             ),
                             child: Text(
                               msg.message,
                               style: TextStyle(
-                                color: isMe ? Colors.white : Colors.black,
-                                fontSize: 18,
+                                color: isMe ? Colors.white : Colors.black87,
+                                fontSize: 16,
+                                height: 1.3,
                               ),
                             ),
                           ),
@@ -117,35 +177,75 @@ class _ChatPageState extends State<ChatPage> {
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: "Type a message",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () {
-                    final text = _controller.text.trim();
-                    if (text.isEmpty) return;
-
-                    Provider.of<ChatProvider>(
-                      context,
-                      listen: false,
-                    ).send(text);
-
-                    _controller.clear();
-                    _scrollToBottom();
-                  },
+          // Input Area
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
                 ),
               ],
+            ),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F2F5),
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        maxLines: null,
+                        decoration: const InputDecoration(
+                          hintText: "Type a message...",
+                          hintStyle: TextStyle(color: Colors.grey),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      final text = _controller.text.trim();
+                      if (text.isEmpty) return;
+
+                      Provider.of<ChatProvider>(
+                        context,
+                        listen: false,
+                      ).send(text);
+
+                      _controller.clear();
+                      _scrollToBottom();
+                    },
+                    child: Container(
+                      height: 45,
+                      width: 45,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

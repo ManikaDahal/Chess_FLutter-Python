@@ -55,6 +55,7 @@ class _UserListState extends State<UserList> {
           },
         ),
         title: const Text("Users"),
+        centerTitle: true,
         backgroundColor: backgroundColor,
         foregroundColor: whiteColor,
       ),

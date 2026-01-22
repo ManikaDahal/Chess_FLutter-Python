@@ -17,13 +17,16 @@ class MqttForegroundHandler extends TaskHandler {
   Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
     _sendPort = sendPort;
 
-    // Retrieve user ID from SharedPreferences
+    // Retrieve user ID and room ID from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final int userId = prefs.getInt('userId') ?? 0;
+    final int roomId = prefs.getInt('roomId') ?? 1;
 
     if (userId != 0) {
-      print('Foreground Service: Connecting MQTT for user $userId');
-      await MqttService().connect(userId);
+      print(
+        'Foreground Service: Connecting MQTT for user $userId in room $roomId',
+      );
+      await MqttService().connect(userId, roomId);
     } else {
       print('Foreground Service: User ID not found, MQTT not connected');
     }
@@ -31,8 +34,18 @@ class MqttForegroundHandler extends TaskHandler {
 
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
-    // This is called periodically based on the interval set in ForegroundTaskOptions.
-    // We can use it for heartbeats or to ensure the MQTT connection is still alive.
+    final mqtt = MqttService();
+    if (!mqtt.isConnected) {
+      print(
+        'Foreground Service: MQTT disconnected, attempting reconnection...',
+      );
+      final prefs = await SharedPreferences.getInstance();
+      final int userId = prefs.getInt('userId') ?? 0;
+      final int roomId = prefs.getInt('roomId') ?? 1;
+      if (userId != 0) {
+        await mqtt.connect(userId, roomId);
+      }
+    }
   }
 
   @override
@@ -56,8 +69,8 @@ class ForegroundServiceManager {
         channelName: 'MQTT Message Service',
         channelDescription:
             'Maintains MQTT connection for real-time notifications',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        channelImportance: NotificationChannelImportance.HIGH,
+        priority: NotificationPriority.HIGH,
         iconData: const NotificationIconData(
           resType: ResourceType.mipmap,
           resPrefix: ResourcePrefix.ic,
@@ -78,13 +91,14 @@ class ForegroundServiceManager {
     );
   }
 
-  static Future<void> start(int userId) async {
+  static Future<void> start(int userId, int roomId) async {
     // Ensure permissions are requested once
     await PermissionService.requestPermissionsOnce();
 
-    // Save userId to prefs so the background task can access it
+    // Save userId and roomId to prefs so the background task can access it
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('userId', userId);
+    await prefs.setInt('roomId', roomId);
 
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.restartService();

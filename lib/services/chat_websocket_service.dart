@@ -63,7 +63,7 @@ class ChatWebsocketService {
     }
   }
 
-  void sendMessage(String message, int userId) {
+  void sendMessage(String message, int userId, String senderName) {
     if (_channel == null) {
       print("ChatWebsocketService: CANNOT send message, channel is null!");
       if (_lastRoomId != null) {
@@ -75,7 +75,11 @@ class ChatWebsocketService {
       return;
     }
     try {
-      final data = {"message": message, "user_id": userId};
+      final data = {
+        "message": message,
+        "user_id": userId,
+        "sender_name": senderName,
+      };
       print("ChatWebsocketService: Sending data: $data");
       _channel!.sink.add(jsonEncode(data));
       print("ChatWebsocketService: Data added to sink.");

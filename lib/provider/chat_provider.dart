@@ -2,24 +2,63 @@ import 'dart:async';
 import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
+import 'package:chess_game_manika/services/api_services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ChatProvider with ChangeNotifier {
-  final List<ChatMessage> _messages = [];
+  final String instanceId = DateTime.now().millisecondsSinceEpoch
+      .toString()
+      .substring(8);
+  List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => _messages;
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
 
   int? _currentRoomId;
   int? _currentUserId;
+  String? _currentUserName;
 
   StreamSubscription? _subscription;
 
   void init(int roomId, int currentUserId) {
+    print(
+      "ChatProvider [$instanceId]: init called for user $currentUserId in room $roomId",
+    );
     _currentUserId = currentUserId;
     _currentRoomId = roomId;
 
+    // Retrieve username from SharedPreferences
+    _currentUserName = "Unknown";
+    SharedPreferences.getInstance().then((prefs) {
+      _currentUserName = prefs.getString("username") ?? "Unknown";
+      print("ChatProvider: Retrieved username: $_currentUserName");
+    });
+
     print("ChatProvider: Initializing for user $currentUserId in room $roomId");
+
+    // Fetch message history
+    ApiService()
+        .getChatMessages(roomId)
+        .then((history) {
+          print(
+            "ChatProvider [$instanceId]: Loaded ${history.length} history messages.",
+          );
+          // Combine history with any existing optimistic messages, avoid duplicates
+          final List<ChatMessage> historyMsgs = history
+              .map((e) => ChatMessage.fromJson(e))
+              .toList();
+
+          // Merge: Keep current messages (which might contain new optimistic ones)
+          // but prioritize history for older ones.
+          // Simple approach: if history is loaded, it replaces everything
+          // BUT we should be careful if messages arrived while loading.
+          _messages = historyMsgs;
+          notifyListeners();
+        })
+        .catchError((e) {
+          print("ChatProvider [$instanceId]: Error loading history: $e");
+        });
 
     // Only connect if not already connected
     if (!ChatWebsocketService().isConnected) {
@@ -37,27 +76,35 @@ class ChatProvider with ChangeNotifier {
         try {
           final msg = ChatMessage.fromJson(data);
 
-          // Simple deduplication: don't add if the same message from same user is already last
-          if (_messages.isNotEmpty) {
-            final last = _messages.last;
-            if (last.message == msg.message && last.userId == msg.userId) {
-              print("ChatProvider: Skipping duplicate message.");
-              return;
-            }
+          // Dedup: Better logic checking last few messages to handle rapid messaging
+          final bool isDuplicate = _messages.reversed
+              .take(5)
+              .any(
+                (m) =>
+                    m.userId == _currentUserId &&
+                    m.userId == msg.userId &&
+                    m.message == msg.message,
+              );
+
+          if (isDuplicate) {
+            print(
+              "ChatProvider [$instanceId]: Ignoring server echo (Duplicate found in last 5).",
+            );
+            return;
           }
 
-          _messages.add(msg);
-
-          bool shouldNotify = false;
-          if (msg.userId != _currentUserId) {
+          final bool shouldNotify = msg.userId != _currentUserId;
+          if (shouldNotify) {
             _unreadCount++;
-            shouldNotify = true;
           }
 
           // Ensure we notify listeners safely to avoid build phase conflicts
           scheduleMicrotask(() {
+            _messages = List.from(_messages)..add(msg);
             notifyListeners();
-            if (shouldNotify) {
+
+            // Only show local notification if we are still "active" in this provider
+            if (shouldNotify && _currentUserId != null) {
               NotificationService.showNotification(msg, roomId);
             }
           });
@@ -90,11 +137,38 @@ class ChatProvider with ChangeNotifier {
     print(
       "ChatProvider: Attempting to send message: '$message' from user $_currentUserId to room $_currentRoomId",
     );
-    ChatWebsocketService().sendMessage(message, _currentUserId!);
+    // OPTIMISTIC UPDATE: Add message locally first
+    final optimisticMsg = ChatMessage(
+      message: message,
+      userId: _currentUserId!,
+      roomId: _currentRoomId!,
+      senderName: _currentUserName ?? "Unknown",
+    );
 
-    // REMOVED local _messages.add(msg) to avoid duplication.
-    // The server will broadcast it back to us via the WebSocket stream.
-    print("ChatProvider: Message sent. Waiting for broadcast reflection.");
+    _messages = List.from(_messages)..add(optimisticMsg);
+    print(
+      "ChatProvider [$instanceId]: Optimistic add. Total messages: ${_messages.length}",
+    );
+    notifyListeners();
+
+    ChatWebsocketService().sendMessage(
+      message,
+      _currentUserId!,
+      _currentUserName ?? "Unknown",
+    );
+
+    print("ChatProvider [$instanceId]: Message sent to WebSocket.");
+  }
+
+  void clear() {
+    print("ChatProvider [$instanceId]: clear called. Cancelling subscription.");
+    _subscription?.cancel();
+    _subscription = null;
+    _messages.clear();
+    _currentUserId = null;
+    _currentRoomId = null;
+    _unreadCount = 0;
+    notifyListeners();
   }
 
   void resetUnreadCount() {

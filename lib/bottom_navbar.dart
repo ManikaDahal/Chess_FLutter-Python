@@ -54,7 +54,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       await GlobalCallHandler().connectForUser(userId);
 
       // 3.5 Start MQTT Foreground Service
-      await ForegroundServiceManager.start(userId);
+      await ForegroundServiceManager.start(userId, roomId);
 
       if (!mounted) return;
 

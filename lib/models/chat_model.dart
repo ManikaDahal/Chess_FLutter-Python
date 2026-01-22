@@ -8,7 +8,7 @@ class ChatMessage {
     required this.message,
     required this.userId,
     required this.roomId,
-    this.senderName = "Unknown",
+    required this.senderName,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
@@ -16,7 +16,7 @@ class ChatMessage {
       message: json['message'] ?? "",
       userId: json['user_id'] ?? 0,
       roomId: json['room_id'] ?? 0,
-      senderName: json['username'] ?? "Unknown",
+      senderName: json['sender_name'] ?? "Unknown",
     );
   }
 }

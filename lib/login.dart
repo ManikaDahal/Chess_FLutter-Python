@@ -8,6 +8,8 @@ import 'package:chess_game_manika/core/utils/string_utils.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_biometrics.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
+import 'package:chess_game_manika/services/foreground_service_manager.dart';
+import 'package:chess_game_manika/services/mqtt_service.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_Inkwell.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
@@ -59,12 +61,18 @@ class _LoginState extends State<Login> {
       if (success) {
         // final int userId = _nameController.text.hashCode;
 
-        // // Save user ID in SharedPreferences
-        // final prefs = await SharedPreferences.getInstance();
-        // await prefs.setInt('userId', userId);
+        // Save user ID in SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        final userId = _nameController.text.hashCode;
+        await prefs.setInt('userId', userId);
+        final int roomId = 1; // Testing room ID
+        await prefs.setInt('roomId', roomId);
+        await prefs.setBool('loggedIn', true);
+        await ForegroundServiceManager.start(userId, roomId);
 
         // // Initialize GlobalCallHandler for this user
         // GlobalCallHandler().init();
+
         final token = await _storage.getAccessToken();
         final refresh = await _storage.getRefreshToken();
         print("Tokens after login -> Access: $token, Refresh: $refresh");
@@ -198,6 +206,12 @@ class _LoginState extends State<Login> {
                     try {
                       bool ok = await _biometricAuth.loginWithBiometrics();
                       if (ok) {
+                        final prefs = await SharedPreferences.getInstance();
+                        final int? userId = prefs.getInt('userId');
+                        if (userId != null) {
+                          final int roomId = prefs.getInt('roomId') ?? 1;
+                          await ForegroundServiceManager.start(userId, roomId);
+                        }
                         RouteGenerator.navigateToPage(
                           context,
                           Routes.bottomNavBarRoute,

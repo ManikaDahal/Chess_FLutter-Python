@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/display_snackbar.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
@@ -7,10 +5,14 @@ import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/core/utils/string_utils.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
+import 'package:chess_game_manika/services/foreground_service_manager.dart';
+import 'package:chess_game_manika/services/chat_websocket_service.dart';
+import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -38,6 +40,23 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _logout() async {
     if (!mounted) return;
+
+    // 1. Stop MQTT foreground service
+    await ForegroundServiceManager.stop();
+
+    // 2. Clear Chat Provider and Close WebSocket
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.clear();
+    ChatWebsocketService().disconnect();
+
+    // 3. Clear saved login info
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('loggedIn', false);
+    await prefs.remove('userId');
+    await prefs.remove('username');
+    await prefs.remove('roomId');
+
+    // 4. Navigate to Login
     RouteGenerator.navigateToPage(context, Routes.loginRoute);
   }
 

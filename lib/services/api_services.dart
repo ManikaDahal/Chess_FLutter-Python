@@ -61,4 +61,23 @@ class ApiService {
       throw Exception("Failed to fetch users");
     }
   }
+
+  Future<List<dynamic>> getChatMessages(int roomId) async {
+    // Note: Using the Render server URL but with https (not wss) for REST
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+    final response = await http.get(
+      Uri.parse('$renderUrl/api/chat/history/$roomId/'),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      print("Failed to fetch chat history: ${response.body}");
+      return []; // Return empty list on failure to avoid crashing
+    }
+  }
 }

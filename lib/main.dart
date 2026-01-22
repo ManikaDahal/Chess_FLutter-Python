@@ -7,51 +7,53 @@ import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'bottom_navbar.dart'; // Make sure you import your main page
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Foreground Task
+
+  // Initialize Foreground Service for MQTT
   await ForegroundServiceManager.init();
-  
+
   // Start global call listener
   GlobalCallHandler().init();
+
+  // Initialize notification service
   await NotificationService.init(navKey: Constants.navigatorKey);
-  runApp(MyApp());
+
+  // Load saved login state
+  final prefs = await SharedPreferences.getInstance();
+  final bool loggedIn = prefs.getBool('loggedIn') ?? false;
+  final int? userId = prefs.getInt('userId');
+
+  // If user is logged in, start foreground MQTT service
+  if (loggedIn && userId != null) {
+    final int roomId = prefs.getInt('roomId') ?? 1;
+    await ForegroundServiceManager.start(userId, roomId);
+  }
+
+  runApp(MyApp(autoLogin: loggedIn && userId != null));
 }
 
-// Future<int> getCurrentUserId() async {
-//   final prefs = await SharedPreferences.getInstance();
-//   return prefs.getInt('userId') ?? 0; // fallback if not saved
-// }
-
-// Future<void> setCurrentUserId(int id) async {
-//   final prefs = await SharedPreferences.getInstance();
-//   await prefs.setInt('userId', id);
-//}
-
 class MyApp extends StatelessWidget {
-  // final GlobalCallHandler _callHandler = GlobalCallHandler();
-  const MyApp({super.key});
+  final bool autoLogin;
+  const MyApp({super.key, required this.autoLogin});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    // Initialize the global call listener
-    // _callHandler.init();
-
     return MultiProvider(
-       providers: [
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => ChatProvider())],
       child: MaterialApp(
         navigatorKey: Constants.navigatorKey,
         debugShowCheckedModeBanner: false,
-        title: 'Flutter Demo',
+        title: 'Chess App',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         ),
-        home: Login(),
+        // Auto-login: skip Login page if already logged in
+        home: autoLogin
+            ? BottomNavBarWrapper() // Main page
+            : Login(), // Show login page
       ),
     );
   }
