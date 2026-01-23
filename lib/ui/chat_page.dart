@@ -38,9 +38,10 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    // Only reset unread count; provider is already initialized in BottomNavBarWrapper
+    // Ensure the provider is initialized for THIS specific room
     final provider = Provider.of<ChatProvider>(context, listen: false);
-    provider.resetUnreadCount();
+    provider.init(widget.roomId, widget.currentUserId);
+    provider.resetUnreadCount(widget.roomId);
   }
 
   @override
@@ -60,21 +61,24 @@ class _ChatPageState extends State<ChatPage> {
           },
         ),
         title: Consumer<ChatProvider>(
-          builder: (_, provider, __) => Column(
-            children: [
-              Text(
-                "Chat Room (${provider.messages.length})",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+          builder: (_, provider, __) {
+            final messages = provider.getMessages(widget.roomId);
+            return Column(
+              children: [
+                Text(
+                  "Chat Room (${messages.length})",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
-              ),
-              const Text(
-                "Online",
-                style: TextStyle(fontSize: 12, color: Colors.greenAccent),
-              ),
-            ],
-          ),
+                const Text(
+                  "Online",
+                  style: TextStyle(fontSize: 12, color: Colors.greenAccent),
+                ),
+              ],
+            );
+          },
         ),
         backgroundColor: backgroundColor,
         foregroundColor: whiteColor,
@@ -88,8 +92,9 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: Consumer<ChatProvider>(
               builder: (_, provider, __) {
+                final messages = provider.getMessages(widget.roomId);
                 print(
-                  "ChatPage: Rebuilding Consumer. Messages: ${provider.messages.length}",
+                  "ChatPage [Room ${widget.roomId}]: Rebuilding. Messages: ${messages.length}",
                 );
                 // Scroll to bottom when new messages arrive
                 _scrollToBottom();
@@ -99,9 +104,9 @@ class _ChatPageState extends State<ChatPage> {
                     horizontal: 16,
                     vertical: 20,
                   ),
-                  itemCount: provider.messages.length,
+                  itemCount: messages.length,
                   itemBuilder: (_, index) {
-                    final msg = provider.messages[index];
+                    final msg = messages[index];
                     final isMe = msg.userId == widget.currentUserId;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
@@ -223,7 +228,7 @@ class _ChatPageState extends State<ChatPage> {
                       Provider.of<ChatProvider>(
                         context,
                         listen: false,
-                      ).send(text);
+                      ).send(widget.roomId, text);
 
                       _controller.clear();
                       _scrollToBottom();

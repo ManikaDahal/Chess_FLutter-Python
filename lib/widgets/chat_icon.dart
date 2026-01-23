@@ -7,7 +7,11 @@ class ChatIcon extends StatelessWidget {
   final int roomId;
   final int currentUserId;
 
-  const ChatIcon({required this.roomId, required this.currentUserId, super.key});
+  const ChatIcon({
+    required this.roomId,
+    required this.currentUserId,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,12 +25,13 @@ class ChatIcon extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => ChatPage(roomId: roomId, currentUserId: currentUserId),
+                    builder: (_) =>
+                        ChatPage(roomId: roomId, currentUserId: currentUserId),
                   ),
                 );
               },
             ),
-            if (provider.unreadCount > 0)
+            if (provider.totalUnreadCount > 0)
               Positioned(
                 right: 0,
                 top: 0,
@@ -34,11 +39,11 @@ class ChatIcon extends StatelessWidget {
                   radius: 10,
                   backgroundColor: Colors.red,
                   child: Text(
-                    "${provider.unreadCount}",
+                    "${provider.totalUnreadCount}",
                     style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
-              )
+              ),
           ],
         );
       },

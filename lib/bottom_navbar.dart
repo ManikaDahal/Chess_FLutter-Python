@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:badges/badges.dart' as badges;
 
@@ -10,6 +11,7 @@ import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/ui/user_list.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
+import 'package:chess_game_manika/login.dart';
 import 'package:chess_game_manika/services/foreground_service_manager.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
@@ -25,6 +27,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
   int? _currentUserId;
   int? _currentRoomId;
   bool _loading = true;
+  String? _errorMessage;
 
   late final List<Widget> _pages;
 
@@ -54,7 +57,10 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       await GlobalCallHandler().connectForUser(userId);
 
       // 3.5 Start MQTT Foreground Service
-      await ForegroundServiceManager.start(userId, roomId);
+      // DO NOT await here to avoid blocking UI during startup
+      ForegroundServiceManager.start(userId, roomId).catchError((e) {
+        debugPrint("Error starting foreground service: $e");
+      });
 
       if (!mounted) return;
 
@@ -65,20 +71,77 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
         _loading = false;
         _pages = [
           GameBoard(currentUserId: _currentUserId!, roomId: _currentRoomId!),
-          const UserList(),
+          UserList(currentUserId: _currentUserId!),
           ChatPage(roomId: _currentRoomId!, currentUserId: _currentUserId!),
           const ProfilePage(),
         ];
       });
     } catch (e, st) {
       debugPrint("Error initializing user: $e\n$st");
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _errorMessage =
+              "Failed to initialize app. Please check your connection or restart.";
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 60),
+                const SizedBox(height: 16),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _loading = true;
+                      _errorMessage = null;
+                    });
+                    _initUser();
+                  },
+                  child: const Text("Retry"),
+                ),
+                TextButton(
+                  onPressed: () {
+                    SharedPreferences.getInstance().then((prefs) {
+                      prefs.clear();
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (_) => const Login()),
+                        (route) => false,
+                      );
+                    });
+                  },
+                  child: const Text("Logout & Go to Login"),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
 
     // 5️⃣ User the global ChatProvider provided in main.dart
@@ -102,8 +165,15 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
               setState(() => _currentIndex = index);
               _pageController.jumpToPage(index);
 
-              // Reset unread count if chat tab opened
-              if (index == 2) chatProvider.resetUnreadCount();
+              // Reset unread count AND ensure we are in the general room if tab 2 is clicked
+              if (index == 2) {
+                if (_currentRoomId != null) {
+                  chatProvider.resetUnreadCount(_currentRoomId!);
+                  // Re-init general room if we were previously in a private one
+                  print("BottomNavBar: Returning to General Room 1");
+                  chatProvider.init(_currentRoomId!, _currentUserId!);
+                }
+              }
             },
             items: [
               const BottomNavigationBarItem(
@@ -116,9 +186,9 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
               ),
               BottomNavigationBarItem(
                 icon: badges.Badge(
-                  showBadge: chatProvider.unreadCount > 0,
+                  showBadge: chatProvider.totalUnreadCount > 0,
                   badgeContent: Text(
-                    chatProvider.unreadCount.toString(),
+                    chatProvider.totalUnreadCount.toString(),
                     style: const TextStyle(color: Colors.white, fontSize: 10),
                   ),
                   child: const Icon(Icons.chat),

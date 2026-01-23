@@ -11,7 +11,11 @@ import '../ui/call_screen.dart';
 class GameBoard extends StatefulWidget {
   final int roomId;
   final int currentUserId;
-  const GameBoard({super.key, required this.currentUserId, required this.roomId});
+  const GameBoard({
+    super.key,
+    required this.currentUserId,
+    required this.roomId,
+  });
 
   @override
   State<GameBoard> createState() => _GameBoardState();
@@ -456,37 +460,35 @@ class _GameBoardState extends State<GameBoard>
               );
             },
           ),
-         
-Consumer<ChatProvider>(
-  builder: (_, provider, __) {
-    return badges.Badge(
-      badgeContent: Text(
-        provider.unreadCount.toString(),
-        style: const TextStyle(color: Colors.white, fontSize: 10),
-      ),
-      showBadge: provider.unreadCount > 0,
-      position: badges.BadgePosition.topEnd(top: 0, end: 3),
-      child: IconButton(
-        icon: const Icon(Icons.chat),
-        tooltip: "Messenger",
-        onPressed: () {
-          provider.resetUnreadCount();
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatPage(
-                roomId: widget.roomId,
-                currentUserId: widget.currentUserId,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  },
-),
 
-
+          Consumer<ChatProvider>(
+            builder: (_, provider, __) {
+              return badges.Badge(
+                badgeContent: Text(
+                  provider.totalUnreadCount.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                ),
+                showBadge: provider.totalUnreadCount > 0,
+                position: badges.BadgePosition.topEnd(top: 0, end: 3),
+                child: IconButton(
+                  icon: const Icon(Icons.chat),
+                  tooltip: "Messenger",
+                  onPressed: () {
+                    provider.resetUnreadCount(widget.roomId);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChatPage(
+                          roomId: widget.roomId,
+                          currentUserId: widget.currentUserId,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: GridView.builder(

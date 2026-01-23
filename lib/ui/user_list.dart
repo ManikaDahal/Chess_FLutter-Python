@@ -3,10 +3,14 @@ import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/ui/call_screen.dart';
+import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class UserList extends StatefulWidget {
-  const UserList({super.key});
+  final int currentUserId;
+  const UserList({super.key, required this.currentUserId});
 
   @override
   State<UserList> createState() => _UserListState();
@@ -21,15 +25,30 @@ class _UserListState extends State<UserList> {
     super.initState();
     _usersFuture = _apiService.getUsers();
   }
-  //   void _startChessGame(int friendId){
-  // String roomId="game_${DateTime.now().millisecondsSinceEpoch}";
-  // GlobalCallHandler().sendToGeneral({
-  //   "type":"game_invite",
-  //   "to":friendId,
-  //   "room":roomId,
-  //   });
-  //   RouteGenerator.navigateToPage(context, Routes.gameRoomRoute, arguments: RoomArguments(roomId: roomId));
-  //   }
+
+  void _startChat(int targetUserId) async {
+    // Show a loading indicator if necessary, but keep it simple for now
+    final int? roomId = await _apiService.getOrCreateChatRoom(
+      widget.currentUserId,
+      targetUserId,
+    );
+
+    if (roomId != null && mounted) {
+      // Initialize the chat provider for this specific room
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      chatProvider.clear(); // Clear previous room data
+      chatProvider.init(roomId, widget.currentUserId);
+
+      // Navigate to ChatPage
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              ChatPage(roomId: roomId, currentUserId: widget.currentUserId),
+        ),
+      );
+    }
+  }
 
   void _startCall(String roomId, bool isVideo) {
     Navigator.push(
@@ -71,18 +90,22 @@ class _UserListState extends State<UserList> {
           }
 
           final users = snapshot.data!;
+          // Remove ourselves from the list
+          final otherUsers = users
+              .where((u) => u['id'] != widget.currentUserId)
+              .toList();
+
           return ListView.separated(
-            itemCount: users.length,
+            itemCount: otherUsers.length,
             separatorBuilder: (context, index) => const Divider(),
             itemBuilder: (context, index) {
-              final user = users[index];
+              final user = otherUsers[index];
               final username = user['username'] ?? "Unknown User";
               final email = user['email'] ?? "";
+              final targetUserId = user['id'];
 
-              // CHANGE: Using 'user_' prefix to call the target user's personal room
-              // This ensures only the specific user receives the call notification
               // Format: user_{targetUserId}
-              final roomId = "user_${user['id']}";
+              final callRoomId = "user_$targetUserId";
 
               return ListTile(
                 leading: CircleAvatar(
@@ -98,15 +121,17 @@ class _UserListState extends State<UserList> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      icon: const Icon(Icons.chat, color: Colors.blue),
+                      onPressed: () => _startChat(targetUserId),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.phone, color: Colors.green),
-                      onPressed: () => _startCall(roomId, false),
+                      onPressed: () => _startCall(callRoomId, false),
                     ),
                     IconButton(
                       icon: const Icon(Icons.videocam, color: Colors.blue),
-                      onPressed: () => _startCall(roomId, true),
+                      onPressed: () => _startCall(callRoomId, true),
                     ),
-                    // IconButton(onPressed:() =>_startChessGame(user.id),
-                    //  icon:Icon(Icons.group,color: Colors.blue) )
                   ],
                 ),
               );

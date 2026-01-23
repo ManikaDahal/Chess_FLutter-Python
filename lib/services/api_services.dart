@@ -80,4 +80,24 @@ class ApiService {
       return []; // Return empty list on failure to avoid crashing
     }
   }
+
+  Future<int?> getOrCreateChatRoom(int user1Id, int user2Id) async {
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+    final response = await http.post(
+      Uri.parse('$renderUrl/api/chat/get_or_create_room/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({"user1_id": user1Id, "user2_id": user2Id}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['room_id'];
+    } else {
+      print("Failed to get/create chat room: ${response.body}");
+      return null;
+    }
+  }
 }
