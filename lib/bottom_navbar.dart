@@ -13,6 +13,7 @@ import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
 import 'package:chess_game_manika/login.dart';
 import 'package:chess_game_manika/services/foreground_service_manager.dart';
+import 'package:chess_game_manika/services/mqtt_service.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -50,15 +51,21 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       // 2️⃣ Initialize ChatProvider once
       if (mounted) {
         final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-        chatProvider.init(roomId, userId);
+        // Ensure we start with NO active room so notifications work
+        chatProvider.clearActiveRoom();
+        chatProvider.init(roomId, userId, setAsActive: false);
       }
 
       // 3️⃣ Connect user-specific signaling
       await GlobalCallHandler().connectForUser(userId);
 
-      // 3.5 Start MQTT Foreground Service
+      // 3.5 START MQTT IN MAIN ISOLATE FOR TESTING
+      print("BottomNavBar: Starting MQTT in MAIN ISOLATE for user $userId");
+      MqttService().connect(userId);
+
+      // 3.6 Start MQTT Foreground Service (keep this too for background)
       // DO NOT await here to avoid blocking UI during startup
-      ForegroundServiceManager.start(userId, roomId).catchError((e) {
+      ForegroundServiceManager.start(userId).catchError((e) {
         debugPrint("Error starting foreground service: $e");
       });
 
@@ -72,7 +79,11 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
         _pages = [
           GameBoard(currentUserId: _currentUserId!, roomId: _currentRoomId!),
           UserList(currentUserId: _currentUserId!),
-          ChatPage(roomId: _currentRoomId!, currentUserId: _currentUserId!),
+          ChatPage(
+            roomId: _currentRoomId!,
+            currentUserId: _currentUserId!,
+            showBackButton: false, // Hide back button in Tab View
+          ),
           const ProfilePage(),
         ];
       });
@@ -162,17 +173,27 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
             showSelectedLabels: false,
             showUnselectedLabels: false,
             onTap: (index) {
+              print("BottomNavBar: onTap index $index");
               setState(() => _currentIndex = index);
               _pageController.jumpToPage(index);
 
               // Reset unread count AND ensure we are in the general room if tab 2 is clicked
               if (index == 2) {
                 if (_currentRoomId != null) {
+                  print(
+                    "BottomNavBar: Tab 2 clicked, setting active room to $_currentRoomId",
+                  );
                   chatProvider.resetUnreadCount(_currentRoomId!);
                   // Re-init general room if we were previously in a private one
                   print("BottomNavBar: Returning to General Room 1");
                   chatProvider.init(_currentRoomId!, _currentUserId!);
                 }
+              } else {
+                // If leaving the chat tab, clear the active room so notifications can happen
+                print(
+                  "BottomNavBar: Tab $index clicked (NOT 2), clearing active room",
+                );
+                chatProvider.clearActiveRoom();
               }
             },
             items: [

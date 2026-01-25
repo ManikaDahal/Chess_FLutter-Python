@@ -10,68 +10,57 @@ class ChatWebsocketService {
   factory ChatWebsocketService() => _instance;
   ChatWebsocketService._internal();
 
-  WebSocketChannel? _channel;
+  final Map<int, WebSocketChannel> _channels = {};
   final _controller = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get stream => _controller.stream;
-  bool get isConnected => _channel != null;
 
-  int? _lastRoomId;
+  bool isRoomConnected(int roomId) => _channels.containsKey(roomId);
 
   Future<void> connect(int roomId) async {
-    if (_channel != null && _lastRoomId == roomId) {
-      print(
-        "ChatWebsocketService: Already connected to room $roomId, skipping.",
-      );
+    if (_channels.containsKey(roomId)) {
+      print("ChatWebsocketService: Already connected to room $roomId.");
       return;
     }
 
-    if (_channel != null) {
-      print(
-        "ChatWebsocketService: Switching from $_lastRoomId to $roomId. Closing old connection.",
-      );
-      await _channel!.sink.close();
-      _channel = null;
-    }
-
-    _lastRoomId = roomId;
-    final url =
-        "wss://chess-websocket-dor6.onrender.com/ws/chat/$roomId/"; // Added trailing slash
-    print("ChatWebsocketService: Attempting connection to $url");
+    final url = "wss://chess-websocket-dor6.onrender.com/ws/chat/$roomId/";
+    print("ChatWebsocketService: Connecting to $url");
 
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      final channel = WebSocketChannel.connect(Uri.parse(url));
+      _channels[roomId] = channel;
       print("ChatWebsocketService: WebSocket channel created for room $roomId");
 
-      _channel!.stream.listen(
+      channel.stream.listen(
         (message) {
           final data = jsonDecode(message);
+          // Ensure room_id is in the data so listeners know where it came from
+          if (!data.containsKey('room_id')) {
+            data['room_id'] = roomId;
+          }
           _controller.add(data);
-          print("Message received: $data");
+          print("Message received from room $roomId: $data");
         },
         onDone: () {
-          print("WebSocket disconnected");
-          _channel = null;
+          print("WebSocket for room $roomId disconnected");
+          _channels.remove(roomId);
         },
         onError: (error) {
-          print("WebSocket error: $error");
-          _channel = null;
+          print("WebSocket error in room $roomId: $error");
+          _channels.remove(roomId);
         },
       );
     } catch (e) {
-      print("Failed to connect WebSocket: $e");
-      _channel = null;
+      print("Failed to connect WebSocket for room $roomId: $e");
     }
   }
 
-  void sendMessage(String message, int userId, String senderName) {
-    if (_channel == null) {
-      print("ChatWebsocketService: CANNOT send message, channel is null!");
-      if (_lastRoomId != null) {
-        print(
-          "ChatWebsocketService: Attempting emergency reconnect to room $_lastRoomId...",
-        );
-        connect(_lastRoomId!);
-      }
+  void sendMessage(int roomId, String message, int userId, String senderName) {
+    final channel = _channels[roomId];
+    if (channel == null) {
+      print(
+        "ChatWebsocketService: CANNOT send message, no connection for room $roomId!",
+      );
+      connect(roomId);
       return;
     }
     try {
@@ -79,18 +68,39 @@ class ChatWebsocketService {
         "message": message,
         "user_id": userId,
         "sender_name": senderName,
+        "room_id": roomId,
       };
-      print("ChatWebsocketService: Sending data: $data");
-      _channel!.sink.add(jsonEncode(data));
-      print("ChatWebsocketService: Data added to sink.");
+      print("ChatWebsocketService: Sending data to room $roomId: $data");
+      channel.sink.add(jsonEncode(data));
     } catch (e) {
-      print("ChatWebsocketService: Error sending message: $e");
-      _channel = null;
+      print("ChatWebsocketService: Error sending message to room $roomId: $e");
+      _channels.remove(roomId);
     }
   }
 
-  void disconnect() {
-    _channel?.sink.close();
-    _channel = null;
+  void requestHistory(int roomId) {
+    final channel = _channels[roomId];
+    if (channel == null) return;
+    try {
+      final data = {"type": "get_history", "room_id": roomId};
+      print("ChatWebsocketService: Requesting history for room $roomId");
+      channel.sink.add(jsonEncode(data));
+    } catch (e) {
+      print(
+        "ChatWebsocketService: Error requesting history for room $roomId: $e",
+      );
+    }
+  }
+
+  void disconnect(int roomId) {
+    _channels[roomId]?.sink.close();
+    _channels.remove(roomId);
+  }
+
+  void disconnectAll() {
+    for (final channel in _channels.values) {
+      channel.sink.close();
+    }
+    _channels.clear();
   }
 }

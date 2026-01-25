@@ -8,6 +8,7 @@ import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:chess_game_manika/services/foreground_service_manager.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
+import 'package:chess_game_manika/services/mqtt_service.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:flutter/material.dart';
@@ -47,7 +48,7 @@ class _ProfilePageState extends State<ProfilePage> {
     // 2. Clear Chat Provider and Close WebSocket
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     chatProvider.clear();
-    ChatWebsocketService().disconnect();
+    ChatWebsocketService().disconnectAll();
 
     // 3. Clear saved login info
     final prefs = await SharedPreferences.getInstance();
@@ -128,6 +129,28 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 subtitle: Text("Email"),
               ),
+            ),
+
+            const SizedBox(height: 20),
+            // TEMPORARY TEST BUTTON
+            ElevatedButton.icon(
+              icon: const Icon(Icons.bug_report),
+              label: const Text("TEST MQTT"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                SharedPreferences.getInstance().then((prefs) {
+                  final uid = prefs.getInt('userId');
+                  if (uid != null) {
+                    MqttService().testPublish(uid);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Sent Test MQTT to User $uid")),
+                    );
+                  }
+                });
+              },
             ),
 
             const Spacer(),

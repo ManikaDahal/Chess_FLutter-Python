@@ -17,16 +17,13 @@ class MqttForegroundHandler extends TaskHandler {
   Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
     _sendPort = sendPort;
 
-    // Retrieve user ID and room ID from SharedPreferences
+    // Retrieve user ID from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final int userId = prefs.getInt('userId') ?? 0;
-    final int roomId = prefs.getInt('roomId') ?? 1;
 
     if (userId != 0) {
-      print(
-        'Foreground Service: Connecting MQTT for user $userId in room $roomId',
-      );
-      await MqttService().connect(userId, roomId);
+      print('Foreground Service: Connecting global MQTT for user $userId');
+      await MqttService().connect(userId);
     } else {
       print('Foreground Service: User ID not found, MQTT not connected');
     }
@@ -41,9 +38,8 @@ class MqttForegroundHandler extends TaskHandler {
       );
       final prefs = await SharedPreferences.getInstance();
       final int userId = prefs.getInt('userId') ?? 0;
-      final int roomId = prefs.getInt('roomId') ?? 1;
       if (userId != 0) {
-        await mqtt.connect(userId, roomId);
+        await mqtt.connect(userId);
       }
     }
   }
@@ -91,14 +87,13 @@ class ForegroundServiceManager {
     );
   }
 
-  static Future<void> start(int userId, int roomId) async {
+  static Future<void> start(int userId) async {
     // Ensure permissions are requested once
     await PermissionService.requestPermissionsOnce();
 
-    // Save userId and roomId to prefs so the background task can access it
+    // Save userId to prefs so the background task can access it
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('userId', userId);
-    await prefs.setInt('roomId', roomId);
 
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.restartService();

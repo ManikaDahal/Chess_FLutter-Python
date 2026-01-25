@@ -68,7 +68,7 @@ class _LoginState extends State<Login> {
         final int roomId = 1; // Testing room ID
         await prefs.setInt('roomId', roomId);
         await prefs.setBool('loggedIn', true);
-        await ForegroundServiceManager.start(userId, roomId);
+        await ForegroundServiceManager.start(userId);
 
         // // Initialize GlobalCallHandler for this user
         // GlobalCallHandler().init();
@@ -206,12 +206,7 @@ class _LoginState extends State<Login> {
                     try {
                       bool ok = await _biometricAuth.loginWithBiometrics();
                       if (ok) {
-                        final prefs = await SharedPreferences.getInstance();
-                        final int? userId = prefs.getInt('userId');
-                        if (userId != null) {
-                          final int roomId = prefs.getInt('roomId') ?? 1;
-                          await ForegroundServiceManager.start(userId, roomId);
-                        }
+                        // Real ID and MQTT will be handled in BottomNavBarWrapper
                         RouteGenerator.navigateToPage(
                           context,
                           Routes.bottomNavBarRoute,

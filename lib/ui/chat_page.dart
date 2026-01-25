@@ -8,10 +8,12 @@ import 'package:provider/provider.dart';
 class ChatPage extends StatefulWidget {
   final int roomId;
   final int currentUserId;
+  final bool showBackButton; // New parameter
 
   const ChatPage({
     required this.roomId,
     required this.currentUserId,
+    this.showBackButton = true, // Default to true
     super.key,
   });
 
@@ -38,10 +40,19 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    print("ChatPage: initState called for Room ${widget.roomId}");
     // Ensure the provider is initialized for THIS specific room
     final provider = Provider.of<ChatProvider>(context, listen: false);
     provider.init(widget.roomId, widget.currentUserId);
     provider.resetUnreadCount(widget.roomId);
+  }
+
+  @override
+  void dispose() {
+    print("ChatPage: dispose called for Room ${widget.roomId}");
+    final provider = Provider.of<ChatProvider>(context, listen: false);
+    provider.clearActiveRoom();
+    super.dispose();
   }
 
   @override
@@ -50,23 +61,28 @@ class _ChatPageState extends State<ChatPage> {
       backgroundColor: const Color(0xFFF5F7FB), // Premium light background
       appBar: AppBar(
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            color: whiteColor,
-            size: 20,
-          ),
-          onPressed: () {
-            RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-          },
-        ),
+        leading: widget.showBackButton
+            ? IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: whiteColor,
+                  size: 20,
+                ),
+                onPressed: () {
+                  RouteGenerator.navigateToPage(
+                    context,
+                    Routes.bottomNavBarRoute,
+                  );
+                },
+              )
+            : null, // Hide back button if not needed
         title: Consumer<ChatProvider>(
           builder: (_, provider, __) {
             final messages = provider.getMessages(widget.roomId);
             return Column(
               children: [
                 Text(
-                  "Chat Room (${messages.length})",
+                  "Room #${widget.roomId} (${messages.length})",
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,

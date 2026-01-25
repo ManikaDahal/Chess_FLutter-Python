@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
-import 'package:chess_game_manika/services/api_services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +18,10 @@ class ChatProvider with ChangeNotifier {
 
   int? _currentUserId;
   String? _currentUserName;
+  int? _activeRoomId; // Track current viewing room
+
+  // Static accessor for other services (like MqttService)
+  static int? currentActiveRoomId;
 
   StreamSubscription? _subscription;
 
@@ -32,11 +35,15 @@ class ChatProvider with ChangeNotifier {
   int get totalUnreadCount =>
       _unreadCounts.values.fold(0, (sum, count) => sum + count);
 
-  void init(int roomId, int currentUserId) {
+  void init(int roomId, int currentUserId, {bool setAsActive = true}) {
     print(
-      "ChatProvider [$instanceId]: init for user $currentUserId in room $roomId",
+      "ChatProvider [$instanceId]: init for user $currentUserId in room $roomId (active: $setAsActive)",
     );
     _currentUserId = currentUserId;
+    if (setAsActive) {
+      _activeRoomId = roomId;
+      currentActiveRoomId = roomId;
+    }
 
     // Retrieve username if not set or "Unknown"
     if (_currentUserName == null || _currentUserName == "Unknown") {
@@ -46,54 +53,74 @@ class ChatProvider with ChangeNotifier {
       });
     }
 
-    // Fetch history ONLY for this room
-    ApiService()
-        .getChatMessages(roomId)
-        .then((history) {
-          final List<ChatMessage> historyMsgs = history
-              .map((e) => ChatMessage.fromJson(e))
-              .toList();
+    // If we already have messages for this room, don't show empty screen while loading
+    if (!_roomMessages.containsKey(roomId)) {
+      _roomMessages[roomId] = [];
+    }
 
-          _roomMessages[roomId] = historyMsgs;
-          print(
-            "ChatProvider: History loaded for room $roomId. Total: ${historyMsgs.length}",
-          );
-          notifyListeners();
-        })
-        .catchError((e) {
-          print(
-            "ChatProvider [$instanceId]: Error loading history for room $roomId: $e",
-          );
-        });
+    // Ensure listener is active BEFORE connecting or requesting history
+    if (_subscription == null) {
+      _listenToStream();
+    }
 
-    // Ensure WebSocket is connected for this room
-    ChatWebsocketService().connect(roomId);
+    // Connect or request history if already connected
+    if (ChatWebsocketService().isRoomConnected(roomId)) {
+      ChatWebsocketService().requestHistory(roomId);
+    } else {
+      ChatWebsocketService().connect(roomId);
+    }
+  }
 
-    // Cancel existing subscription to avoid duplicate listeners
+  void _listenToStream() {
     _subscription?.cancel();
-
-    // Listen to messages globally, but route them locally
     _subscription = ChatWebsocketService().stream.listen((data) {
       print("ChatProvider: Received data: $data");
       try {
+        if (data['type'] == 'history') {
+          final List<dynamic> historyData = data['messages'] ?? [];
+          final int msgRoomId = data['room_id'];
+          final historyMsgs = historyData
+              .map((e) => ChatMessage.fromJson(e))
+              .toList();
+
+          final currentMsgs = _roomMessages[msgRoomId] ?? [];
+
+          // Merge history into current messages, keeping optimistic ones
+          final List<ChatMessage> merged = List.from(historyMsgs);
+          for (var cm in currentMsgs) {
+            if (!historyMsgs.any(
+              (hm) => hm.message == cm.message && hm.userId == cm.userId,
+            )) {
+              merged.add(cm);
+            }
+          }
+
+          _roomMessages[msgRoomId] = merged;
+          notifyListeners();
+          print(
+            "ChatProvider: History loaded and merged via WebSocket for room $msgRoomId. Total: ${merged.length}",
+          );
+          return;
+        }
+
         final msg = ChatMessage.fromJson(data);
         final int msgRoomId = msg.roomId;
 
-        // Dedup
+        // Dedup: Only ignore if it's an ECHO from ourselves and it's most likely the one we just sent
         final currentMsgs = _roomMessages[msgRoomId] ?? [];
-        final bool isDuplicate = currentMsgs.reversed
-            .take(5)
-            .any(
-              (m) =>
-                  m.userId == _currentUserId &&
-                  m.userId == msg.userId &&
-                  m.message == msg.message,
-            );
+        final bool isDuplicateEcho =
+            msg.userId == _currentUserId &&
+            currentMsgs.reversed
+                .take(3)
+                .any((m) => m.message == msg.message && m.userId == msg.userId);
 
-        if (isDuplicate) return;
+        if (isDuplicateEcho) {
+          print("ChatProvider: Ignoring duplicate echo for room $msgRoomId");
+          return;
+        }
 
-        // Increment unread count if message is for a room we aren't "in" or just globally
-        if (msg.userId != _currentUserId) {
+        // Increment unread count if message is for a room we aren't "in"
+        if (msg.userId != _currentUserId && msgRoomId != _activeRoomId) {
           _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
         }
 
@@ -103,8 +130,21 @@ class ChatProvider with ChangeNotifier {
             ..add(msg);
           notifyListeners();
 
-          if (msg.userId != _currentUserId && _currentUserId != null) {
+          // Only show notification if NOT in this room
+          final bool isUserMatch = msg.userId == _currentUserId;
+          final bool isRoomMatch = msgRoomId == _activeRoomId;
+
+          print(
+            "ChatProvider: Notification Decision - MsgRoom: $msgRoomId, ActiveRoom: $_activeRoomId, IsUserMatch: $isUserMatch, IsRoomMatch: $isRoomMatch",
+          );
+
+          if (!isUserMatch && !isRoomMatch) {
+            print("ChatProvider: Triggering notification for Room $msgRoomId");
             NotificationService.showNotification(msg, msgRoomId);
+          } else {
+            print(
+              "ChatProvider: Notification SUPPRESSED. reason: ${isUserMatch ? 'Self-Message' : 'Active Room'}",
+            );
           }
         });
       } catch (e) {
@@ -137,6 +177,7 @@ class ChatProvider with ChangeNotifier {
     // Ensure we are connected to the correct room before sending
     ChatWebsocketService().connect(roomId).then((_) {
       ChatWebsocketService().sendMessage(
+        roomId,
         message,
         _currentUserId!,
         _currentUserName ?? "Unknown",
@@ -145,8 +186,17 @@ class ChatProvider with ChangeNotifier {
   }
 
   void resetUnreadCount(int roomId) {
+    print("ChatProvider: resetUnreadCount $roomId");
     _unreadCounts[roomId] = 0;
+    _activeRoomId = roomId;
+    currentActiveRoomId = roomId;
     notifyListeners();
+  }
+
+  void clearActiveRoom() {
+    print("ChatProvider: clearActiveRoom called (Current: $_activeRoomId)");
+    _activeRoomId = null;
+    currentActiveRoomId = null;
   }
 
   void clear() {
@@ -154,6 +204,7 @@ class ChatProvider with ChangeNotifier {
     _subscription = null;
     _roomMessages.clear();
     _unreadCounts.clear();
+    ChatWebsocketService().disconnectAll();
     notifyListeners();
   }
 }

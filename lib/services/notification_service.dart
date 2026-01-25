@@ -45,6 +45,17 @@ class NotificationService {
         }
       },
     );
+
+    // Explicitly request permission for Android 13+
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        _notificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+
+    if (androidImplementation != null) {
+      await androidImplementation.requestNotificationsPermission();
+    }
   }
 
   /// Show local notification
@@ -64,12 +75,12 @@ class NotificationService {
     );
 
     await _notificationsPlugin.show(
-      msg.userId, // notification id
+      roomId, // Use roomId as notification id to group by room
       msg.senderName, // Use sender name as title
       msg.message,
       platformDetails,
       payload: jsonEncode({
-        "room_id": msg.roomId,
+        "room_id": roomId,
         "user_id": msg.userId,
         "message": msg.message,
       }),

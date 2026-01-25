@@ -28,9 +28,8 @@ Future<void> main() async {
 
   // If user is logged in, start foreground MQTT service
   if (loggedIn && userId != null) {
-    final int roomId = prefs.getInt('roomId') ?? 1;
     // DO NOT await this here, as it might block the UI/runApp
-    ForegroundServiceManager.start(userId, roomId).catchError((e) {
+    ForegroundServiceManager.start(userId).catchError((e) {
       print("Error starting foreground service in main: $e");
     });
   }
