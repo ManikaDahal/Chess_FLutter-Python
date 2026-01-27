@@ -7,6 +7,7 @@ import '../models/chess_piece.dart';
 import '../ui/square_widget.dart';
 import '../helper/helper.dart';
 import '../ui/call_screen.dart';
+import '../core/utils/global_callhandler.dart';
 
 class GameBoard extends StatefulWidget {
   final int roomId;
@@ -434,10 +435,13 @@ class _GameBoardState extends State<GameBoard>
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const CallScreen(
+                  builder: (_) => CallScreen(
                     roomId: roomId,
                     isIncomingCall: false,
                     isInitialVideo: false,
+                    // REUSE EXISTING SERVICE
+                    signalingService:
+                        GlobalCallHandler().generalSignalingService,
                   ),
                 ),
               );
@@ -451,10 +455,12 @@ class _GameBoardState extends State<GameBoard>
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const CallScreen(
+                  builder: (_) => CallScreen(
                     roomId: roomId,
                     isIncomingCall: false,
                     isInitialVideo: true,
+                    signalingService:
+                        GlobalCallHandler().generalSignalingService,
                   ),
                 ),
               );

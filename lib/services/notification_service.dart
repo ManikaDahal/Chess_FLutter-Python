@@ -23,7 +23,7 @@ class NotificationService {
     );
 
     await _notificationsPlugin.initialize(
-      initSettings,
+      settings: initSettings,
       onDidReceiveNotificationResponse: (details) {
         if (details.payload != null) {
           final payload = jsonDecode(details.payload!);
@@ -43,7 +43,7 @@ class NotificationService {
             );
           });
         }
-      },
+      }, 
     );
 
     // Explicitly request permission for Android 13+
@@ -75,15 +75,16 @@ class NotificationService {
     );
 
     await _notificationsPlugin.show(
-      roomId, // Use roomId as notification id to group by room
-      msg.senderName, // Use sender name as title
-      msg.message,
-      platformDetails,
-      payload: jsonEncode({
-        "room_id": roomId,
-        "user_id": msg.userId,
-        "message": msg.message,
-      }),
-    );
+  id: roomId,
+  title: msg.senderName ?? 'New Message',
+  body: msg.message ?? '',
+  notificationDetails: platformDetails,
+  payload: jsonEncode({
+    "room_id": roomId,
+    "user_id": msg.userId ?? 0,
+    "message": msg.message ?? '',
+  }),
+);
+
   }
 }

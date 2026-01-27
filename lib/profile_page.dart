@@ -132,28 +132,28 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
 
             const SizedBox(height: 20),
-            // TEMPORARY TEST BUTTON
-            ElevatedButton.icon(
-              icon: const Icon(Icons.bug_report),
-              label: const Text("TEST MQTT"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () {
-                SharedPreferences.getInstance().then((prefs) {
-                  final uid = prefs.getInt('userId');
-                  if (uid != null) {
-                    MqttService().testPublish(uid);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Sent Test MQTT to User $uid")),
-                    );
-                  }
-                });
-              },
-            ),
+            // // TEMPORARY TEST BUTTON
+            // ElevatedButton.icon(
+            //   icon: const Icon(Icons.bug_report),
+            //   label: const Text("TEST MQTT"),
+            //   style: ElevatedButton.styleFrom(
+            //     backgroundColor: Colors.orange,
+            //     foregroundColor: Colors.white,
+            //   ),
+            //   onPressed: () {
+            //     SharedPreferences.getInstance().then((prefs) {
+            //       final uid = prefs.getInt('userId');
+            //       if (uid != null) {
+            //         MqttService().testPublish(uid);
+            //         ScaffoldMessenger.of(context).showSnackBar(
+            //           SnackBar(content: Text("Sent Test MQTT to User $uid")),
+            //         );
+            //       }
+            //     });
+            //   },
+            // ),
 
-            const Spacer(),
+            // const Spacer(),
 
             CustomElevatedbutton(
               onPressed: () async {

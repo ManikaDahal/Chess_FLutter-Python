@@ -180,7 +180,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:vibration/vibration.dart';
 
-
 class GlobalCallHandler {
   // REMOVED: Singleton pattern - now create instances as needed
   // This allows multiple SignalingService instances for different rooms
@@ -189,6 +188,10 @@ class GlobalCallHandler {
   SignalingService? _generalSignalingService;
   SignalingService? _userSignalingService;
   bool _initialized = false;
+
+  // Accessors to reuse disconnected services for outgoing calls
+  SignalingService? get generalSignalingService => _generalSignalingService;
+  SignalingService? get userSignalingService => _userSignalingService;
 
   // CHANGE: Modified init() to connect to general chess_room_1 using a dedicated instance
   // This room is used for chess board calls (everyone can hear)
@@ -215,7 +218,9 @@ class GlobalCallHandler {
 
     // ✅ START SIGNALING for general chess room
     try {
-      debugPrint('🌐 Connecting to general signaling: ${Constants.wsBaseUrl} (Room: $roomId)');
+      debugPrint(
+        '🌐 Connecting to general signaling: ${Constants.wsBaseUrl} (Room: $roomId)',
+      );
       await _generalSignalingService!.connect(Constants.wsBaseUrl, roomId);
       debugPrint('✅ Connected to general signaling room: $roomId');
     } catch (e) {
@@ -249,7 +254,9 @@ class GlobalCallHandler {
     };
 
     try {
-      debugPrint('🌐 Connecting to user-specific signaling: ${Constants.wsBaseUrl} (Room: $roomId)');
+      debugPrint(
+        '🌐 Connecting to user-specific signaling: ${Constants.wsBaseUrl} (Room: $roomId)',
+      );
       await _userSignalingService!.connect(Constants.wsBaseUrl, roomId);
       debugPrint('✅ Connected to user-specific signaling room: $roomId');
     } catch (e) {
@@ -257,7 +264,11 @@ class GlobalCallHandler {
     }
   }
 
-  void _showIncomingCallDialog(BuildContext context, String roomId, {bool isVideo = true}) {
+  void _showIncomingCallDialog(
+    BuildContext context,
+    String roomId, {
+    bool isVideo = true,
+  }) {
     FlutterRingtonePlayer().playRingtone(looping: true);
     Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
 
@@ -266,7 +277,9 @@ class GlobalCallHandler {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         title: Text("Incoming ${isVideo ? 'Video' : 'Audio'} Call"),
-        content: Text("You have an incoming ${isVideo ? 'video' : 'audio'} call"),
+        content: Text(
+          "You have an incoming ${isVideo ? 'video' : 'audio'} call",
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -288,7 +301,9 @@ class GlobalCallHandler {
               Vibration.cancel();
               Navigator.pop(context);
               // Determine which signaling service to use
-              SignalingService? serviceToUse = roomId.startsWith('user_') ? _userSignalingService : _generalSignalingService;
+              SignalingService? serviceToUse = roomId.startsWith('user_')
+                  ? _userSignalingService
+                  : _generalSignalingService;
               Constants.navigatorKey.currentState?.push(
                 MaterialPageRoute(
                   builder: (_) => CallScreen(
