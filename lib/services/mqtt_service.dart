@@ -152,7 +152,7 @@
 //         print(
 //           "MQTT: Showing notification for room $roomId from ${msg.senderName}",
 //         );
-//         await NotificationService.showNotification(msg, roomId);
+//         await NotificationService.showNotification(msg: msg, roomId: roomId);
 //       } catch (e) {
 //         print('MQTT: Error parsing notification - $e');
 //       }
@@ -336,7 +336,7 @@ class MqttService {
         final int? activeRoom = ChatProvider.currentActiveRoomId;
         if (roomId == activeRoom) return;
 
-        await NotificationService.showNotification(msg, roomId);
+        await NotificationService.showNotification(msg: msg, roomId: roomId);
       } catch (e) {
         print('MQTT: Error processing message - $e');
       }

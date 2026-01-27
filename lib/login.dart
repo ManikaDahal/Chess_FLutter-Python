@@ -8,8 +8,6 @@ import 'package:chess_game_manika/core/utils/string_utils.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_biometrics.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
-import 'package:chess_game_manika/services/foreground_service_manager.dart';
-import 'package:chess_game_manika/services/mqtt_service.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_Inkwell.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
@@ -68,7 +66,7 @@ class _LoginState extends State<Login> {
         final int roomId = 1; // Testing room ID
         await prefs.setInt('roomId', roomId);
         await prefs.setBool('loggedIn', true);
-        await ForegroundServiceManager.start(userId);
+        // await ForegroundServiceManager.start(userId);
 
         // // Initialize GlobalCallHandler for this user
         // GlobalCallHandler().init();

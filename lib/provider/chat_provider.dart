@@ -140,7 +140,7 @@ class ChatProvider with ChangeNotifier {
 
           if (!isUserMatch && !isRoomMatch) {
             print("ChatProvider: Triggering notification for Room $msgRoomId");
-            NotificationService.showNotification(msg, msgRoomId);
+            NotificationService.showNotification(msg: msg, roomId: msgRoomId);
           } else {
             print(
               "ChatProvider: Notification SUPPRESSED. reason: ${isUserMatch ? 'Self-Message' : 'Active Room'}",

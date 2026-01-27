@@ -5,10 +5,8 @@ import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/core/utils/string_utils.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
-import 'package:chess_game_manika/services/foreground_service_manager.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
-import 'package:chess_game_manika/services/mqtt_service.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:flutter/material.dart';
@@ -43,7 +41,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!mounted) return;
 
     // 1. Stop MQTT foreground service
-    await ForegroundServiceManager.stop();
+    // await ForegroundServiceManager.stop();
 
     // 2. Clear Chat Provider and Close WebSocket
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -132,6 +130,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
 
             const SizedBox(height: 20),
+
             // // TEMPORARY TEST BUTTON
             // ElevatedButton.icon(
             //   icon: const Icon(Icons.bug_report),
@@ -154,7 +153,6 @@ class _ProfilePageState extends State<ProfilePage> {
             // ),
 
             // const Spacer(),
-
             CustomElevatedbutton(
               onPressed: () async {
                 try {

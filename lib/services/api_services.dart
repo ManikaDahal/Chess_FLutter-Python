@@ -100,4 +100,19 @@ class ApiService {
       return null;
     }
   }
+
+  Future<void> registerFcmToken(String token) async {
+    final headers = await _headers();
+    final response = await http.post(
+      Uri.parse('${Constants.apiBaseUrl}/api/register-fcm-token/'),
+      headers: headers,
+      body: jsonEncode({"token": token}),
+    );
+
+    if (response.statusCode == 200) {
+      print("FCM: Token registered successfully on backend");
+    } else {
+      print("FCM: Failed to register token: ${response.body}");
+    }
+  }
 }

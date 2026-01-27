@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/login.dart';
-import 'package:chess_game_manika/services/foreground_service_manager.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:chess_game_manika/services/api_services.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthServices {
   final TokenStorage _storage = TokenStorage();
+  final ApiService _apiService = ApiService();
 
   //Signup
   // CHANGE: Now throws exceptions with specific error messages from backend
@@ -30,6 +29,10 @@ class AuthServices {
       final data = jsonDecode(response.body);
       await _storage.saveAccessToken(data['access']);
       await _storage.saveRefreshToken(data['refresh']);
+
+      // Register FCM token
+      _registerFCM();
+
       return true;
     } else {
       print("Signup Failed:${response.body}");
@@ -75,6 +78,9 @@ class AuthServices {
 
         await _storage.saveAccessToken(data['access']);
         await _storage.saveRefreshToken(data['refresh']);
+
+        // Register FCM token
+        _registerFCM();
 
         print("Access token saved: ${data['access']}");
         String? token = await _storage.getAccessToken();
@@ -186,6 +192,17 @@ class AuthServices {
     } else {
       print("Password Reset failed ");
       return false;
+    }
+  }
+
+  Future<void> _registerFCM() async {
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _apiService.registerFcmToken(token);
+      }
+    } catch (e) {
+      print("FCM: Failed to get/register token: $e");
     }
   }
 }
