@@ -37,15 +37,23 @@ class ChatWebsocketService {
   }
 
   Future<void> _connectWithRetry(int roomId) async {
-    final url = "wss://chess-websocket-dor6.onrender.com/ws/chat/$roomId/";
+    final baseUrl = "wss://chess-websocket-dor6.onrender.com";
+    // STICT SANITIZATION: Strip trailing #, / or whitespace
+    final cleanBaseUrl = baseUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
+    final url = "$cleanBaseUrl/ws/chat/$roomId/";
+
     print(
       "ChatWebsocketService: Connecting to $url (Attempt ${_retryAttempts[roomId]! + 1})",
     );
 
     try {
       _connectionStateController.add(ConnectionState.connecting);
+      final uri = Uri.parse(url);
+      print(
+        "ChatWebsocketService: URI: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}",
+      );
 
-      final channel = WebSocketChannel.connect(Uri.parse(url));
+      final channel = WebSocketChannel.connect(uri);
       _channels[roomId] = channel;
       print("ChatWebsocketService: WebSocket channel created for room $roomId");
 

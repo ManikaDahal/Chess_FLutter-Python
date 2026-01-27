@@ -12,8 +12,6 @@ import 'package:chess_game_manika/ui/user_list.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
 import 'package:chess_game_manika/login.dart';
-import 'package:chess_game_manika/services/foreground_service_manager.dart';
-import 'package:chess_game_manika/services/mqtt_service.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -58,16 +56,6 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
 
       // 3️⃣ Connect user-specific signaling
       await GlobalCallHandler().connectForUser(userId);
-
-      // 3.5 START MQTT IN MAIN ISOLATE FOR TESTING
-      print("BottomNavBar: Starting MQTT in MAIN ISOLATE for user $userId");
-      MqttService().connect(userId);
-
-      // 3.6 Start MQTT Foreground Service (keep this too for background)
-      // DO NOT await here to avoid blocking UI during startup
-      ForegroundServiceManager.start(userId).catchError((e) {
-        debugPrint("Error starting foreground service: $e");
-      });
 
       if (!mounted) return;
 

@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
   final TokenStorage _storage = TokenStorage();
-  final AuthServices _authService = AuthServices();
 
   Future<Map<String, String>> _headers() async {
     final token = await _storage.getAccessToken();

@@ -4,6 +4,8 @@ class Constants {
   // CHANGE: Split into two URLs for dual deployment architecture
   // REST API endpoint (Vercel) - handles login, signup, profile, users, etc.
   static const String apiBaseUrl = "https://chess-backend-ochre.vercel.app";
+  //For testing FCM in new branch
+  static const String apiFCMBaseUrl = "https://chess-backend-git-manika-dev-fcm-manikadahals-projects.vercel.app";
 
   // WebSocket endpoint (Render) - handles call signaling only
   static const String wsBaseUrl = "wss://chess-websocket-dor6.onrender.com";

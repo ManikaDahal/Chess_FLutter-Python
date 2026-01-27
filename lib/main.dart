@@ -24,9 +24,6 @@ Future<void> main() async {
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // Initialize Foreground Service for MQTT
-  // await ForegroundServiceManager.init();
-
   // Start global call listener
   GlobalCallHandler().init();
 
@@ -38,15 +35,7 @@ Future<void> main() async {
   final bool loggedIn = prefs.getBool('loggedIn') ?? false;
   final int? userId = prefs.getInt('userId');
 
-  // If user is logged in, start foreground MQTT service
-  /*
-  if (loggedIn && userId != null) {
-    // DO NOT await this here, as it might block the UI/runApp
-    ForegroundServiceManager.start(userId).catchError((e) {
-      print("Error starting foreground service in main: $e");
-    });
-  }
-  */
+  // DO NOT await this here, as it might block the UI/runApp
 
   runApp(MyApp(autoLogin: loggedIn && userId != null));
 }

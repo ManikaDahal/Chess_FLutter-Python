@@ -95,12 +95,20 @@ class SignalingService {
       return;
     }
 
-    final url = '$wsUrl/ws/call/$roomId/';
-    _log('${_isReconnecting ? "🔄 Reconnecting" : "🌐 Connecting"} to: $url');
+    // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
+    final cleanWsUrl = wsUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
+    final url = '$cleanWsUrl/ws/call/$roomId/';
+
+    _log('🌐 Connecting to Signaling: $url');
 
     try {
       await _ensurePeerConnection();
-      _channel = WebSocketChannel.connect(Uri.parse(url));
+      final uri = Uri.parse(url);
+      _log(
+        '📍 URI Components: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}',
+      );
+
+      _channel = WebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
         (message) {
@@ -172,7 +180,8 @@ class SignalingService {
       _log('🧊 ICE Connection State: ${state.name}');
       if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
         _startIceRestartTimer();
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+      } else if (state ==
+              RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         _stopIceRestartTimer();
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
@@ -190,8 +199,10 @@ class SignalingService {
       if (candidate.candidate != null) {
         String type = "unknown";
         if (candidate.candidate!.contains("typ host")) type = "HOST (Local)";
-        if (candidate.candidate!.contains("typ srflx")) type = "SRFLX (Public IP)";
-        if (candidate.candidate!.contains("typ relay")) type = "RELAY (TURN Server)";
+        if (candidate.candidate!.contains("typ srflx"))
+          type = "SRFLX (Public IP)";
+        if (candidate.candidate!.contains("typ relay"))
+          type = "RELAY (TURN Server)";
 
         _log('🧊 Local ICE Candidate: $type');
         _sendSignal({
@@ -206,7 +217,9 @@ class SignalingService {
     };
 
     _peerConnection!.onTrack = (event) {
-      _log('🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}');
+      _log(
+        '🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}',
+      );
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
         onRemoteStream?.call(_remoteStream!);
@@ -214,27 +227,26 @@ class SignalingService {
     };
   }
 
- void _handleMessage(dynamic message) async {
-  final data = jsonDecode(message);
-  final type = data['type'];
+  void _handleMessage(dynamic message) async {
+    final data = jsonDecode(message);
+    final type = data['type'];
 
-  // Ignore self messages
-  if (data['sender'] == _channel?.hashCode.toString()) return;
+    // Ignore self messages
+    if (data['sender'] == _channel?.hashCode.toString()) return;
 
-  _log('RX: $type');
+    _log('RX: $type');
 
-  if (type == 'call_offer') {
-    _pendingOffer = data['offer'];
-    _pendingMediaType = data['mediaType'] ?? 'video';
-    onIncomingCall?.call();
-  } else if (type == 'call_answer') {
-    onCallAccepted?.call();
-    await _handleAnswer(data['answer']);
-  } else if (type == 'new_ice_candidate') {
-    await _handleCandidate(data['candidate']);
+    if (type == 'call_offer') {
+      _pendingOffer = data['offer'];
+      _pendingMediaType = data['mediaType'] ?? 'video';
+      onIncomingCall?.call();
+    } else if (type == 'call_answer') {
+      onCallAccepted?.call();
+      await _handleAnswer(data['answer']);
+    } else if (type == 'new_ice_candidate') {
+      await _handleCandidate(data['candidate']);
+    }
   }
-}
-
 
   Map<String, dynamic>? _pendingOffer;
   String? _pendingMediaType;
@@ -276,14 +288,27 @@ class SignalingService {
     }
 
     final mediaConstraints = {
-      'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
-      'video': isVideo ? {'facingMode': 'user', 'width': '640', 'height': '480', 'frameRate': '30'} : false,
+      'audio': {
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+      },
+      'video': isVideo
+          ? {
+              'facingMode': 'user',
+              'width': '640',
+              'height': '480',
+              'frameRate': '30',
+            }
+          : false,
     };
 
     int attempts = 0;
     while (attempts < 2) {
       try {
-        _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        _localStream = await navigator.mediaDevices.getUserMedia(
+          mediaConstraints,
+        );
         _log('✅ Got Local Stream: ${_localStream!.id}');
         onLocalStream?.call(_localStream!);
 
@@ -303,7 +328,9 @@ class SignalingService {
         attempts++;
         _log('❌ getUserMedia Trial $attempts Failed: $e');
         if (attempts >= 2) {
-          throw Exception('Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.');
+          throw Exception(
+            'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.',
+          );
         }
       }
     }
@@ -312,19 +339,29 @@ class SignalingService {
   Future<void> _handleOffer(Map<String, dynamic> offerData) async {
     await _ensurePeerConnection();
     _log('📨 Handling Offer: ${offerData['type']}');
-    await _peerConnection!.setRemoteDescription(RTCSessionDescription(offerData['sdp'], offerData['type']));
+    await _peerConnection!.setRemoteDescription(
+      RTCSessionDescription(offerData['sdp'], offerData['type']),
+    );
     _isRemoteDescriptionSet = true;
 
-    final constraints = {'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true}, 'optional': []};
+    final constraints = {
+      'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true},
+      'optional': [],
+    };
     final answer = await _peerConnection!.createAnswer(constraints);
     await _peerConnection!.setLocalDescription(answer);
 
-    _sendSignal({'type': 'call_answer', 'answer': {'type': answer.type, 'sdp': answer.sdp}});
+    _sendSignal({
+      'type': 'call_answer',
+      'answer': {'type': answer.type, 'sdp': answer.sdp},
+    });
     _drainRemoteCandidates();
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> answerData) async {
-    await _peerConnection!.setRemoteDescription(RTCSessionDescription(answerData['sdp'], answerData['type']));
+    await _peerConnection!.setRemoteDescription(
+      RTCSessionDescription(answerData['sdp'], answerData['type']),
+    );
     _isRemoteDescriptionSet = true;
     _drainRemoteCandidates();
   }
@@ -333,7 +370,9 @@ class SignalingService {
     try {
       final candidateStr = candidateData['candidate'];
       final sdpMid = candidateData['sdpMid'];
-      final sdpMLineIndex = candidateData['sdpMLineIndex'] is String ? int.tryParse(candidateData['sdpMLineIndex']) : candidateData['sdpMLineIndex'];
+      final sdpMLineIndex = candidateData['sdpMLineIndex'] is String
+          ? int.tryParse(candidateData['sdpMLineIndex'])
+          : candidateData['sdpMLineIndex'];
 
       if (candidateStr == null) {
         _log('ℹ️ End of candidates signal received');
@@ -356,7 +395,9 @@ class SignalingService {
 
   void _drainRemoteCandidates() async {
     if (_peerConnection == null || _remoteCandidatesBuffer.isEmpty) return;
-    _log('📥 Draining ${_remoteCandidatesBuffer.length} buffered ICE candidates');
+    _log(
+      '📥 Draining ${_remoteCandidatesBuffer.length} buffered ICE candidates',
+    );
     for (var candidate in _remoteCandidatesBuffer) {
       await _peerConnection!.addCandidate(candidate);
     }
@@ -493,7 +534,9 @@ class SignalingService {
       _sendSignal({
         'type': 'call_offer',
         'offer': {'type': offer.type, 'sdp': offer.sdp},
-        'mediaType': _localStream?.getVideoTracks().isNotEmpty == true ? 'video' : 'audio',
+        'mediaType': _localStream?.getVideoTracks().isNotEmpty == true
+            ? 'video'
+            : 'audio',
         'iceRestart': true,
       });
     } catch (e) {

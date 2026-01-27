@@ -20,7 +20,7 @@ class ChatProvider with ChangeNotifier {
   String? _currentUserName;
   int? _activeRoomId; // Track current viewing room
 
-  // Static accessor for other services (like MqttService)
+  // Static accessor for other services
   static int? currentActiveRoomId;
 
   StreamSubscription? _subscription;
@@ -85,36 +85,48 @@ class ChatProvider with ChangeNotifier {
 
           final currentMsgs = _roomMessages[msgRoomId] ?? [];
 
-          // Merge history into current messages, keeping optimistic ones
+          // MERGE STRATEGY:
+          // 1. Start with server history (it is ground truth)
+          // 2. Append any local optimistic messages that haven't been echoed/saved yet
           final List<ChatMessage> merged = List.from(historyMsgs);
-          for (var cm in currentMsgs) {
-            if (!historyMsgs.any(
-              (hm) => hm.message == cm.message && hm.userId == cm.userId,
-            )) {
-              merged.add(cm);
+
+          for (var localMsg in currentMsgs) {
+            // Check if this local message is already in history (by simple content match)
+            bool alreadyInHistory = historyMsgs.any(
+              (hMsg) =>
+                  hMsg.message == localMsg.message &&
+                  hMsg.userId == localMsg.userId,
+            );
+
+            if (!alreadyInHistory) {
+              merged.add(localMsg);
             }
           }
 
           _roomMessages[msgRoomId] = merged;
           notifyListeners();
           print(
-            "ChatProvider: History loaded and merged via WebSocket for room $msgRoomId. Total: ${merged.length}",
+            "ChatProvider: History merged for room $msgRoomId. Total: ${merged.length}",
           );
           return;
         }
 
+        // DEDUP LOGIC:
+        // When we send a message, we add it optimistically.
+        // A few ms later, the server echoes it back. We MUST NOT add it twice.
         final msg = ChatMessage.fromJson(data);
         final int msgRoomId = msg.roomId;
-
-        // Dedup: Only ignore if it's an ECHO from ourselves and it's most likely the one we just sent
         final currentMsgs = _roomMessages[msgRoomId] ?? [];
-        final bool isDuplicateEcho =
-            msg.userId == _currentUserId &&
-            currentMsgs.reversed
-                .take(3)
-                .any((m) => m.message == msg.message && m.userId == msg.userId);
 
-        if (isDuplicateEcho) {
+        bool isDuplicate = false;
+        // Check last 5 messages for content match if it's from us
+        if (msg.userId == _currentUserId) {
+          isDuplicate = currentMsgs.reversed
+              .take(5)
+              .any((m) => m.message == msg.message && m.userId == msg.userId);
+        }
+
+        if (isDuplicate) {
           print("ChatProvider: Ignoring duplicate echo for room $msgRoomId");
           return;
         }
@@ -126,25 +138,19 @@ class ChatProvider with ChangeNotifier {
 
         // Add to the correct bucket
         scheduleMicrotask(() {
-          _roomMessages[msgRoomId] = List.from(_roomMessages[msgRoomId] ?? [])
-            ..add(msg);
+          if (!_roomMessages.containsKey(msgRoomId)) {
+            _roomMessages[msgRoomId] = [];
+          }
+          _roomMessages[msgRoomId]!.add(msg);
           notifyListeners();
 
-          // Only show notification if NOT in this room
-          final bool isUserMatch = msg.userId == _currentUserId;
-          final bool isRoomMatch = msgRoomId == _activeRoomId;
+          // Notification Logic
+          final bool isSelf = msg.userId == _currentUserId;
+          final bool isVisible = msgRoomId == _activeRoomId;
 
-          print(
-            "ChatProvider: Notification Decision - MsgRoom: $msgRoomId, ActiveRoom: $_activeRoomId, IsUserMatch: $isUserMatch, IsRoomMatch: $isRoomMatch",
-          );
-
-          if (!isUserMatch && !isRoomMatch) {
+          if (!isSelf && !isVisible) {
             print("ChatProvider: Triggering notification for Room $msgRoomId");
             NotificationService.showNotification(msg: msg, roomId: msgRoomId);
-          } else {
-            print(
-              "ChatProvider: Notification SUPPRESSED. reason: ${isUserMatch ? 'Self-Message' : 'Active Room'}",
-            );
           }
         });
       } catch (e) {

@@ -66,26 +66,36 @@ class NotificationService {
       print('FCM: Got a message whilst in the foreground!');
       print('FCM: Message data: ${message.data}');
 
+      // If it contains a notification block, show it if not in that room
       if (message.notification != null) {
-        print(
-          'FCM: Message also contained a notification: ${message.notification}',
-        );
-
         final data = message.data;
-        if (data.containsKey('room_id')) {
-          final int roomId =
-              int.tryParse(data['room_id']?.toString() ?? '1') ?? 1;
+        final int roomId =
+            int.tryParse(data['room_id']?.toString() ?? '1') ?? 1;
+
+        // Suppression: don't show IF user is active in THIS room
+        if (roomId != ChatProvider.currentActiveRoomId) {
           final msg = ChatMessage(
             message: message.notification?.body ?? '',
             senderName: message.notification?.title ?? 'New Message',
             userId: int.tryParse(data['user_id']?.toString() ?? '0') ?? 0,
             roomId: roomId,
           );
+          showNotification(msg: msg, roomId: roomId);
+        }
+      } else if (message.data.containsKey('room_id')) {
+        // DATA-ONLY message (background-style sent to foreground)
+        final data = message.data;
+        final int roomId =
+            int.tryParse(data['room_id']?.toString() ?? '1') ?? 1;
 
-          // Suppression logic: don't show if user is in the room
-          if (roomId != ChatProvider.currentActiveRoomId) {
-            showNotification(msg: msg, roomId: roomId);
-          }
+        if (roomId != ChatProvider.currentActiveRoomId) {
+          final msg = ChatMessage(
+            message: data['message'] ?? 'New Message',
+            senderName: data['sender_name'] ?? 'Chat',
+            userId: int.tryParse(data['user_id']?.toString() ?? '0') ?? 0,
+            roomId: roomId,
+          );
+          showNotification(msg: msg, roomId: roomId);
         }
       }
     });
