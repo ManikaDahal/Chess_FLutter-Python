@@ -38,7 +38,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception("Profile failed");
+      throw Exception("Profile failed [${response.statusCode}]");
     }
   }
 
@@ -108,9 +108,11 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      print("FCM: Token registered successfully on backend");
+      print("FCM Dashboard: Token registered successfully on backend (Vercel)");
     } else {
-      print("FCM: Failed to register token: ${response.body}");
+      print(
+        "FCM Dashboard: Failed to register token: ${response.statusCode} - ${response.body}",
+      );
     }
   }
 }

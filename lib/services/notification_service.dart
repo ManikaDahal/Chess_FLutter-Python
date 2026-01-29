@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
+import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:chess_game_manika/services/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -13,9 +14,10 @@ class NotificationService {
 
   /// Keep a navigator key to allow navigation from anywhere
   static GlobalKey<NavigatorState>? navigatorKey;
+  static bool _isLocalInit = false;
 
-  static Future<void> init({required GlobalKey<NavigatorState> navKey}) async {
-    navigatorKey = navKey;
+  static Future<void> _initLocal() async {
+    if (_isLocalInit) return;
 
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -37,6 +39,12 @@ class NotificationService {
         }
       },
     );
+    _isLocalInit = true;
+  }
+
+  static Future<void> init({required GlobalKey<NavigatorState> navKey}) async {
+    navigatorKey = navKey;
+    await _initLocal();
 
     // Explicitly request permission for Android 13+
     final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
@@ -63,40 +71,40 @@ class NotificationService {
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('FCM: Got a message whilst in the foreground!');
-      print('FCM: Message data: ${message.data}');
+      print('FCM: Got a foreground message. Data: ${message.data}');
 
-      // If it contains a notification block, show it if not in that room
-      if (message.notification != null) {
-        final data = message.data;
-        final int roomId =
-            int.tryParse(data['room_id']?.toString() ?? '1') ?? 1;
+      final data = message.data;
+      final int msgRoomId =
+          int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
+      final int currentRoomId = ChatProvider.currentActiveRoomId ?? -1;
 
-        // Suppression: don't show IF user is active in THIS room
-        if (roomId != ChatProvider.currentActiveRoomId) {
-          final msg = ChatMessage(
-            message: message.notification?.body ?? '',
-            senderName: message.notification?.title ?? 'New Message',
-            userId: int.tryParse(data['user_id']?.toString() ?? '0') ?? 0,
-            roomId: roomId,
-          );
-          showNotification(msg: msg, roomId: roomId);
-        }
-      } else if (message.data.containsKey('room_id')) {
-        // DATA-ONLY message (background-style sent to foreground)
-        final data = message.data;
-        final int roomId =
-            int.tryParse(data['room_id']?.toString() ?? '1') ?? 1;
+      // SELECTIVE SUPPRESSION:
+      // If we are NOT connected to this room via WebSocket, show the notification.
+      // This allows private messages (which use separate rooms) to notify in foreground,
+      // while the general room (which is always connected) stays suppressed to avoid duplicates.
+      bool isConnected = ChatWebsocketService().isRoomConnected(msgRoomId);
+      bool isViewingThisRoom = msgRoomId != 0 && msgRoomId == currentRoomId;
 
-        if (roomId != ChatProvider.currentActiveRoomId) {
-          final msg = ChatMessage(
-            message: data['message'] ?? 'New Message',
-            senderName: data['sender_name'] ?? 'Chat',
-            userId: int.tryParse(data['user_id']?.toString() ?? '0') ?? 0,
-            roomId: roomId,
-          );
-          showNotification(msg: msg, roomId: roomId);
-        }
+      print(
+        "FCM: FG Check - msgRoom: $msgRoomId, isConnected: $isConnected, isViewing: $isViewingThisRoom",
+      );
+
+      if (!isConnected && !isViewingThisRoom) {
+        print(
+          "FCM: Showing foreground notification (room not connected via WS)",
+        );
+        showNotification(
+          title: data['sender_name'] ?? "New Message",
+          body:
+              data['message'] ??
+              message.notification?.body ??
+              "New message arrived",
+          payload: Map<String, dynamic>.from(data),
+        );
+      } else {
+        print(
+          "FCM: Suppressing foreground notification (already handled by WebSocket)",
+        );
       }
     });
 
@@ -115,28 +123,39 @@ class NotificationService {
     });
   }
 
-  static void _handleFcmPayload(Map<String, dynamic> data) {
+  static void _handleFcmPayload(Map<String, dynamic> data) async {
+    print("FCM: Handling payload details: $data");
     if (data.containsKey('room_id')) {
       final int roomId = int.tryParse(data['room_id'].toString()) ?? 1;
-      final int senderUserId = int.tryParse(data['user_id'].toString()) ?? 0;
 
-      SharedPreferences.getInstance().then((prefs) {
-        final currentUserId = prefs.getInt('userId') ?? senderUserId;
-        navigatorKey?.currentState?.push(
-          MaterialPageRoute(
-            builder: (_) =>
-                ChatPage(roomId: roomId, currentUserId: currentUserId),
-          ),
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int? currentUserId = prefs.getInt('userId');
+
+      print("FCM: Navigating to Room $roomId for User $currentUserId");
+
+      if (currentUserId == null) {
+        print(
+          "FCM ERROR: Cannot navigate, userId is missing in SharedPreferences",
         );
-      });
+        return;
+      }
+
+      navigatorKey?.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) =>
+              ChatPage(roomId: roomId, currentUserId: currentUserId),
+        ),
+      );
     }
   }
 
   /// Show local notification
   static Future<void> showNotification({
-    required ChatMessage msg,
-    required int roomId,
+    required String title,
+    required String body,
+    required Map<String, dynamic> payload,
   }) async {
+    await _initLocal();
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
           "chat_channel",
@@ -145,22 +164,35 @@ class NotificationService {
           importance: Importance.max,
           priority: Priority.high,
           ticker: 'ticker',
+          showWhen: true,
         );
 
     const NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
     );
 
+    // Use a unique ID or hash of room_id to avoid overwriting
+    int id = int.tryParse(payload['room_id']?.toString() ?? '0') ?? 0;
+
     await _notificationsPlugin.show(
-      id: roomId,
-      title: msg.senderName,
-      body: msg.message,
+      id: id,
+      title: title,
+      body: body,
       notificationDetails: platformDetails,
-      payload: jsonEncode({
-        "room_id": roomId,
-        "user_id": msg.userId,
-        "message": msg.message,
-      }),
+      payload: jsonEncode(payload),
     );
+  }
+
+  /// Register FCM Token with backend
+  static Future<void> registerToken() async {
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        print("FCM Token: $token");
+        await ApiService().registerFcmToken(token);
+      }
+    } catch (e) {
+      print("Error registering FCM token: $e");
+    }
   }
 }

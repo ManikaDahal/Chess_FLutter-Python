@@ -181,8 +181,9 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:vibration/vibration.dart';
 
 class GlobalCallHandler {
-  // REMOVED: Singleton pattern - now create instances as needed
-  // This allows multiple SignalingService instances for different rooms
+  static final GlobalCallHandler _instance = GlobalCallHandler._internal();
+  factory GlobalCallHandler() => _instance;
+  GlobalCallHandler._internal();
 
   // Separate instances for general and user-specific rooms
   SignalingService? _generalSignalingService;

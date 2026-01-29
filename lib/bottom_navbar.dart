@@ -11,6 +11,7 @@ import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/ui/user_list.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
+import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/login.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
@@ -57,6 +58,9 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       // 3️⃣ Connect user-specific signaling
       await GlobalCallHandler().connectForUser(userId);
 
+      // 4️⃣ Register FCM token for notifications
+      await NotificationService.registerToken();
+
       if (!mounted) return;
 
       // 4️⃣ Initialize pages
@@ -77,11 +81,32 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
       });
     } catch (e, st) {
       debugPrint("Error initializing user: $e\n$st");
+      final String errorStr = e.toString().toLowerCase();
+
+      if (errorStr.contains("401") ||
+          errorStr.contains("unauthorized") ||
+          errorStr.contains("[401]") ||
+          errorStr.contains("[403]")) {
+        // Token expired and refresh failed, go back to login
+        debugPrint("User unauthorized, clearing session and going to login");
+        if (mounted) {
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.clear();
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const Login()),
+              (route) => false,
+            );
+          });
+        }
+        return;
+      }
+
       if (mounted) {
         setState(() {
           _loading = false;
           _errorMessage =
-              "Failed to initialize app. Please check your connection or restart.";
+              "App failed to initialize. Please check your internet or try again.";
         });
       }
     }
@@ -134,7 +159,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
                       );
                     });
                   },
-                  child: const Text("Logout & Go to Login"),
+                  child: const Text("Go to Login Page"),
                 ),
               ],
             ),

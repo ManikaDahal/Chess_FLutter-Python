@@ -15,6 +15,21 @@ import 'bottom_navbar.dart'; // Make sure you import your main page
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   print("FCM: Handling a background message: ${message.messageId}");
+
+  // Only show local notification if it's a data-only message
+  // (FCM automatically shows messages with the 'notification' property)
+  if (message.notification == null && message.data.isNotEmpty) {
+    final data = message.data;
+    final String title = data['title'] ?? 'New Message';
+    final String body =
+        data['body'] ?? data['message'] ?? 'You have a new message';
+
+    await NotificationService.showNotification(
+      title: title,
+      body: body,
+      payload: Map<String, dynamic>.from(data),
+    );
+  }
 }
 
 Future<void> main() async {

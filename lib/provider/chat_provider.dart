@@ -74,87 +74,142 @@ class ChatProvider with ChangeNotifier {
   void _listenToStream() {
     _subscription?.cancel();
     _subscription = ChatWebsocketService().stream.listen((data) {
-      print("ChatProvider: Received data: $data");
+      print("ChatProvider [$instanceId]: Raw stream data: $data");
       try {
         if (data['type'] == 'history') {
           final List<dynamic> historyData = data['messages'] ?? [];
-          final int msgRoomId = data['room_id'];
+          final int msgRoomId = data['room_id'] ?? 0;
+          print(
+            "ChatProvider [$instanceId]: Processing history for room $msgRoomId. Count: ${historyData.length}",
+          );
+
           final historyMsgs = historyData
               .map((e) => ChatMessage.fromJson(e))
               .toList();
 
           final currentMsgs = _roomMessages[msgRoomId] ?? [];
 
-          // MERGE STRATEGY:
-          // 1. Start with server history (it is ground truth)
-          // 2. Append any local optimistic messages that haven't been echoed/saved yet
-          final List<ChatMessage> merged = List.from(historyMsgs);
+          // ROBUST MERGE STRATEGY:
+          // Use a Map by ID to ensure we don't drop any server-verified messages
+          // but also don't duplicate them.
+          final Map<int, ChatMessage> idMap = {};
+          final List<ChatMessage> optimisticMsgs = [];
 
-          for (var localMsg in currentMsgs) {
-            // Check if this local message is already in history (by simple content match)
-            bool alreadyInHistory = historyMsgs.any(
-              (hMsg) =>
-                  hMsg.message == localMsg.message &&
-                  hMsg.userId == localMsg.userId,
+          // 1. Add existing messages (to keep older history not in the new batch)
+          for (var m in currentMsgs) {
+            if (m.id != null)
+              idMap[m.id!] = m;
+            else
+              optimisticMsgs.add(m);
+          }
+
+          // 2. Add new history batch (overwrites/updates existing by ID)
+          for (var m in historyMsgs) {
+            if (m.id != null) idMap[m.id!] = m;
+          }
+
+          // 3. Rebuild sorted list
+          final List<ChatMessage> merged = idMap.values.toList();
+          merged.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
+
+          // 4. Append optimistic messages (which have id == null)
+          // (Removing any that have been echoed back in historyMsgs)
+          for (var optMsg in optimisticMsgs) {
+            bool matched = historyMsgs.any(
+              (h) => h.message == optMsg.message && h.userId == optMsg.userId,
             );
-
-            if (!alreadyInHistory) {
-              merged.add(localMsg);
+            if (!matched) {
+              merged.add(optMsg);
             }
           }
 
           _roomMessages[msgRoomId] = merged;
-          notifyListeners();
           print(
-            "ChatProvider: History merged for room $msgRoomId. Total: ${merged.length}",
+            "ChatProvider [$instanceId]: Final merged count for room $msgRoomId: ${merged.length}",
           );
+          notifyListeners();
           return;
         }
 
-        // DEDUP LOGIC:
-        // When we send a message, we add it optimistically.
-        // A few ms later, the server echoes it back. We MUST NOT add it twice.
+        // --- SINGLE MESSAGE LOGIC ---
         final msg = ChatMessage.fromJson(data);
         final int msgRoomId = msg.roomId;
-        final currentMsgs = _roomMessages[msgRoomId] ?? [];
-
-        bool isDuplicate = false;
-        // Check last 5 messages for content match if it's from us
-        if (msg.userId == _currentUserId) {
-          isDuplicate = currentMsgs.reversed
-              .take(5)
-              .any((m) => m.message == msg.message && m.userId == msg.userId);
-        }
-
-        if (isDuplicate) {
-          print("ChatProvider: Ignoring duplicate echo for room $msgRoomId");
+        if (msgRoomId == 0) {
+          print("ChatProvider ERROR: Message has room_id=0 ($data)");
           return;
         }
 
-        // Increment unread count if message is for a room we aren't "in"
-        if (msg.userId != _currentUserId && msgRoomId != _activeRoomId) {
+        final currentMsgs = _roomMessages[msgRoomId] ?? [];
+
+        // 1. If this message ID already exists, it's a duplicate
+        if (msg.id != null && currentMsgs.any((m) => m.id == msg.id)) {
+          print("ChatProvider: Ignoring duplicate ID: ${msg.id}");
+          return;
+        }
+
+        // 2. If it's from US, try to replace the optimistic entry
+        bool replaced = false;
+        if (msg.userId == _currentUserId) {
+          print(
+            "ChatProvider: Message is from current user. Looking for optimistic entry to replace...",
+          );
+          for (int i = currentMsgs.length - 1; i >= 0; i--) {
+            final m = currentMsgs[i];
+            if (m.id == null && m.message == msg.message) {
+              currentMsgs[i] = msg;
+              replaced = true;
+              print(
+                "ChatProvider: Replaced optimistic message with server ID: ${msg.id}",
+              );
+              break;
+            }
+          }
+        }
+
+        if (replaced) {
+          notifyListeners();
+          return;
+        }
+
+        // 3. New message (either from others or a fresh one from us)
+        print(
+          "ChatProvider: Adding new message to list. Room: $msgRoomId, From: ${msg.senderName}",
+        );
+        if (!_roomMessages.containsKey(msgRoomId)) {
+          _roomMessages[msgRoomId] = [];
+        }
+        _roomMessages[msgRoomId]!.add(msg);
+
+        // Update unread count if not active
+        if (msgRoomId != _activeRoomId) {
           _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
         }
 
-        // Add to the correct bucket
-        scheduleMicrotask(() {
-          if (!_roomMessages.containsKey(msgRoomId)) {
-            _roomMessages[msgRoomId] = [];
-          }
-          _roomMessages[msgRoomId]!.add(msg);
-          notifyListeners();
+        notifyListeners();
 
-          // Notification Logic
-          final bool isSelf = msg.userId == _currentUserId;
-          final bool isVisible = msgRoomId == _activeRoomId;
+        // 4. Notification Logic: Only for others' messages in non-active rooms
+        final bool isVisible = msgRoomId == _activeRoomId;
+        final bool fromMe = msg.userId == _currentUserId;
 
-          if (!isSelf && !isVisible) {
-            print("ChatProvider: Triggering notification for Room $msgRoomId");
-            NotificationService.showNotification(msg: msg, roomId: msgRoomId);
-          }
-        });
-      } catch (e) {
-        print("ChatProvider: Error processing message: $e");
+        print("ChatProvider NotifyCheck: roomMatch=$isVisible, isMe=$fromMe");
+
+        if (!fromMe && !isVisible) {
+          print(
+            "ChatProvider: Triggering local notification for Room $msgRoomId",
+          );
+          NotificationService.showNotification(
+            title: msg.senderName,
+            body: msg.message,
+            payload: {
+              "room_id": msgRoomId,
+              "user_id": msg.userId,
+              "message": msg.message,
+              "sender_name": msg.senderName,
+            },
+          );
+        }
+      } catch (e, st) {
+        print("ChatProvider: Error processing message: $e\n$st");
       }
     }, onError: (error) => print("ChatProvider: Stream error: $error"));
   }
