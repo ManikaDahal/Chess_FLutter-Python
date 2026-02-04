@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:chess_game_manika/provider/chat_provider.dart';
-import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -39,6 +38,26 @@ class NotificationService {
         }
       },
     );
+
+    // Create the notification channel explicitly for Android 8.0+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'chat_channel', // id
+      'Chat Messages', // title
+      description: 'Receive new chat messages', // description
+      importance: Importance.max,
+    );
+
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        _notificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+
+    if (androidImplementation != null) {
+      await androidImplementation.createNotificationChannel(channel);
+      print("FCM: Notification Channel 'chat_channel' created.");
+    }
+
     _isLocalInit = true;
   }
 
@@ -73,39 +92,8 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('FCM: Got a foreground message. Data: ${message.data}');
 
-      final data = message.data;
-      final int msgRoomId =
-          int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
-      final int currentRoomId = ChatProvider.currentActiveRoomId ?? -1;
-
-      // SELECTIVE SUPPRESSION:
-      // If we are NOT connected to this room via WebSocket, show the notification.
-      // This allows private messages (which use separate rooms) to notify in foreground,
-      // while the general room (which is always connected) stays suppressed to avoid duplicates.
-      bool isConnected = ChatWebsocketService().isRoomConnected(msgRoomId);
-      bool isViewingThisRoom = msgRoomId != 0 && msgRoomId == currentRoomId;
-
-      print(
-        "FCM: FG Check - msgRoom: $msgRoomId, isConnected: $isConnected, isViewing: $isViewingThisRoom",
-      );
-
-      if (!isConnected && !isViewingThisRoom) {
-        print(
-          "FCM: Showing foreground notification (room not connected via WS)",
-        );
-        showNotification(
-          title: data['sender_name'] ?? "New Message",
-          body:
-              data['message'] ??
-              message.notification?.body ??
-              "New message arrived",
-          payload: Map<String, dynamic>.from(data),
-        );
-      } else {
-        print(
-          "FCM: Suppressing foreground notification (already handled by WebSocket)",
-        );
-      }
+      // Forward to ChatProvider for unified processing (deduplication, unread counts, alerts)
+      ChatProvider.instance?.processIncomingPayload(message.data);
     });
 
     // Handle notification click when app is in background but not terminated
@@ -115,12 +103,27 @@ class NotificationService {
     });
 
     // Handle notification click when app is terminated
+    // We only LOG here, handle navigation in checkForInitialMessage
     messaging.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
-        print('FCM: App opened from terminated state via notification');
-        _handleFcmPayload(message.data);
+        print(
+          'FCM: App opened from terminated state via notification. Delaying navigation.',
+        );
       }
     });
+  }
+
+  /// This should be called once the main UI is built to handle terminated state navigation
+  static Future<void> checkForInitialMessage() async {
+    RemoteMessage? initialMessage = await FirebaseMessaging.instance
+        .getInitialMessage();
+
+    if (initialMessage != null) {
+      print("FCM [ColdStart]: Found initial message, processing navigation...");
+      // Add a longer delay for cold starts to ensure Navigator and Provider are ready
+      await Future.delayed(const Duration(milliseconds: 1500));
+      _handleFcmPayload(initialMessage.data);
+    }
   }
 
   static void _handleFcmPayload(Map<String, dynamic> data) async {

@@ -14,6 +14,7 @@ class ChatWebsocketService {
   final Map<int, Timer> _heartbeatTimers = {};
   final Map<int, Timer> _reconnectTimers = {};
   final Map<int, int> _retryAttempts = {};
+  final Map<int, int> _roomUserIds = {}; // TRACK: userId per roomId
 
   final _controller = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get stream => _controller.stream;
@@ -26,21 +27,22 @@ class ChatWebsocketService {
 
   bool isRoomConnected(int roomId) => _channels.containsKey(roomId);
 
-  Future<void> connect(int roomId) async {
+  Future<void> connect(int roomId, int userId) async {
+    _roomUserIds[roomId] = userId; // Store for reconnections
     if (_channels.containsKey(roomId)) {
       print("ChatWebsocketService: Already connected to room $roomId.");
       return;
     }
 
     _retryAttempts[roomId] = 0;
-    await _connectWithRetry(roomId);
+    await _connectWithRetry(roomId, userId);
   }
 
-  Future<void> _connectWithRetry(int roomId) async {
+  Future<void> _connectWithRetry(int roomId, int userId) async {
     final baseUrl = "wss://chess-websocket-dor6.onrender.com";
     // STICT SANITIZATION: Strip trailing #, / or whitespace
     final cleanBaseUrl = baseUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
-    final url = "$cleanBaseUrl/ws/chat/$roomId/";
+    final url = "$cleanBaseUrl/ws/chat/$roomId/$userId/";
 
     print(
       "ChatWebsocketService: Connecting to $url (Attempt ${_retryAttempts[roomId]! + 1})",
@@ -143,10 +145,13 @@ class ChatWebsocketService {
         "ChatWebsocketService: $reason Reconnecting to room $roomId in ${delaySeconds}s (attempt ${attempt + 1}/10)",
       );
 
+      final int? userId = _roomUserIds[roomId];
+      if (userId == null) return;
+
       _reconnectTimers[roomId]?.cancel();
       _reconnectTimers[roomId] = Timer(Duration(seconds: delaySeconds), () {
         _retryAttempts[roomId] = attempt + 1;
-        _connectWithRetry(roomId);
+        _connectWithRetry(roomId, userId);
       });
     } else {
       print(
@@ -163,7 +168,7 @@ class ChatWebsocketService {
       print(
         "ChatWebsocketService: CANNOT send message, no connection for room $roomId!",
       );
-      connect(roomId);
+      connect(roomId, userId);
       return;
     }
     try {

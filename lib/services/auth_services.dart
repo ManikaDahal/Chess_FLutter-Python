@@ -198,6 +198,7 @@ class AuthServices {
   Future<void> _registerFCM() async {
     try {
       String? token = await FirebaseMessaging.instance.getToken();
+      print("TOKEN: $token");
       if (token != null) {
         await _apiService.registerFcmToken(token);
       }

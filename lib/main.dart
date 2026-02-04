@@ -17,18 +17,25 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("FCM: Handling a background message: ${message.messageId}");
 
   // Only show local notification if it's a data-only message
-  // (FCM automatically shows messages with the 'notification' property)
+  // AND it's explicitly typed as a chat message.
   if (message.notification == null && message.data.isNotEmpty) {
     final data = message.data;
-    final String title = data['title'] ?? 'New Message';
-    final String body =
-        data['body'] ?? data['message'] ?? 'You have a new message';
 
-    await NotificationService.showNotification(
-      title: title,
-      body: body,
-      payload: Map<String, dynamic>.from(data),
-    );
+    // Type Check: Only show manual notification if it's a chat message
+    if (data['type'] == 'chat_message') {
+      final String title = data['sender_name'] ?? 'New Message';
+      final String body = data['message'] ?? 'You have a new message';
+
+      await NotificationService.showNotification(
+        title: title,
+        body: body,
+        payload: Map<String, dynamic>.from(data),
+      );
+    } else {
+      print(
+        "FCM: Background handler ignoring non-chat data message: ${data['type']}",
+      );
+    }
   }
 }
 
@@ -53,6 +60,11 @@ Future<void> main() async {
   // DO NOT await this here, as it might block the UI/runApp
 
   runApp(MyApp(autoLogin: loggedIn && userId != null));
+
+  // Check for initial message (terminated state navigation)
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    NotificationService.checkForInitialMessage();
+  });
 }
 
 class MyApp extends StatelessWidget {
