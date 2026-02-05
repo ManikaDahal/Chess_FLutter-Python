@@ -136,6 +136,16 @@ class NotificationService {
       return;
     }
 
+    if (data['type'] == 'invite_accepted') {
+      _showStatusDialog(data, "Invitation Accepted", Colors.green);
+      return;
+    }
+
+    if (data['type'] == 'invite_declined') {
+      _showStatusDialog(data, "Invitation Declined", Colors.red);
+      return;
+    }
+
     if (data.containsKey('room_id')) {
       final int roomId = int.tryParse(data['room_id'].toString()) ?? 1;
 
@@ -206,6 +216,7 @@ class NotificationService {
                         // If I accepted, then the other person started, so usually
                         // the sender might be White, but let's use the same deterministic logic
                         amIWhite: currentUserId < senderId,
+                        opponentId: senderId,
                       ),
                     ),
                   );
@@ -264,5 +275,58 @@ class NotificationService {
     } catch (e) {
       print("Error registering FCM token: $e");
     }
+  }
+
+  static void _showStatusDialog(
+    Map<String, dynamic> data,
+    String title,
+    Color color,
+  ) {
+    final context = navigatorKey?.currentContext;
+    if (context == null) return;
+
+    final String message = data['message'] ?? "";
+    final int roomId = int.tryParse(data['room_id']?.toString() ?? "0") ?? 0;
+    final int senderId = int.tryParse(data['user_id']?.toString() ?? "0") ?? 0;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title, style: TextStyle(color: color)),
+          content: Text(message),
+          actions: [
+            if (title == "Invitation Declined")
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // Trigger re-invite if sender chooses
+                  final SharedPreferences prefs =
+                      await SharedPreferences.getInstance();
+                  final int currentUserId = prefs.getInt('userId') ?? 0;
+
+                  navigatorKey?.currentState?.pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => GameBoard(
+                        roomId: roomId,
+                        currentUserId: currentUserId,
+                        isMultiplayer: true,
+                        amIWhite: currentUserId < senderId,
+                      ),
+                    ),
+                  );
+                  // Call sendInvite again
+                  await InviteService().sendInvite(senderId);
+                },
+                child: const Text("Send Again"),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        );
+      },
+    );
   }
 }

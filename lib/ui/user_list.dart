@@ -118,6 +118,7 @@ class _UserListState extends State<UserList> {
                 currentUserId: widget.currentUserId,
                 isMultiplayer: true,
                 amIWhite: widget.currentUserId < targetUserId,
+                opponentId: targetUserId,
               ),
             ),
           );

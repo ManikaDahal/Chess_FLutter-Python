@@ -15,12 +15,14 @@ class GameBoard extends StatefulWidget {
   final int currentUserId;
   final bool isMultiplayer;
   final bool amIWhite;
+  final int? opponentId;
   const GameBoard({
     super.key,
     required this.currentUserId,
     required this.roomId,
     this.isMultiplayer = false,
     this.amIWhite = true,
+    this.opponentId,
   });
 
   @override
@@ -62,6 +64,14 @@ class _GameBoardState extends State<GameBoard>
         } else if (data['type'] == 'reset') {
           setState(() => _initializeBoard());
         }
+      });
+
+      // Initialize ChatProvider for the game room
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Provider.of<ChatProvider>(
+          context,
+          listen: false,
+        ).init(widget.roomId, widget.currentUserId, setAsActive: true);
       });
     }
   }
@@ -498,15 +508,15 @@ class _GameBoardState extends State<GameBoard>
             icon: const Icon(Icons.phone),
             tooltip: "Audio Call",
             onPressed: () {
-              const roomId = "chess_room_1";
+              // Deterministic Call Room ID for the game
+              final String callRoomId = "chess_call_${widget.roomId}";
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => CallScreen(
-                    roomId: roomId,
+                    roomId: callRoomId,
                     isIncomingCall: false,
                     isInitialVideo: false,
-                    // REUSE EXISTING SERVICE
                     signalingService:
                         GlobalCallHandler().generalSignalingService,
                   ),
@@ -518,12 +528,12 @@ class _GameBoardState extends State<GameBoard>
             icon: const Icon(Icons.videocam),
             tooltip: "Video Call",
             onPressed: () {
-              const roomId = "chess_room_1";
+              final String callRoomId = "chess_call_${widget.roomId}";
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => CallScreen(
-                    roomId: roomId,
+                    roomId: callRoomId,
                     isIncomingCall: false,
                     isInitialVideo: true,
                     signalingService:
@@ -538,10 +548,10 @@ class _GameBoardState extends State<GameBoard>
             builder: (_, provider, __) {
               return badges.Badge(
                 badgeContent: Text(
-                  provider.totalUnreadCount.toString(),
+                  provider.getUnreadCount(widget.roomId).toString(),
                   style: const TextStyle(color: Colors.white, fontSize: 10),
                 ),
-                showBadge: provider.totalUnreadCount > 0,
+                showBadge: provider.getUnreadCount(widget.roomId) > 0,
                 position: badges.BadgePosition.topEnd(top: 0, end: 3),
                 child: IconButton(
                   icon: const Icon(Icons.chat),
@@ -558,6 +568,40 @@ class _GameBoardState extends State<GameBoard>
                       ),
                     );
                   },
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.exit_to_app, color: Colors.red),
+            tooltip: "Leave Game",
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text("Leave Game?"),
+                  content: const Text(
+                    "Are you sure you want to leave this room?",
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Cancel"),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context); // close dialog
+                        Navigator.pop(context); // exit GameBoard
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                      ),
+                      child: const Text(
+                        "Leave",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
