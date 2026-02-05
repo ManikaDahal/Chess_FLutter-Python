@@ -66,9 +66,13 @@ class ApiService {
       "wss://",
       "https://",
     );
+    final token = await _storage.getAccessToken();
     final response = await http.get(
       Uri.parse('$renderUrl/api/chat/history/$roomId/'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
     );
 
     if (response.statusCode == 200) {
@@ -84,9 +88,13 @@ class ApiService {
       "wss://",
       "https://",
     );
+    final token = await _storage.getAccessToken();
     final response = await http.post(
       Uri.parse('$renderUrl/api/chat/get_or_create_room/'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
       body: jsonEncode({"user1_id": user1Id, "user2_id": user2Id}),
     );
 

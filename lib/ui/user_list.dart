@@ -6,6 +6,7 @@ import 'package:chess_game_manika/ui/call_screen.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
+import 'package:chess_game_manika/services/invite_services.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -89,24 +90,43 @@ class _UserListState extends State<UserList> {
     });
 
     try {
-      final int? roomId = await _apiService.getOrCreateChatRoom(
-        widget.currentUserId,
-        targetUserId,
-      );
+      final inviteService = InviteService();
+      final bool success = await inviteService.sendInvite(targetUserId);
 
-      if (roomId != null && mounted) {
-        // Deterministic: User with smaller ID is White
-        final bool amIWhite = widget.currentUserId < targetUserId;
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Invitation sent! Waiting for opponent to accept..."),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Optional: We could also navigate them to a waiting room or the game board directly
+        // but it's cleaner to wait for the acceptance or just stay here.
+        // For now, let's navigate to the game board so they are ready.
 
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GameBoard(
-              roomId: roomId,
-              currentUserId: widget.currentUserId,
-              isMultiplayer: true,
-              amIWhite: amIWhite,
+        final int? roomId = await _apiService.getOrCreateChatRoom(
+          widget.currentUserId,
+          targetUserId,
+        );
+
+        if (roomId != null && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GameBoard(
+                roomId: roomId,
+                currentUserId: widget.currentUserId,
+                isMultiplayer: true,
+                amIWhite: widget.currentUserId < targetUserId,
+              ),
             ),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to send invitation. Please try again."),
+            backgroundColor: Colors.red,
           ),
         );
       }

@@ -8,21 +8,32 @@ class InviteService {
 
   Future<bool> sendInvite(int toUserId) async {
     final token = await _storage.getAccessToken();
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+
     final res = await http.post(
-      Uri.parse("${Constants.wsBaseUrl}/api/send-invite/"),
+      Uri.parse("$renderUrl/api/send-invite/"),
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer $token",
       },
       body: jsonEncode({"to_user": toUserId}),
     );
-    return res.statusCode == 200;
+    print("SendInvite status: ${res.statusCode} body: ${res.body}");
+    return res.statusCode == 201;
   }
 
   Future<List<Map<String, dynamic>>> getPendingInvites() async {
     final token = await _storage.getAccessToken();
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+
     final res = await http.get(
-      Uri.parse("${Constants.wsBaseUrl}/api/pending-invites/"),
+      Uri.parse("$renderUrl/api/pending-invites/"),
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer $token",
@@ -36,8 +47,13 @@ class InviteService {
 
   Future<int?> acceptInvites(int inviteId) async {
     final token = await _storage.getAccessToken();
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+
     final res = await http.post(
-      Uri.parse("${Constants.wsBaseUrl}/api/accept-invite/"),
+      Uri.parse("$renderUrl/api/accept-invite/"),
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer $token",
@@ -52,8 +68,13 @@ class InviteService {
 
   Future<void> declineInvite(int inviteId) async {
     final token = await _storage.getAccessToken();
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+
     await http.post(
-      Uri.parse("${Constants.wsBaseUrl}/api/decline-invite/"),
+      Uri.parse("$renderUrl/api/decline-invite/"),
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer $token",

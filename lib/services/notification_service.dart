@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:chess_game_manika/provider/chat_provider.dart';
+import 'package:chess_game_manika/services/invite_services.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -128,6 +130,12 @@ class NotificationService {
 
   static void _handleFcmPayload(Map<String, dynamic> data) async {
     print("FCM: Handling payload details: $data");
+
+    if (data['type'] == 'chess_invite') {
+      _showInviteDialog(data);
+      return;
+    }
+
     if (data.containsKey('room_id')) {
       final int roomId = int.tryParse(data['room_id'].toString()) ?? 1;
 
@@ -150,6 +158,65 @@ class NotificationService {
         ),
       );
     }
+  }
+
+  static void _showInviteDialog(Map<String, dynamic> data) async {
+    final context = navigatorKey?.currentContext;
+    if (context == null) return;
+
+    final String senderName = data['sender_name'] ?? "Someone";
+    final int senderId = int.tryParse(data['user_id']?.toString() ?? "0") ?? 0;
+    final String inviteIdStr =
+        data['id']?.toString().replaceAll("invite_", "") ?? "0";
+    final int inviteId = int.tryParse(inviteIdStr) ?? 0;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Game Invitation"),
+          content: Text("$senderName invited you to play a chess game!"),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await InviteService().declineInvite(inviteId);
+              },
+              child: const Text("Decline", style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final int? acceptedRoomId = await InviteService().acceptInvites(
+                  inviteId,
+                );
+                if (acceptedRoomId != null) {
+                  final SharedPreferences prefs =
+                      await SharedPreferences.getInstance();
+                  final int currentUserId = prefs.getInt('userId') ?? 0;
+
+                  // Navigator navigate to Chess Board
+                  navigatorKey?.currentState?.push(
+                    MaterialPageRoute(
+                      builder: (_) => GameBoard(
+                        roomId: acceptedRoomId,
+                        currentUserId: currentUserId,
+                        isMultiplayer: true,
+                        // If I accepted, then the other person started, so usually
+                        // the sender might be White, but let's use the same deterministic logic
+                        amIWhite: currentUserId < senderId,
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: const Text("Accept"),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   /// Show local notification

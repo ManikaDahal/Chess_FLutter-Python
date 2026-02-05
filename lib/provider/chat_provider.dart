@@ -160,6 +160,15 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
           "ChatProvider [$instanceId]: Final merged count for room $msgRoomId: ${merged.length}",
         );
         notifyListeners();
+      } else if (data['type'] == 'chess_invite') {
+        final bool isForeground = _lifecycleState == AppLifecycleState.resumed;
+        if (isForeground) {
+          NotificationService.showNotification(
+            title: "Chess Invite",
+            body: data['message'] ?? "You have been invited to play chess!",
+            payload: Map<String, dynamic>.from(data),
+          );
+        }
       } else {
         // Only process if it looks like a chat message
         if (data['type'] == 'chat_message' || data.containsKey('message')) {
