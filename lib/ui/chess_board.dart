@@ -8,14 +8,19 @@ import '../ui/square_widget.dart';
 import '../helper/helper.dart';
 import '../ui/call_screen.dart';
 import '../core/utils/global_callhandler.dart';
+import '../services/game_websocket_service.dart';
 
 class GameBoard extends StatefulWidget {
   final int roomId;
   final int currentUserId;
+  final bool isMultiplayer;
+  final bool amIWhite;
   const GameBoard({
     super.key,
     required this.currentUserId,
     required this.roomId,
+    this.isMultiplayer = false,
+    this.amIWhite = true,
   });
 
   @override
@@ -36,6 +41,12 @@ class _GameBoardState extends State<GameBoard>
   List<int> blackKingPosition = [0, 4];
   bool checkStatus = false;
 
+  final GameWebsocketService _gameService = GameWebsocketService();
+  bool get isMyPieceColorWhite =>
+      widget.currentUserId < (widget.roomId > 1000 ? 0 : 99999999);
+  // Simplified: we'll pass 'isWhite' as an argument or calculate it.
+  // Let's add 'amIWhite' to GameBoard.
+
   @override
   bool get wantKeepAlive => true;
 
@@ -43,6 +54,16 @@ class _GameBoardState extends State<GameBoard>
   void initState() {
     super.initState();
     _initializeBoard();
+    if (widget.isMultiplayer) {
+      _gameService.connect(widget.roomId);
+      _gameService.stream.listen((data) {
+        if (data['type'] == 'move') {
+          _handleRemoteMove(data);
+        } else if (data['type'] == 'reset') {
+          setState(() => _initializeBoard());
+        }
+      });
+    }
   }
 
   void _initializeBoard() {
@@ -117,13 +138,59 @@ class _GameBoardState extends State<GameBoard>
     checkStatus = false;
   }
 
+  void _handleRemoteMove(Map<String, dynamic> data) {
+    int fR = data['from_row'];
+    int fC = data['from_col'];
+    int tR = data['to_row'];
+    int tC = data['to_col'];
+
+    setState(() {
+      ChessPiece? piece = board[fR][fC];
+      if (piece != null) {
+        // Apply move locally
+        if (piece.type == ChessPieceType.king) {
+          if (piece.isWhite)
+            whiteKingPosition = [tR, tC];
+          else
+            blackKingPosition = [tR, tC];
+        }
+        board[tR][tC] = piece;
+        board[fR][fC] = null;
+        whiteTurn = !whiteTurn;
+        checkStatus = isKingInCheck(whiteTurn);
+        if (isCheckMate(whiteTurn)) {
+          _showGameOverDialog(whiteTurn ? "Black Wins!" : "White Wins!");
+        }
+      }
+    });
+  }
+
   void onSquareTap(int row, int col) {
+    // If multiplayer, only allow moves on my turn
+    if (widget.isMultiplayer) {
+      if (whiteTurn != widget.amIWhite) {
+        print("Not your turn!");
+        return;
+      }
+    }
+
     setState(() {
       ChessPiece? piece = board[row][col];
 
       // Move selected piece
       if (selectedPiece != null &&
           validMoves.any((m) => m[0] == row && m[1] == col)) {
+        // SYNC: Send move to server if multiplayer
+        if (widget.isMultiplayer) {
+          _gameService.sendMove(
+            widget.roomId,
+            selectedRow,
+            selectedCol,
+            row,
+            col,
+          );
+        }
+
         // Update king position if king is moved
         if (selectedPiece!.type == ChessPieceType.king) {
           if (selectedPiece!.isWhite) {
@@ -152,7 +219,7 @@ class _GameBoardState extends State<GameBoard>
         whiteTurn = !whiteTurn;
 
         // Check if the other king is in check
-        checkStatus = isKingInCheck(!whiteTurn);
+        checkStatus = isKingInCheck(whiteTurn);
 
         // Check for checkmate
         if (isCheckMate(whiteTurn)) {

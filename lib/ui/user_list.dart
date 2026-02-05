@@ -4,6 +4,7 @@ import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/ui/call_screen.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -71,6 +72,46 @@ class _UserListState extends State<UserList> {
           context,
         ).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEnteringChat = false;
+        });
+      }
+    }
+  }
+
+  void _playChess(int targetUserId) async {
+    if (_isEnteringChat) return;
+
+    setState(() {
+      _isEnteringChat = true;
+    });
+
+    try {
+      final int? roomId = await _apiService.getOrCreateChatRoom(
+        widget.currentUserId,
+        targetUserId,
+      );
+
+      if (roomId != null && mounted) {
+        // Deterministic: User with smaller ID is White
+        final bool amIWhite = widget.currentUserId < targetUserId;
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GameBoard(
+              roomId: roomId,
+              currentUserId: widget.currentUserId,
+              isMultiplayer: true,
+              amIWhite: amIWhite,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print("Error starting chess game: $e");
     } finally {
       if (mounted) {
         setState(() {
@@ -163,6 +204,14 @@ class _UserListState extends State<UserList> {
                         IconButton(
                           icon: const Icon(Icons.videocam, color: Colors.blue),
                           onPressed: () => _startCall(callRoomId, true),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.grid_4x4,
+                            color: Colors.orange,
+                          ),
+                          tooltip: "Play Chess",
+                          onPressed: () => _playChess(targetUserId),
                         ),
                       ],
                     ),

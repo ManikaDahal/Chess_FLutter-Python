@@ -1,5 +1,5 @@
 class ChatMessage {
-  final int? id; // Optional for optimistic messages
+  final int? id;
   final int userId;
   final String message;
   final int roomId;
