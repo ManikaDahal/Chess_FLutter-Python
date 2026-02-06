@@ -9,7 +9,6 @@ import 'package:chess_game_manika/otp_page.dart';
 import 'package:chess_game_manika/reset_password.dart';
 import 'package:chess_game_manika/sign_up.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
-import 'package:chess_game_manika/ui/gameScreen.dart';
 import 'package:flutter/material.dart';
 
 class RouteGenerator {

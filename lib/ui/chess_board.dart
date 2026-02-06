@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:badges/badges.dart' as badges;
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
@@ -16,6 +17,7 @@ class GameBoard extends StatefulWidget {
   final bool isMultiplayer;
   final bool amIWhite;
   final int? opponentId;
+  final bool showLeaveButton; // New parameter
   const GameBoard({
     super.key,
     required this.currentUserId,
@@ -23,6 +25,7 @@ class GameBoard extends StatefulWidget {
     this.isMultiplayer = false,
     this.amIWhite = true,
     this.opponentId,
+    this.showLeaveButton = false, // Default to false
   });
 
   @override
@@ -44,10 +47,7 @@ class _GameBoardState extends State<GameBoard>
   bool checkStatus = false;
 
   final GameWebsocketService _gameService = GameWebsocketService();
-  bool get isMyPieceColorWhite =>
-      widget.currentUserId < (widget.roomId > 1000 ? 0 : 99999999);
-  // Simplified: we'll pass 'isWhite' as an argument or calculate it.
-  // Let's add 'amIWhite' to GameBoard.
+  StreamSubscription? _gameSubscription;
 
   @override
   bool get wantKeepAlive => true;
@@ -57,11 +57,30 @@ class _GameBoardState extends State<GameBoard>
     super.initState();
     _initializeBoard();
     if (widget.isMultiplayer) {
+      print(
+        "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
+      );
       _gameService.connect(widget.roomId);
-      _gameService.stream.listen((data) {
+      _gameSubscription = _gameService.stream.listen((data) {
+        // Filter moves by roomId to prevent crosstalk
+        final int? moveRoomId = int.tryParse(data['room_id']?.toString() ?? "");
+        if (moveRoomId != null && moveRoomId != widget.roomId) {
+          print("Ignoring move from another room: $moveRoomId");
+          return;
+        }
+
         if (data['type'] == 'move') {
+          print("RECEIVE MOVE [Room ${widget.roomId}]: $data");
           _handleRemoteMove(data);
+          // Temporary feedback to confirm receipt
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Opponent moved"),
+              duration: Duration(milliseconds: 500),
+            ),
+          );
         } else if (data['type'] == 'reset') {
+          print("RECEIVE RESET [Room ${widget.roomId}]");
           setState(() => _initializeBoard());
         }
       });
@@ -74,6 +93,12 @@ class _GameBoardState extends State<GameBoard>
         ).init(widget.roomId, widget.currentUserId, setAsActive: true);
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _gameSubscription?.cancel();
+    super.dispose();
   }
 
   void _initializeBoard() {
@@ -149,10 +174,15 @@ class _GameBoardState extends State<GameBoard>
   }
 
   void _handleRemoteMove(Map<String, dynamic> data) {
-    int fR = data['from_row'];
-    int fC = data['from_col'];
-    int tR = data['to_row'];
-    int tC = data['to_col'];
+    int? fR = int.tryParse(data['from_row']?.toString() ?? "");
+    int? fC = int.tryParse(data['from_col']?.toString() ?? "");
+    int? tR = int.tryParse(data['to_row']?.toString() ?? "");
+    int? tC = int.tryParse(data['to_col']?.toString() ?? "");
+
+    if (fR == null || fC == null || tR == null || tC == null) {
+      print("Error parsing remote move data: $data");
+      return;
+    }
 
     setState(() {
       ChessPiece? piece = board[fR][fC];
@@ -176,22 +206,45 @@ class _GameBoardState extends State<GameBoard>
   }
 
   void onSquareTap(int row, int col) {
-    // If multiplayer, only allow moves on my turn
-    if (widget.isMultiplayer) {
-      if (whiteTurn != widget.amIWhite) {
-        print("Not your turn!");
-        return;
-      }
-    }
-
     setState(() {
       ChessPiece? piece = board[row][col];
 
       // Move selected piece
       if (selectedPiece != null &&
           validMoves.any((m) => m[0] == row && m[1] == col)) {
+        // Multiplayer Turn Enforcement
+        if (widget.isMultiplayer && whiteTurn != widget.amIWhite) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Wait for your turn!"),
+              duration: Duration(seconds: 1),
+            ),
+          );
+          return;
+        }
+
         // SYNC: Send move to server if multiplayer
         if (widget.isMultiplayer) {
+          // Check connection status
+          if (!_gameService.isConnected) {
+            print(
+              "SEND MOVE FAILED: Socket not connected (Room: ${widget.roomId})",
+            );
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Not connected to server. Trying to reconnect...",
+                ),
+              ),
+            );
+            _gameService.connect(widget.roomId);
+            return;
+          }
+
+          print(
+            "SEND MOVE [Room ${widget.roomId}]: (${selectedRow},${selectedCol}) -> ($row,$col)",
+          );
           _gameService.sendMove(
             widget.roomId,
             selectedRow,
@@ -240,7 +293,9 @@ class _GameBoardState extends State<GameBoard>
       }
 
       // Select new piece
-      if (piece != null && piece.isWhite == whiteTurn) {
+      if (piece != null &&
+          piece.isWhite ==
+              (widget.isMultiplayer ? widget.amIWhite : whiteTurn)) {
         selectedPiece = piece;
         selectedRow = row;
         selectedCol = col;
@@ -498,18 +553,41 @@ class _GameBoardState extends State<GameBoard>
     super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
+        leading: widget.isMultiplayer
+            ? StreamBuilder<bool>(
+                stream: _gameService.connectionStream,
+                initialData: _gameService.isConnected,
+                builder: (context, snapshot) {
+                  final bool connected = snapshot.data ?? false;
+                  return Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: connected ? Colors.green : Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  );
+                },
+              )
+            : null,
         title: Text(
-          whiteTurn
-              ? "White's Turn"
-              : "Black's Turn" + (checkStatus ? " - CHECK!" : ""),
+          "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
+          style: const TextStyle(fontSize: 18),
         ),
+        centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.phone),
             tooltip: "Audio Call",
             onPressed: () {
-              // Deterministic Call Room ID for the game
-              final String callRoomId = "chess_call_${widget.roomId}";
+              // Correct Call Room ID: target the opponent's individual signaling room
+              final String callRoomId = widget.opponentId != null
+                  ? "user_${widget.opponentId}"
+                  : "chess_call_${widget.roomId}";
+
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -528,7 +606,10 @@ class _GameBoardState extends State<GameBoard>
             icon: const Icon(Icons.videocam),
             tooltip: "Video Call",
             onPressed: () {
-              final String callRoomId = "chess_call_${widget.roomId}";
+              final String callRoomId = widget.opponentId != null
+                  ? "user_${widget.opponentId}"
+                  : "chess_call_${widget.roomId}";
+
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -572,40 +653,41 @@ class _GameBoardState extends State<GameBoard>
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.exit_to_app, color: Colors.red),
-            tooltip: "Leave Game",
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Leave Game?"),
-                  content: const Text(
-                    "Are you sure you want to leave this room?",
+          if (widget.showLeaveButton)
+            IconButton(
+              icon: const Icon(Icons.exit_to_app, color: Colors.red),
+              tooltip: "Leave Game",
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text("Leave Game?"),
+                    content: const Text(
+                      "Are you sure you want to leave this room?",
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("Cancel"),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context); // close dialog
+                          Navigator.pop(context); // exit GameBoard
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
+                        child: const Text(
+                          "Leave",
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("Cancel"),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context); // close dialog
-                        Navigator.pop(context); // exit GameBoard
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                      ),
-                      child: const Text(
-                        "Leave",
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+                );
+              },
+            ),
         ],
       ),
       body: GridView.builder(

@@ -69,7 +69,12 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
         _currentRoomId = roomId;
         _loading = false;
         _pages = [
-          GameBoard(currentUserId: _currentUserId!, roomId: _currentRoomId!),
+          GameBoard(
+            currentUserId: _currentUserId!,
+            roomId: _currentRoomId!,
+            isMultiplayer: false, // Practice mode on main board
+            showLeaveButton: false,
+          ),
           UserList(currentUserId: _currentUserId!),
           ChatPage(
             roomId: _currentRoomId!,

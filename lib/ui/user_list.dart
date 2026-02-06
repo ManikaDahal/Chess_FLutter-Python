@@ -100,9 +100,6 @@ class _UserListState extends State<UserList> {
             backgroundColor: Colors.green,
           ),
         );
-        // Optional: We could also navigate them to a waiting room or the game board directly
-        // but it's cleaner to wait for the acceptance or just stay here.
-        // For now, let's navigate to the game board so they are ready.
 
         final int? roomId = await _apiService.getOrCreateChatRoom(
           widget.currentUserId,
@@ -117,8 +114,9 @@ class _UserListState extends State<UserList> {
                 roomId: roomId,
                 currentUserId: widget.currentUserId,
                 isMultiplayer: true,
-                amIWhite: widget.currentUserId < targetUserId,
+                amIWhite: true, // Inviter is always White
                 opponentId: targetUserId,
+                showLeaveButton: true,
               ),
             ),
           );

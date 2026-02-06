@@ -137,11 +137,15 @@ class NotificationService {
     }
 
     if (data['type'] == 'invite_accepted') {
+      print(
+        "FCM [invite_accepted]: Receiver accepted. Inviter should stay on current board.",
+      );
       _showStatusDialog(data, "Invitation Accepted", Colors.green);
       return;
     }
 
     if (data['type'] == 'invite_declined') {
+      print("FCM [invite_declined]: Receiver declined.");
       _showStatusDialog(data, "Invitation Declined", Colors.red);
       return;
     }
@@ -213,10 +217,9 @@ class NotificationService {
                         roomId: acceptedRoomId,
                         currentUserId: currentUserId,
                         isMultiplayer: true,
-                        // If I accepted, then the other person started, so usually
-                        // the sender might be White, but let's use the same deterministic logic
-                        amIWhite: currentUserId < senderId,
+                        amIWhite: false, // Receiver is always Black
                         opponentId: senderId,
+                        showLeaveButton: true,
                       ),
                     ),
                   );
@@ -296,6 +299,29 @@ class NotificationService {
           title: Text(title, style: TextStyle(color: color)),
           content: Text(message),
           actions: [
+            if (title == "Invitation Accepted")
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  final SharedPreferences prefs =
+                      await SharedPreferences.getInstance();
+                  final int currentUserId = prefs.getInt('userId') ?? 0;
+
+                  navigatorKey?.currentState?.push(
+                    MaterialPageRoute(
+                      builder: (_) => GameBoard(
+                        roomId: roomId,
+                        currentUserId: currentUserId,
+                        isMultiplayer: true,
+                        amIWhite: true, // Inviter is always White
+                        opponentId: senderId,
+                        showLeaveButton: true,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text("Play Now"),
+              ),
             if (title == "Invitation Declined")
               TextButton(
                 onPressed: () async {
@@ -311,7 +337,9 @@ class NotificationService {
                         roomId: roomId,
                         currentUserId: currentUserId,
                         isMultiplayer: true,
-                        amIWhite: currentUserId < senderId,
+                        amIWhite: true, // Inviter stays White
+                        opponentId: senderId,
+                        showLeaveButton: true,
                       ),
                     ),
                   );
