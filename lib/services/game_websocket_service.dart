@@ -22,6 +22,7 @@ class GameWebsocketService {
   int? get currentRoomId => _currentRoomId;
 
   Timer? _reconnectTimer;
+  Timer? _pingTimer;
 
   Future<void> connect(int roomId) async {
     // If it's already the same room, do nothing
@@ -41,7 +42,8 @@ class GameWebsocketService {
     }
 
     _currentRoomId = roomId;
-    final url = "${Constants.wsBaseUrl}/ws/game/$roomId/";
+    // REMOVE TRIALING SLASH: Some proxies/servers (like Render/Daphne) are sensitive to this
+    final url = "${Constants.wsBaseUrl}/ws/game/$roomId";
     print("GameWebsocketService: Connecting to $url...");
     print("DEBUG: Final WebSocket URL: $url");
 
@@ -52,14 +54,28 @@ class GameWebsocketService {
 
       _channel!.stream.listen(
         (message) {
-          // In case we haven't already marked as connected
-          if (!_isConnected) {
-            _isConnected = true;
-            _connectionController.add(true);
+          try {
+            final data = jsonDecode(message);
+
+            if (!_isConnected) {
+              _isConnected = true;
+              _connectionController.add(true);
+              _startHeartbeat(roomId);
+            }
+
+            _controller.add(data);
+            print("Game message received [Room $roomId]: $data");
+          } catch (e) {
+            print(
+              "Error decoding Game WebSocket message: $e\nMessage: $message",
+            );
+            // If we got ANY message, the connection is technically alive
+            if (!_isConnected) {
+              _isConnected = true;
+              _connectionController.add(true);
+              _startHeartbeat(roomId);
+            }
           }
-          final data = jsonDecode(message);
-          _controller.add(data);
-          print("Game message received [Room $roomId]: $data");
         },
         onDone: () {
           print("Game WebSocket [Room $roomId] onDone. Cleaning up...");
@@ -67,16 +83,17 @@ class GameWebsocketService {
           _scheduleReconnect(roomId);
         },
         onError: (error, stackTrace) {
-          print("Game WebSocket [Room $roomId] onError: $error\n$stackTrace");
+          print(
+            "Game WebSocket FATAL ERROR [Room $roomId]: $error\n$stackTrace",
+          );
           _cleanup();
           _scheduleReconnect(roomId);
         },
       );
 
-      // OPTIMISM: Mark as connected while we wait for the first message.
-      // If the URL is wrong or server is down, onError will trigger.
-      _isConnected = true;
-      _connectionController.add(true);
+      // NO LONGER OPTIMISTIC: Wait for the first message (like 'connection_established')
+      // and let the stream listener above handle marking _isConnected = true.
+      _connectionController.add(_isConnected);
     } catch (e) {
       print("Failed to connect Game WebSocket [Room $roomId]: $e");
       _cleanup();
@@ -94,8 +111,20 @@ class GameWebsocketService {
     });
   }
 
+  void _startHeartbeat(int roomId) {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
+      if (_isConnected && _channel != null) {
+        _channel!.sink.add(jsonEncode({"type": "ping", "room_id": roomId}));
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
   void _cleanup() {
     bool wasConnected = _isConnected;
+    _pingTimer?.cancel();
     _isConnected = false;
     _currentRoomId = null;
     _channel = null;
@@ -104,7 +133,14 @@ class GameWebsocketService {
     }
   }
 
-  void sendMove(int roomId, int fromRow, int fromCol, int toRow, int toCol) {
+  void sendMove(
+    int roomId,
+    int senderUserId,
+    int fromRow,
+    int fromCol,
+    int toRow,
+    int toCol,
+  ) {
     if (_channel == null || !_isConnected) {
       print(
         "GameWebsocketService: Cannot send move, not connected! (Room: $roomId)",
@@ -115,6 +151,7 @@ class GameWebsocketService {
     final data = {
       "type": "move",
       "room_id": roomId, // Explicitly include for backend/client parity
+      "sender_id": senderUserId,
       "from_row": fromRow,
       "from_col": fromCol,
       "to_row": toRow,

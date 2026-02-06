@@ -45,6 +45,8 @@ class _GameBoardState extends State<GameBoard>
   List<int> whiteKingPosition = [7, 4];
   List<int> blackKingPosition = [0, 4];
   bool checkStatus = false;
+  bool _isSyncing = false; // Track if we are replaying history
+  DateTime? _connectionStartTime; // Track when we started connecting
 
   final GameWebsocketService _gameService = GameWebsocketService();
   StreamSubscription? _gameSubscription;
@@ -60,10 +62,15 @@ class _GameBoardState extends State<GameBoard>
       print(
         "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
       );
+      _connectionStartTime = DateTime.now();
       _gameService.connect(widget.roomId);
       _gameSubscription = _gameService.stream.listen((data) {
         // Filter moves by roomId to prevent crosstalk
-        final int? moveRoomId = int.tryParse(data['room_id']?.toString() ?? "");
+        final dynamic rawRoomId = data['room_id'];
+        final int? moveRoomId = rawRoomId is int
+            ? rawRoomId
+            : int.tryParse(rawRoomId?.toString() ?? "");
+
         if (moveRoomId != null && moveRoomId != widget.roomId) {
           print("Ignoring move from another room: $moveRoomId");
           return;
@@ -71,14 +78,39 @@ class _GameBoardState extends State<GameBoard>
 
         if (data['type'] == 'move') {
           print("RECEIVE MOVE [Room ${widget.roomId}]: $data");
+          final bool isMyMove =
+              data['sender_id']?.toString() == widget.currentUserId.toString();
+
+          if (isMyMove && !_isSyncing) {
+            print("Ignoring echo of my own move.");
+            return;
+          }
+
           _handleRemoteMove(data);
-          // Temporary feedback to confirm receipt
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Opponent moved"),
-              duration: Duration(milliseconds: 500),
-            ),
+
+          if (!isMyMove && !_isSyncing) {
+            // Only show feedback for opponent moves
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Opponent moved"),
+                duration: Duration(milliseconds: 500),
+              ),
+            );
+          }
+        } else if (data['type'] == 'history') {
+          print(
+            "RECEIVE HISTORY [Room ${widget.roomId}]: ${data['history'].length} moves",
           );
+          setState(() {
+            _isSyncing = true;
+            _initializeBoard(); // Start fresh
+            final List history = data['history'];
+            for (var move in history) {
+              _handleRemoteMove(Map<String, dynamic>.from(move));
+            }
+            _isSyncing = false;
+          });
         } else if (data['type'] == 'reset') {
           print("RECEIVE RESET [Room ${widget.roomId}]");
           setState(() => _initializeBoard());
@@ -247,6 +279,7 @@ class _GameBoardState extends State<GameBoard>
           );
           _gameService.sendMove(
             widget.roomId,
+            widget.currentUserId,
             selectedRow,
             selectedCol,
             row,
@@ -559,13 +592,19 @@ class _GameBoardState extends State<GameBoard>
                 initialData: _gameService.isConnected,
                 builder: (context, snapshot) {
                   final bool connected = snapshot.data ?? false;
+                  // If not connected, but currentRoomId is not null, we might be attempting
+                  final bool isAttempting =
+                      _gameService.currentRoomId == widget.roomId && !connected;
+
                   return Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Container(
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: connected ? Colors.green : Colors.red,
+                        color: connected
+                            ? Colors.green
+                            : (isAttempting ? Colors.amber : Colors.red),
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -574,11 +613,31 @@ class _GameBoardState extends State<GameBoard>
               )
             : null,
         title: Text(
-          "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
+          _isSyncing
+              ? "Syncing game..."
+              : (_gameService.currentRoomId == widget.roomId &&
+                        !_gameService.isConnected
+                    ? (_connectionStartTime != null &&
+                              DateTime.now()
+                                      .difference(_connectionStartTime!)
+                                      .inSeconds >
+                                  15
+                          ? "Connecting (Slow)..."
+                          : "Connecting...")
+                    : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}"),
           style: const TextStyle(fontSize: 18),
         ),
         centerTitle: true,
         actions: [
+          if (widget.isMultiplayer && !_gameService.isConnected)
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.amber),
+              tooltip: "Retry Connection",
+              onPressed: () {
+                setState(() => _connectionStartTime = DateTime.now());
+                _gameService.connect(widget.roomId);
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.phone),
             tooltip: "Audio Call",
