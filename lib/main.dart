@@ -10,6 +10,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'bottom_navbar.dart'; // Make sure you import your main page
 
+import 'package:chess_game_manika/services/sticky_notification_service.dart';
+
 // Background message handler for FCM
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -42,6 +44,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize Sticky Notification Service
+  await StickyNotificationService.initService();
+
   // Initialize Firebase
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -62,8 +67,10 @@ Future<void> main() async {
   runApp(MyApp(autoLogin: loggedIn && userId != null));
 
   // Check for initial message (terminated state navigation)
-  WidgetsBinding.instance.addPostFrameCallback((_) {
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
     NotificationService.checkForInitialMessage();
+    // Start sticky notification after UI is up
+    await StickyNotificationService.startService();
   });
 }
 

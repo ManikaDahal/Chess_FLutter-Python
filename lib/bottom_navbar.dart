@@ -40,14 +40,14 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
 
   Future<void> _initUser() async {
     try {
-      // 1️⃣ Fetch profile
+      //  Fetch profile
       final profile = await ApiService().getProfile();
       final int? userId = profile['id'];
       final int roomId = profile['current_room_id'] ?? 1;
 
       if (userId == null) throw Exception("User ID not found");
 
-      // 2️⃣ Initialize ChatProvider once
+      //  Initialize ChatProvider once
       if (mounted) {
         final chatProvider = Provider.of<ChatProvider>(context, listen: false);
         // Ensure we start with NO active room so notifications work
@@ -55,15 +55,15 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
         chatProvider.init(roomId, userId, setAsActive: false);
       }
 
-      // 3️⃣ Connect user-specific signaling
+      //  Connect user-specific signaling
       await GlobalCallHandler().connectForUser(userId);
 
-      // 4️⃣ Register FCM token for notifications
+      //  Register FCM token for notifications
       await NotificationService.registerToken();
 
       if (!mounted) return;
 
-      // 4️⃣ Initialize pages
+      // Initialize pages
       setState(() {
         _currentUserId = userId;
         _currentRoomId = roomId;
