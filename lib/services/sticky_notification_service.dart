@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:intl/intl.dart';
 
 class StickyNotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
@@ -6,6 +8,21 @@ class StickyNotificationService {
 
   static const int _stickyNotificationId = 999999;
   static bool _isInitialized = false;
+  static Timer? _updateTimer;
+  static int _currentTipIndex = 0;
+
+  static final List<String> _chessTips = [
+    "Control the center of the board 🎯",
+    "Develop your pieces early ♟️",
+    "Don't move the same piece twice in opening 🔄",
+    "Castle early to protect your king 🏰",
+    "Connect your rooks 🔗",
+    "Think before you move ⏱️",
+    "Control key squares 📍",
+    "Don't bring your queen out too early 👑",
+    "Look for tactical opportunities 👀",
+    "Always check for checks! ✓",
+  ];
 
   static Future<void> initService() async {
     print("StickyNotificationService: Initializing...");
@@ -55,6 +72,33 @@ class StickyNotificationService {
 
     await initService();
 
+    // Show initial notification
+    await _showNotificationWithTip();
+
+    // Start timer to update notification every 5 minutes (to keep time fresh)
+    _updateTimer?.cancel(); // Cancel any existing timer
+    _updateTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      // Change tip every hour (12 updates = 1 hour)
+      if (timer.tick % 12 == 0) {
+        _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
+      }
+      _showNotificationWithTip();
+    });
+
+    print(
+      "StickyNotificationService: Dynamic updates enabled (every 5 minutes)",
+    );
+  }
+
+  static String _getCurrentTime() {
+    final now = DateTime.now();
+    return DateFormat('h:mm a').format(now); // e.g., "3:45 PM"
+  }
+
+  static Future<void> _showNotificationWithTip() async {
+    final String currentTip = _chessTips[_currentTipIndex];
+    final String currentTime = _getCurrentTime();
+
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
           'sticky_chess_channel',
@@ -75,12 +119,10 @@ class StickyNotificationService {
 
     await _notificationsPlugin.show(
       id: _stickyNotificationId,
-      title: 'Chess Daily',
-      body: 'Ready for a game? Tap to play!',
+      title: '🕐 $currentTime • Chess Daily',
+      body: currentTip,
       notificationDetails: platformDetails,
     );
-
-    print("StickyNotificationService: Sticky notification shown");
   }
 
   static Future<void> updateNotification(String title, String message) async {
@@ -112,6 +154,8 @@ class StickyNotificationService {
 
   static Future<void> stopService() async {
     print("StickyNotificationService: Stopping sticky notification...");
+    _updateTimer?.cancel();
+    _updateTimer = null;
     await _notificationsPlugin.cancel(id: _stickyNotificationId);
   }
 }
