@@ -13,6 +13,7 @@ import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/profile_page.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/login.dart';
+import 'package:chess_game_manika/ui/video_gallery_screen.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -29,7 +30,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
   bool _loading = true;
   String? _errorMessage;
 
-  late final List<Widget> _pages;
+  List<Widget> _pages = [];
 
   @override
   void initState() {
@@ -76,6 +77,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
             showLeaveButton: false,
           ),
           UserList(currentUserId: _currentUserId!),
+          const VideoGalleryScreen(), // New Video Gallery Tab
           ChatPage(
             roomId: _currentRoomId!,
             currentUserId: _currentUserId!,
@@ -195,11 +197,11 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
               setState(() => _currentIndex = index);
               _pageController.jumpToPage(index);
 
-              // Reset unread count AND ensure we are in the general room if tab 2 is clicked
-              if (index == 2) {
+              // Reset unread count AND ensure we are in the general room if Chat tab (now index 3) is clicked
+              if (index == 3) {
                 if (_currentRoomId != null) {
                   print(
-                    "BottomNavBar: Tab 2 clicked, setting active room to $_currentRoomId",
+                    "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $_currentRoomId",
                   );
                   chatProvider.resetUnreadCount(_currentRoomId!);
                   // Re-init general room if we were previously in a private one
@@ -209,7 +211,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
               } else {
                 // If leaving the chat tab, clear the active room so notifications can happen
                 print(
-                  "BottomNavBar: Tab $index clicked (NOT 2), clearing active room",
+                  "BottomNavBar: Tab $index clicked (NOT Chat), clearing active room",
                 );
                 chatProvider.clearActiveRoom();
               }
@@ -222,6 +224,10 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper> {
               const BottomNavigationBarItem(
                 icon: Icon(Icons.people),
                 label: "Players",
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.video_library), // Video Gallery Icon
+                label: "Videos",
               ),
               BottomNavigationBarItem(
                 icon: badges.Badge(
