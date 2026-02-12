@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -15,10 +16,14 @@ class VideoPlayerScreen extends StatefulWidget {
 }
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  late VideoPlayerController _videoPlayerController;
+  VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
   bool _isLoading = true;
   String? _error;
+
+  // Static global future to track asynchronous disposal/initialization
+  // This ensures ONLY ONE video can ever be in the "Acquiring Hardware" or "Releasing Hardware" phase
+  static Future<void>? _globalHardwareLock;
 
   // Interaction State
   List<VideoComment> _comments = [];
@@ -30,6 +35,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   void initState() {
     super.initState();
     _currentVideo = widget.video;
+
+    // We don't await here, but we ensure initialization follows the lock
     _initializePlayer();
     _fetchComments();
   }
@@ -48,46 +55,166 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     }
   }
 
-  Future<void> _initializePlayer() async {
-    try {
-      String urlToPlay =
-          _currentVideo.videoUrl ??
-          _currentVideo.streamUrl ??
-          VideoService().getStreamUrl(_currentVideo.id);
+  String _normalizeUrl(String url) {
+    // 1. Fix protocol-relative URLs (//host.com -> https://host.com)
+    if (url.startsWith('//')) {
+      return 'https:$url';
+    }
+    // 2. Force HTTPS for generic http links (Android/CDNs prefer safety)
+    if (url.startsWith('http://')) {
+      return url.replaceFirst('http://', 'https://');
+    }
+    // 3. Fix accidental whitespace
+    return url.trim();
+  }
 
-      if (urlToPlay.startsWith('http://')) {
-        urlToPlay = urlToPlay.replaceFirst('http://', 'https://');
+  Future<void> _initializePlayer({int attempt = 1}) async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+
+    // Await the global hardware lock to ensure no other screen is using or releasing decoders
+    final previousLock = _globalHardwareLock;
+    final completer = Completer<void>();
+    _globalHardwareLock = completer.future;
+
+    try {
+      if (previousLock != null) {
+        print('DEBUG: Waiting for Global Hardware Lock...');
+        await previousLock;
       }
 
+      // Mandatory settling period after ANY hardware release
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (!mounted) {
+        completer.complete();
+        return;
+      }
+
+      // 2. Select URL (Direct Video first, then Stream fallback)
+      String? rawToPlay;
+      if (attempt == 1) {
+        rawToPlay = _currentVideo.videoUrl ?? _currentVideo.streamUrl;
+      } else {
+        rawToPlay = VideoService().getStreamUrl(_currentVideo.id);
+      }
+
+      if (rawToPlay == null) throw Exception('No playable URL found');
+
+      final urlToPlay = _normalizeUrl(rawToPlay);
+      print('DEBUG: Initializing Video (Attempt $attempt): $urlToPlay');
+
+      // 3. Clear existing local state
+      if (_videoPlayerController != null || _chewieController != null) {
+        await _cleanupResources(
+          oldController: _videoPlayerController,
+          oldChewie: _chewieController,
+        );
+        _videoPlayerController = null;
+        _chewieController = null;
+      }
+
+      if (!mounted) {
+        completer.complete();
+        return;
+      }
+
+      // 4. Initialize Controller with Minimal Browser Headers
+      final uri = Uri.parse(urlToPlay);
       _videoPlayerController = VideoPlayerController.networkUrl(
-        Uri.parse(urlToPlay),
+        uri,
+        httpHeaders: {
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+          'Accept': '*/*',
+        },
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: false, // Strict isolation
+        ),
       );
 
-      await _videoPlayerController.initialize();
+      await _videoPlayerController!.initialize();
 
+      if (!mounted) return;
+
+      // 5. Config Chewie
       _chewieController = ChewieController(
-        videoPlayerController: _videoPlayerController,
+        videoPlayerController: _videoPlayerController!,
         autoPlay: true,
         looping: false,
-        aspectRatio: _videoPlayerController.value.aspectRatio,
+        aspectRatio: _videoPlayerController!.value.aspectRatio,
+        isLive: false,
+        placeholder: Container(color: Colors.black),
         errorBuilder: (context, errorMessage) {
           return Center(
-            child: Text(
-              errorMessage,
-              style: const TextStyle(color: Colors.white),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Video Playback Error\n$errorMessage',
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                    ),
+                    onPressed: () {
+                      _globalHardwareLock = null; // FORCE CLEAR LOCK
+                      _initializePlayer();
+                    },
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    label: const Text(
+                      'Force Hardware Reset',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         },
       );
 
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _error = 'Failed to load video: $e';
-        _isLoading = false;
-      });
+      print('DEBUG: Playback init error: $e');
+
+      // Fallback logic
+      if (attempt < 2) {
+        print('DEBUG: Initial attempt failed. Retrying with fallback...');
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          completer.complete(); // Release lock before retrying
+          return _initializePlayer(attempt: attempt + 1);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _error =
+              'Unable to play video ($e). This can happen if the site prevents app access or hardware decoders are full.';
+          _isLoading = false;
+        });
+      }
+    } finally {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
   }
 
@@ -148,12 +275,59 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     }
   }
 
+  Future<void> _cleanupResources({
+    VideoPlayerController? oldController,
+    ChewieController? oldChewie,
+  }) async {
+    try {
+      if (oldChewie != null) {
+        oldChewie.dispose();
+      }
+      if (oldController != null) {
+        if (oldController.value.isInitialized) {
+          try {
+            await oldController.pause();
+          } catch (e) {
+            print('DEBUG: Pause failed: $e');
+          }
+        }
+        await Future.delayed(const Duration(milliseconds: 400));
+        await oldController.dispose();
+        // Force a long breather for Android to recycle decoders in its media server
+        await Future.delayed(const Duration(milliseconds: 1000));
+      }
+    } catch (e) {
+      print('DEBUG: Resource cleanup error: $e');
+    }
+  }
+
   @override
   void dispose() {
-    _videoPlayerController.dispose();
-    _chewieController?.dispose();
     _commentController.dispose();
+
+    // Re-acquire the lock for the disposal phase to protect the NEXT screen
+    final previousLock = _globalHardwareLock;
+    final completer = Completer<void>();
+    _globalHardwareLock = completer.future;
+
+    _runDisposalChain(previousLock, completer);
+
     super.dispose();
+  }
+
+  Future<void> _runDisposalChain(
+    Future<void>? previousLock,
+    Completer<void> completer,
+  ) async {
+    try {
+      if (previousLock != null) await previousLock;
+      await _cleanupResources(
+        oldController: _videoPlayerController,
+        oldChewie: _chewieController,
+      );
+    } finally {
+      completer.complete();
+    }
   }
 
   Widget _buildReactionButton(String type, String emoji) {
@@ -417,28 +591,32 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   Widget _buildErrorWidget() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 48),
-          const SizedBox(height: 16),
-          Text(
-            _error!,
-            style: const TextStyle(color: Colors.white),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _isLoading = true;
-                _error = null;
-              });
-              _initializePlayer();
-            },
-            child: const Text('Retry'),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              style: const TextStyle(color: Colors.white),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _isLoading = true;
+                  _error = null;
+                });
+                _initializePlayer();
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }

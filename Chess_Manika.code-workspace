@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../Chess_WebSocket"
+		},
+		{
+			"path": "../../Chess_Backend"
+		}
+	],
+	"settings": {}
+}
