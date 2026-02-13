@@ -8,8 +8,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'bottom_navbar.dart'; // Make sure you import your main page
+import 'bottom_navbar.dart'; 
 
+import 'package:chess_game_manika/services/permission_service.dart';
 import 'package:chess_game_manika/services/sticky_notification_service.dart';
 
 // Background message handler for FCM
@@ -47,6 +48,9 @@ Future<void> main() async {
   // Initialize Sticky Notification Service
   await StickyNotificationService.initService();
 
+  // Request permissions (Notification and WorkManager/ForegroundTask)
+  await PermissionService.requestPermissionsOnce();
+
   // Initialize Firebase
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -70,6 +74,7 @@ Future<void> main() async {
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     NotificationService.checkForInitialMessage();
     // Start sticky notification after UI is up
+    print("Main: Starting StickyNotificationService...");
     await StickyNotificationService.startService();
   });
 }

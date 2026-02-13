@@ -1,15 +1,16 @@
 import 'dart:async';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:isolate';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:intl/intl.dart';
 
-class StickyNotificationService {
-  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+// The callback function for the foreground task service.
+@pragma('vm:entry-point')
+void startCallback() {
+  FlutterForegroundTask.setTaskHandler(StickyTaskHandler());
+}
 
-  static const int _stickyNotificationId = 999999;
-  static bool _isInitialized = false;
-  static Timer? _updateTimer;
-  static int _currentTipIndex = 0;
+class StickyTaskHandler extends TaskHandler {
+  int _currentTipIndex = 0;
 
   static final List<String> _chessTips = [
     "Control the center of the board 🎯",
@@ -24,138 +25,121 @@ class StickyNotificationService {
     "Always check for checks! ✓",
   ];
 
-  static Future<void> initService() async {
-    print("StickyNotificationService: Initializing...");
+  static String _getCurrentTime() {
+    final now = DateTime.now();
+    return DateFormat('h:mm a').format(now);
+  }
 
+  @override
+  void onStart(DateTime timestamp, SendPort? sendPort) {
+    print("StickyTaskHandler: Started");
+  }
+
+  @override
+  void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {
+    _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
+    final String currentTip = _chessTips[_currentTipIndex];
+    final String currentTime = _getCurrentTime();
+
+    FlutterForegroundTask.updateService(
+      notificationTitle: '🕐 $currentTime • Chess Daily',
+      notificationText: currentTip,
+    );
+  }
+
+  @override
+  void onDestroy(DateTime timestamp, SendPort? sendPort) {
+    print("StickyTaskHandler: Destroyed");
+  }
+
+  @override
+  void onNotificationPressed() {
+    FlutterForegroundTask.launchApp("/");
+    print("StickyTaskHandler: Notification pressed");
+  }
+}
+
+class StickyNotificationService {
+  static bool _isInitialized = false;
+
+  static Future<void> initService() async {
     if (_isInitialized) return;
 
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'sticky_chess_channel',
+        channelName: 'Chess Daily',
+        channelDescription: 'Persistent notification for chess tips',
+        channelImportance: NotificationChannelImportance.LOW,
+        priority: NotificationPriority.LOW,
+        iconData: const NotificationIconData(
+          resType: ResourceType.mipmap,
+          resPrefix: ResourcePrefix.ic,
+          name: 'launcher',
+        ),
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: true,
+        playSound: false,
+      ),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        interval: 300000, // 5 minutes in milliseconds
+        isOnceEvent: false,
+        autoRunOnBoot: true,
+        allowWakeLock: true,
+        allowWifiLock: true,
+      ),
     );
-
-    await _notificationsPlugin.initialize(
-      settings: initSettings,
-      onDidReceiveNotificationResponse: (details) {
-        print("StickyNotificationService: Notification tapped");
-      },
-    );
-
-    // Create the sticky notification channel
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'sticky_chess_channel',
-      'Chess Daily',
-      description: 'Persistent notification for chess tips',
-      importance: Importance.low,
-      playSound: false,
-      enableVibration: false,
-    );
-
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        _notificationsPlugin
-            .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin
-            >();
-
-    if (androidImplementation != null) {
-      await androidImplementation.createNotificationChannel(channel);
-      print("StickyNotificationService: Channel created");
-    }
 
     _isInitialized = true;
   }
 
   static Future<void> startService() async {
-    print("StickyNotificationService: Starting sticky notification...");
-
+    print("StickyNotificationService: Attempting to start service...");
     await initService();
 
-    // Show initial notification
-    await _showNotificationWithTip();
+    // Check permissions again before starting
+    final NotificationPermission notificationPermissionStatus =
+        await FlutterForegroundTask.checkNotificationPermission();
+    if (notificationPermissionStatus != NotificationPermission.granted) {
+      print(
+        "StickyNotificationService: Notification permission not granted: $notificationPermissionStatus",
+      );
+      // Try to request it once more
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
 
-    // Start timer to update notification every 5 minutes (to keep time fresh)
-    _updateTimer?.cancel(); // Cancel any existing timer
-    _updateTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
-      // Change tip every hour (12 updates = 1 hour)
-      if (timer.tick % 12 == 0) {
-        _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
-      }
-      _showNotificationWithTip();
-    });
+    if (await FlutterForegroundTask.isRunningService) {
+      print("StickyNotificationService: Service is already running");
+      return;
+    }
 
     print(
-      "StickyNotificationService: Dynamic updates enabled (every 5 minutes)",
+      "StickyNotificationService: Calling FlutterForegroundTask.startService...",
     );
-  }
+    try {
+      final bool result = await FlutterForegroundTask.startService(
+        notificationTitle:
+            '🕐 ${DateFormat('h:mm a').format(DateTime.now())} • Chess Daily',
+        notificationText: "Starting chess tips...",
+        callback: startCallback,
+      );
 
-  static String _getCurrentTime() {
-    final now = DateTime.now();
-    return DateFormat('h:mm a').format(now); // e.g., "3:45 PM"
-  }
-
-  static Future<void> _showNotificationWithTip() async {
-    final String currentTip = _chessTips[_currentTipIndex];
-    final String currentTime = _getCurrentTime();
-
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          'sticky_chess_channel',
-          'Chess Daily',
-          channelDescription: 'Persistent notification for chess tips',
-          importance: Importance.low,
-          priority: Priority.low,
-          ongoing: true, // This makes it sticky
-          autoCancel: false,
-          icon: '@mipmap/ic_launcher',
-          playSound: false,
-          enableVibration: false,
+      if (result) {
+        print("StickyNotificationService: Service started successfully");
+      } else {
+        print(
+          "StickyNotificationService: Service failed to start (startService returned false)",
         );
-
-    const NotificationDetails platformDetails = NotificationDetails(
-      android: androidDetails,
-    );
-
-    await _notificationsPlugin.show(
-      id: _stickyNotificationId,
-      title: '🕐 $currentTime • Chess Daily',
-      body: currentTip,
-      notificationDetails: platformDetails,
-    );
-  }
-
-  static Future<void> updateNotification(String title, String message) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          'sticky_chess_channel',
-          'Chess Daily',
-          channelDescription: 'Persistent notification for chess tips',
-          importance: Importance.low,
-          priority: Priority.low,
-          ongoing: true,
-          autoCancel: false,
-          icon: '@mipmap/ic_launcher',
-          playSound: false,
-          enableVibration: false,
-        );
-
-    const NotificationDetails platformDetails = NotificationDetails(
-      android: androidDetails,
-    );
-
-    await _notificationsPlugin.show(
-      id: _stickyNotificationId,
-      title: title,
-      body: message,
-      notificationDetails: platformDetails,
-    );
+      }
+    } catch (e, stack) {
+      print("StickyNotificationService: Exception in startService: $e");
+      print("StickyNotificationService: Stack trace: $stack");
+    }
   }
 
   static Future<void> stopService() async {
-    print("StickyNotificationService: Stopping sticky notification...");
-    _updateTimer?.cancel();
-    _updateTimer = null;
-    await _notificationsPlugin.cancel(id: _stickyNotificationId);
+    await FlutterForegroundTask.stopService();
+    print("StickyNotificationService: Service stopped");
   }
 }

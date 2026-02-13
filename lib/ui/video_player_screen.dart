@@ -2,15 +2,12 @@ import 'dart:async';
 import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-
 import '../models/video_model.dart';
 import '../services/video_service.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final GameVideo video;
-
   const VideoPlayerScreen({super.key, required this.video});
-
   @override
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
@@ -20,22 +17,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   ChewieController? _chewieController;
   bool _isLoading = true;
   String? _error;
-
   // Static global future to track asynchronous disposal/initialization
   // This ensures ONLY ONE video can ever be in the "Acquiring Hardware" or "Releasing Hardware" phase
   static Future<void>? _globalHardwareLock;
-
   // Interaction State
   List<VideoComment> _comments = [];
   bool _loadingComments = true;
   final TextEditingController _commentController = TextEditingController();
   late GameVideo _currentVideo;
-
   @override
   void initState() {
     super.initState();
     _currentVideo = widget.video;
-
     // We don't await here, but we ensure initialization follows the lock
     _initializePlayer();
     _fetchComments();
@@ -56,16 +49,28 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   String _normalizeUrl(String url) {
+    var processedUrl = url.trim();
     // 1. Fix protocol-relative URLs (//host.com -> https://host.com)
-    if (url.startsWith('//')) {
-      return 'https:$url';
+    if (processedUrl.startsWith('//')) {
+      processedUrl = 'https:$processedUrl';
     }
     // 2. Force HTTPS for generic http links (Android/CDNs prefer safety)
-    if (url.startsWith('http://')) {
-      return url.replaceFirst('http://', 'https://');
+    if (processedUrl.startsWith('http://')) {
+      processedUrl = processedUrl.replaceFirst('http://', 'https://');
     }
-    // 3. Fix accidental whitespace
-    return url.trim();
+    // 3. CLOUDINARY HARDENING: Force safest H.264 Baseline profile
+    // Museum worked with Main, but others might need Baseline for Xiaomi.
+    if (processedUrl.contains('res.cloudinary.com') &&
+        processedUrl.contains('/video/upload/')) {
+      if (!processedUrl.contains('vc_h264')) {
+        processedUrl = processedUrl.replaceFirst(
+          '/video/upload/',
+          '/video/upload/q_auto,vc_h264:baseline:3.0/',
+        );
+      }
+    }
+    print('DEBUG: [NORMALIZER] Final URL: $processedUrl');
+    return processedUrl;
   }
 
   Future<void> _initializePlayer({int attempt = 1}) async {
@@ -75,26 +80,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         _error = null;
       });
     }
-
     // Await the global hardware lock to ensure no other screen is using or releasing decoders
     final previousLock = _globalHardwareLock;
     final completer = Completer<void>();
     _globalHardwareLock = completer.future;
-
     try {
       if (previousLock != null) {
         print('DEBUG: Waiting for Global Hardware Lock...');
         await previousLock;
       }
-
       // Mandatory settling period after ANY hardware release
-      await Future.delayed(const Duration(milliseconds: 500));
-
+      await Future.delayed(const Duration(milliseconds: 2500));
       if (!mounted) {
         completer.complete();
         return;
       }
-
       // 2. Select URL (Direct Video first, then Stream fallback)
       String? rawToPlay;
       if (attempt == 1) {
@@ -102,12 +102,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       } else {
         rawToPlay = VideoService().getStreamUrl(_currentVideo.id);
       }
-
       if (rawToPlay == null) throw Exception('No playable URL found');
-
       final urlToPlay = _normalizeUrl(rawToPlay);
       print('DEBUG: Initializing Video (Attempt $attempt): $urlToPlay');
-
       // 3. Clear existing local state
       if (_videoPlayerController != null || _chewieController != null) {
         await _cleanupResources(
@@ -117,12 +114,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         _videoPlayerController = null;
         _chewieController = null;
       }
-
       if (!mounted) {
         completer.complete();
         return;
       }
-
       // 4. Initialize Controller with Minimal Browser Headers
       final uri = Uri.parse(urlToPlay);
       _videoPlayerController = VideoPlayerController.networkUrl(
@@ -133,14 +128,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           'Accept': '*/*',
         },
         videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers: false, // Strict isolation
+          mixWithOthers:
+              true, // Prevent background audio from stealing the hardware decoder
         ),
       );
-
       await _videoPlayerController!.initialize();
-
       if (!mounted) return;
-
       // 5. Config Chewie
       _chewieController = ChewieController(
         videoPlayerController: _videoPlayerController!,
@@ -184,7 +177,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           );
         },
       );
-
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -193,7 +185,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       }
     } catch (e) {
       print('DEBUG: Playback init error: $e');
-
       // Fallback logic
       if (attempt < 2) {
         print('DEBUG: Initial attempt failed. Retrying with fallback...');
@@ -203,7 +194,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           return _initializePlayer(attempt: attempt + 1);
         }
       }
-
       if (mounted) {
         setState(() {
           _error =
@@ -221,7 +211,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Future<void> _postComment() async {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
-
     final comment = await VideoService().postComment(_currentVideo.id, text);
     if (comment != null) {
       setState(() {
@@ -242,7 +231,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           _currentVideo.reactionCounts,
         );
         String? newReaction;
-
         if (_currentVideo.userReaction == type) {
           // Toggle off
           newCounts[type] = (newCounts[type] ?? 1) - 1;
@@ -256,7 +244,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           newCounts[type] = (newCounts[type] ?? 0) + 1;
           newReaction = type;
         }
-
         _currentVideo = GameVideo(
           id: _currentVideo.id,
           title: _currentVideo.title,
@@ -294,7 +281,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         await Future.delayed(const Duration(milliseconds: 400));
         await oldController.dispose();
         // Force a long breather for Android to recycle decoders in its media server
-        await Future.delayed(const Duration(milliseconds: 1000));
+        await Future.delayed(const Duration(milliseconds: 2500));
       }
     } catch (e) {
       print('DEBUG: Resource cleanup error: $e');
@@ -304,14 +291,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   void dispose() {
     _commentController.dispose();
-
     // Re-acquire the lock for the disposal phase to protect the NEXT screen
     final previousLock = _globalHardwareLock;
     final completer = Completer<void>();
     _globalHardwareLock = completer.future;
-
     _runDisposalChain(previousLock, completer);
-
     super.dispose();
   }
 
@@ -333,7 +317,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget _buildReactionButton(String type, String emoji) {
     bool isActive = _currentVideo.userReaction == type;
     int count = _currentVideo.reactionCounts[type] ?? 0;
-
     return InkWell(
       onTap: () => _handleReaction(type),
       child: Container(
@@ -391,7 +374,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                 ? _buildErrorWidget()
                 : Chewie(controller: _chewieController!),
           ),
-
           // Content Area
           Expanded(
             child: SingleChildScrollView(
@@ -410,33 +392,30 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_currentVideo.views} views • ${_currentVideo.createdAt.day}/${_currentVideo.createdAt.month}/${_currentVideo.createdAt.year}',
+                    '${_currentVideo.views} views ΓÇó ${_currentVideo.createdAt.day}/${_currentVideo.createdAt.month}/${_currentVideo.createdAt.year}',
                     style: TextStyle(color: Colors.grey[400], fontSize: 14),
                   ),
                   const SizedBox(height: 16),
-
                   // Reactions Bar
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _buildReactionButton('like', '👍'),
+                        _buildReactionButton('like', '≡ƒæì'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('heart', '❤️'),
+                        _buildReactionButton('heart', 'Γ¥ñ∩╕Å'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('laugh', '😂'),
+                        _buildReactionButton('laugh', '≡ƒÿé'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('surprised', '😮'),
+                        _buildReactionButton('surprised', '≡ƒÿ«'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('sad', '😢'),
+                        _buildReactionButton('sad', '≡ƒÿó'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('angry', '😡'),
+                        _buildReactionButton('angry', '≡ƒÿí'),
                       ],
                     ),
                   ),
-
                   const Divider(color: Colors.grey, height: 32),
-
                   // Description
                   if (_currentVideo.description.isNotEmpty) ...[
                     const Text(
@@ -454,7 +433,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                     ),
                     const Divider(color: Colors.grey, height: 32),
                   ],
-
                   // Comments Header
                   Row(
                     children: [
@@ -474,7 +452,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-
                   // Comments List
                   if (_loadingComments)
                     const Center(child: CircularProgressIndicator())
