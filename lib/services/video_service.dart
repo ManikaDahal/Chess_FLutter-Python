@@ -14,6 +14,7 @@ class VideoService {
 
   Future<Map<String, String>> _headers() async {
     final token = await _storage.getAccessToken();
+    print('DEBUG: [SERVICE] Fetching headers, Token present: ${token != null}');
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
@@ -70,7 +71,13 @@ class VideoService {
       );
 
       if (response.statusCode == 201) {
-        return VideoComment.fromJson(jsonDecode(response.body));
+        return VideoComment.fromJson(
+          jsonDecode(utf8.decode(response.bodyBytes)),
+        );
+      } else {
+        print(
+          'DEBUG: [SERVICE] Post comment failed. Status: ${response.statusCode}, Body: ${response.body}',
+        );
       }
     } catch (e) {
       print('Error posting comment: $e');
@@ -78,7 +85,7 @@ class VideoService {
     return null;
   }
 
-  Future<bool> toggleReaction(int videoId, String reactionType) async {
+  Future<GameVideo?> toggleReaction(int videoId, String reactionType) async {
     try {
       final headers = await _headers();
       final response = await http.post(
@@ -87,10 +94,20 @@ class VideoService {
         body: jsonEncode({'reaction_type': reactionType}),
       );
 
-      return response.statusCode == 200 || response.statusCode == 201;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data['video'] != null) {
+          return GameVideo.fromJson(data['video']);
+        }
+      } else {
+        print(
+          'DEBUG: [SERVICE] Toggle reaction failed. Status: ${response.statusCode}, Body: ${response.body}',
+        );
+      }
+      return null;
     } catch (e) {
       print('Error toggling reaction: $e');
-      return false;
+      return null;
     }
   }
 

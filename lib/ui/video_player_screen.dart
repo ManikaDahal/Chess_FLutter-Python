@@ -58,18 +58,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     if (processedUrl.startsWith('http://')) {
       processedUrl = processedUrl.replaceFirst('http://', 'https://');
     }
-    // 3. CLOUDINARY HARDENING: Force safest H.264 Baseline profile
-    // Museum worked with Main, but others might need Baseline for Xiaomi.
-    if (processedUrl.contains('res.cloudinary.com') &&
-        processedUrl.contains('/video/upload/')) {
-      if (!processedUrl.contains('vc_h264')) {
-        processedUrl = processedUrl.replaceFirst(
-          '/video/upload/',
-          '/video/upload/q_auto,vc_h264:baseline:3.0/',
-        );
-      }
-    }
-    print('DEBUG: [NORMALIZER] Final URL: $processedUrl');
+    // 3. Fix accidental whitespace
     return processedUrl;
   }
 
@@ -90,7 +79,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         await previousLock;
       }
       // Mandatory settling period after ANY hardware release
-      await Future.delayed(const Duration(milliseconds: 2500));
+      // Increased to 3000ms for safety on Xiaomi devices
+      await Future.delayed(const Duration(milliseconds: 3000));
       if (!mounted) {
         completer.complete();
         return;
@@ -118,7 +108,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         completer.complete();
         return;
       }
-      // 4. Initialize Controller with Minimal Browser Headers
       final uri = Uri.parse(urlToPlay);
       _videoPlayerController = VideoPlayerController.networkUrl(
         uri,
@@ -127,12 +116,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
               'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
           'Accept': '*/*',
         },
-        videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers:
-              true, // Prevent background audio from stealing the hardware decoder
-        ),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
       );
-      await _videoPlayerController!.initialize();
+
+      try {
+        await _videoPlayerController!.initialize();
+        print('DEBUG: [PLAYER] Initialization SUCCESS');
+      } catch (e) {
+        print('DEBUG: [PLAYER] Initialization FAILED: $e');
+        rethrow;
+      }
       if (!mounted) return;
       // 5. Config Chewie
       _chewieController = ChewieController(
@@ -186,9 +179,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     } catch (e) {
       print('DEBUG: Playback init error: $e');
       // Fallback logic
-      if (attempt < 2) {
-        print('DEBUG: Initial attempt failed. Retrying with fallback...');
-        await Future.delayed(const Duration(seconds: 1));
+      if (attempt < 3) {
+        // Increased to 3 attempts
+        print('DEBUG: Attempt $attempt failed. Retrying in ${attempt * 2}s...');
+        // Quadratic backoff to allow hardware to breathe
+        await Future.delayed(Duration(seconds: attempt * 2 + 1));
         if (mounted) {
           completer.complete(); // Release lock before retrying
           return _initializePlayer(attempt: attempt + 1);
@@ -213,52 +208,106 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     if (text.isEmpty) return;
     final comment = await VideoService().postComment(_currentVideo.id, text);
     if (comment != null) {
+      print('DEBUG: [COMMENT] Post success');
       setState(() {
         _comments.insert(0, comment);
         _commentController.clear();
       });
       FocusScope.of(context).unfocus();
+    } else {
+      print('DEBUG: [COMMENT] Post FAILED');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Failed to post comment. Please check your connection and login.',
+            ),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _handleReaction(String type) async {
-    final success = await VideoService().toggleReaction(_currentVideo.id, type);
-    if (success) {
-      // Refresh video details to get updated counts and user reaction
-      // Or local state update for faster UI response
-      setState(() {
-        final Map<String, int> newCounts = Map.from(
-          _currentVideo.reactionCounts,
-        );
-        String? newReaction;
-        if (_currentVideo.userReaction == type) {
-          // Toggle off
-          newCounts[type] = (newCounts[type] ?? 1) - 1;
-          newReaction = null;
-        } else {
-          // Toggle on or switch
-          if (_currentVideo.userReaction != null) {
-            newCounts[_currentVideo.userReaction!] =
-                (newCounts[_currentVideo.userReaction!] ?? 1) - 1;
-          }
-          newCounts[type] = (newCounts[type] ?? 0) + 1;
-          newReaction = type;
+    // 1. Snapshot old state for potential reversion
+    final oldVideo = _currentVideo;
+
+    // 2. Perform Optimistic Update
+    setState(() {
+      final Map<String, int> newCounts = Map.from(_currentVideo.reactionCounts);
+      String? newReaction;
+
+      if (_currentVideo.userReaction == type) {
+        // Toggle OFF
+        newCounts[type] = (newCounts[type] ?? 1) - 1;
+        newReaction = null;
+      } else {
+        // Toggle ON or Switch
+        if (_currentVideo.userReaction != null) {
+          final prevType = _currentVideo.userReaction!;
+          newCounts[prevType] = (newCounts[prevType] ?? 1) - 1;
         }
-        _currentVideo = GameVideo(
-          id: _currentVideo.id,
-          title: _currentVideo.title,
-          description: _currentVideo.description,
-          videoUrl: _currentVideo.videoUrl,
-          thumbnailUrl: _currentVideo.thumbnailUrl,
-          streamUrl: _currentVideo.streamUrl,
-          duration: _currentVideo.duration,
-          fileSize: _currentVideo.fileSize,
-          views: _currentVideo.views,
-          createdAt: _currentVideo.createdAt,
-          reactionCounts: newCounts,
-          userReaction: newReaction,
-        );
+        newCounts[type] = (newCounts[type] ?? 0) + 1;
+        newReaction = type;
+      }
+
+      _currentVideo = GameVideo(
+        id: oldVideo.id,
+        title: oldVideo.title,
+        description: oldVideo.description,
+        videoUrl: oldVideo.videoUrl,
+        thumbnailUrl: oldVideo.thumbnailUrl,
+        streamUrl: oldVideo.streamUrl,
+        duration: oldVideo.duration,
+        fileSize: oldVideo.fileSize,
+        views: oldVideo.views,
+        createdAt: oldVideo.createdAt,
+        reactionCounts: newCounts,
+        userReaction: newReaction,
+      );
+    });
+
+    print(
+      'DEBUG: [REACTION] Optimistic update applied. Syncing with server...',
+    );
+
+    // 3. Sync with Server
+    try {
+      final updatedVideo = await VideoService().toggleReaction(
+        oldVideo.id,
+        type,
+      );
+
+      if (updatedVideo != null) {
+        print('DEBUG: [REACTION] Sync success. Metadata updated from server.');
+        if (mounted) {
+          setState(() {
+            _currentVideo = updatedVideo;
+          });
+        }
+      } else {
+        print('DEBUG: [REACTION] Sync failed (null returned). Reverting...');
+        _revertReaction(oldVideo);
+      }
+    } catch (e) {
+      print('DEBUG: [REACTION] Sync exception: $e. Reverting...');
+      _revertReaction(oldVideo);
+    }
+  }
+
+  void _revertReaction(GameVideo oldVideo) {
+    if (mounted) {
+      setState(() {
+        _currentVideo = oldVideo;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Failed to sync reaction. Please check your connection or login.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -281,7 +330,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         await Future.delayed(const Duration(milliseconds: 400));
         await oldController.dispose();
         // Force a long breather for Android to recycle decoders in its media server
-        await Future.delayed(const Duration(milliseconds: 2500));
+        await Future.delayed(const Duration(milliseconds: 3000));
       }
     } catch (e) {
       print('DEBUG: Resource cleanup error: $e');
@@ -392,7 +441,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_currentVideo.views} views ΓÇó ${_currentVideo.createdAt.day}/${_currentVideo.createdAt.month}/${_currentVideo.createdAt.year}',
+                    '${_currentVideo.views} views • ${_currentVideo.createdAt.day}/${_currentVideo.createdAt.month}/${_currentVideo.createdAt.year}',
                     style: TextStyle(color: Colors.grey[400], fontSize: 14),
                   ),
                   const SizedBox(height: 16),
@@ -401,17 +450,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _buildReactionButton('like', '≡ƒæì'),
+                        _buildReactionButton('like', '👍'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('heart', 'Γ¥ñ∩╕Å'),
+                        _buildReactionButton('heart', '❤️'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('laugh', '≡ƒÿé'),
+                        _buildReactionButton('laugh', '😂'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('surprised', '≡ƒÿ«'),
+                        _buildReactionButton('surprised', '😮'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('sad', '≡ƒÿó'),
+                        _buildReactionButton('sad', '😢'),
                         const SizedBox(width: 8),
-                        _buildReactionButton('angry', '≡ƒÿí'),
+                        _buildReactionButton('angry', '😡'),
                       ],
                     ),
                   ),
