@@ -12,7 +12,8 @@ class VideoPlayerScreen extends StatefulWidget {
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
 
-class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+class _VideoPlayerScreenState extends State<VideoPlayerScreen>
+    with WidgetsBindingObserver {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
   bool _isLoading = true;
@@ -25,13 +26,35 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   bool _loadingComments = true;
   final TextEditingController _commentController = TextEditingController();
   late GameVideo _currentVideo;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentVideo = widget.video;
     // We don't await here, but we ensure initialization follows the lock
     _initializePlayer();
     _fetchComments();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    print('DEBUG: [LIFECYCLE] App State: $state');
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Minimize: SAFELY Release hardware immediately
+      print('DEBUG: [LIFECYCLE] App Minimized. Releasing hardware...');
+      _cleanupResources(
+        oldController: _videoPlayerController,
+        oldChewie: _chewieController,
+      );
+    } else if (state == AppLifecycleState.resumed) {
+      // Restore: AUTOMATICALLY re-initialize (Force Hardware Reset)
+      print('DEBUG: [LIFECYCLE] App Resumed. Auto-triggering reset...');
+      _initializePlayer();
+    }
   }
 
   Future<void> _fetchComments() async {
@@ -339,6 +362,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _commentController.dispose();
     // Re-acquire the lock for the disposal phase to protect the NEXT screen
     final previousLock = _globalHardwareLock;

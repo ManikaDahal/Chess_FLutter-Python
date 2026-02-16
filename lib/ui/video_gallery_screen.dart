@@ -101,13 +101,14 @@ class _VideoGalleryScreenState extends State<VideoGalleryScreen> {
               itemBuilder: (context, index) {
                 final video = videos[index];
                 return GestureDetector(
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => VideoPlayerScreen(video: video),
                       ),
                     );
+                    _refreshVideos(); // Refresh gallery after returning
                   },
                   child: Card(
                     elevation: 4,
