@@ -37,14 +37,18 @@ class StickyTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {
-    _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
-    final String currentTip = _chessTips[_currentTipIndex];
-    final String currentTime = _getCurrentTime();
+    try {
+      _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
+      final String currentTip = _chessTips[_currentTipIndex];
+      final String currentTime = _getCurrentTime();
 
-    FlutterForegroundTask.updateService(
-      notificationTitle: '🕐 $currentTime • Chess Daily',
-      notificationText: currentTip,
-    );
+      FlutterForegroundTask.updateService(
+        notificationTitle: '🕐 $currentTime • Chess Daily',
+        notificationText: currentTip,
+      );
+    } catch (e) {
+      print("StickyTaskHandler: Error in onRepeatEvent: $e");
+    }
   }
 
   @override
@@ -70,8 +74,9 @@ class StickyNotificationService {
         channelId: 'sticky_chess_channel',
         channelName: 'Chess Daily',
         channelDescription: 'Persistent notification for chess tips',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        channelImportance:
+            NotificationChannelImportance.DEFAULT, // Increased from LOW
+        priority: NotificationPriority.HIGH, // Increased from LOW
         iconData: const NotificationIconData(
           resType: ResourceType.mipmap,
           resPrefix: ResourcePrefix.ic,
@@ -83,7 +88,7 @@ class StickyNotificationService {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        interval: 300000, // 5 minutes in milliseconds
+        interval: 120000, // Reduced to 2 minutes (keeps process warmer)
         isOnceEvent: false,
         autoRunOnBoot: true,
         allowWakeLock: true,

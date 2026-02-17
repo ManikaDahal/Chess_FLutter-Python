@@ -42,18 +42,26 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     super.didChangeAppLifecycleState(state);
     print('DEBUG: [LIFECYCLE] App State: $state');
 
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
-      // Minimize: SAFELY Release hardware immediately
-      print('DEBUG: [LIFECYCLE] App Minimized. Releasing hardware...');
+    // ONLY dispose when the app is fully backgrounded (paused)
+    // NOT when it's just 'inactive' (like pulling down notification shade)
+    if (state == AppLifecycleState.paused) {
+      print('DEBUG: [LIFECYCLE] App Paused. Releasing hardware...');
       _cleanupResources(
         oldController: _videoPlayerController,
         oldChewie: _chewieController,
       );
     } else if (state == AppLifecycleState.resumed) {
-      // Restore: AUTOMATICALLY re-initialize (Force Hardware Reset)
-      print('DEBUG: [LIFECYCLE] App Resumed. Auto-triggering reset...');
-      _initializePlayer();
+      // Restore: AUTOMATICALLY re-initialize if the controller was lost
+      if (_videoPlayerController == null) {
+        print('DEBUG: [LIFECYCLE] App Resumed. Auto-triggering reset...');
+        if (mounted) {
+          setState(() {
+            _isLoading = true; // Show loader immediately
+            _error = null;
+          });
+        }
+        _initializePlayer();
+      }
     }
   }
 
@@ -339,6 +347,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     ChewieController? oldChewie,
   }) async {
     try {
+      // 1. Immediately nullify references in setState so build() stops using them
+      if (mounted) {
+        setState(() {
+          if (oldController == _videoPlayerController)
+            _videoPlayerController = null;
+          if (oldChewie == _chewieController) _chewieController = null;
+        });
+      }
+
+      // 2. Perform actual disposal
       if (oldChewie != null) {
         oldChewie.dispose();
       }
@@ -353,7 +371,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await Future.delayed(const Duration(milliseconds: 400));
         await oldController.dispose();
         // Force a long breather for Android to recycle decoders in its media server
-        await Future.delayed(const Duration(milliseconds: 3000));
+        await Future.delayed(const Duration(milliseconds: 1500));
       }
     } catch (e) {
       print('DEBUG: Resource cleanup error: $e');
@@ -441,7 +459,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           // Video Player Area
           AspectRatio(
             aspectRatio: 16 / 9,
-            child: _isLoading
+            child: (_isLoading || (_chewieController == null && _error == null))
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
                 ? _buildErrorWidget()
