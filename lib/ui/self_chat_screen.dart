@@ -108,6 +108,55 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     }
   }
 
+  Future<void> _deleteProfile() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Voice Profile?"),
+        content: const Text(
+          "This will permanently delete your voice samples and profile. You will need to re-train the AI to talk with yourself again.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      final success = await _voiceService.deleteVoiceProfile();
+      if (success) {
+        setState(() {
+          _isTrained = false;
+          _sampleCount = 0;
+          _recordedPaths.clear();
+          _messages.clear();
+          _isLoading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Voice profile deleted.")),
+          );
+        }
+      } else {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to delete profile.")),
+          );
+        }
+      }
+    }
+  }
+
   // --- CHAT LOGIC ---
 
   Future<void> _sendMessage() async {
@@ -122,18 +171,35 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
 
     final response = await _voiceService.chatWithSelf(text);
 
-    if (mounted && response != null) {
-      setState(() {
-        _isTyping = false;
-        _messages.add({
-          "text": response['text'],
-          "is_me": false,
-          "audio_id": response['audio_id'], // In real app, this would play
+    if (mounted) {
+      if (response != null) {
+        setState(() {
+          _isTyping = false;
+          _messages.add({
+            "text": response['text'] ?? "Error: No response text",
+            "is_me": false,
+            "audio_id": response['audio_id'],
+          });
         });
-      });
 
-      // Simulation: Auto-play response if audio was available
-      // _audioPlayer.play(UrlSource(response['audio_url']));
+        // Auto-play response if audio was available
+        if (response['audio_url'] != null) {
+          _audioPlayer.play(UrlSource(response['audio_url']));
+        } else if (response['error'] != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Voice Error: ${response['error']}")),
+          );
+        }
+      } else {
+        setState(() {
+          _isTyping = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Server error: Failed to get response."),
+          ),
+        );
+      }
     }
   }
 
@@ -147,6 +213,14 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
       appBar: AppBar(
         title: const Text("Talk with Yourself"),
         backgroundColor: foregroundColor,
+        actions: [
+          if (_isTrained)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.white),
+              tooltip: "Delete Voice Profile",
+              onPressed: _deleteProfile,
+            ),
+        ],
       ),
       body: _isTrained ? _buildChatUI() : _buildTrainingUI(),
     );
@@ -226,11 +300,18 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
                         : CrossAxisAlignment.start,
                     children: [
                       Text(msg['text']),
-                      if (!isMe && msg.containsKey('audio_id'))
-                        const Icon(
-                          Icons.volume_up,
-                          size: 16,
-                          color: Colors.blue,
+                      if (!isMe && msg['audio_id'] != null)
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: const Icon(
+                            Icons.volume_up,
+                            size: 20,
+                            color: Colors.blue,
+                          ),
+                          onPressed: () {
+                            _audioPlayer.play(UrlSource(msg['audio_id']));
+                          },
                         ),
                     ],
                   ),

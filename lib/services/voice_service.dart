@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:chess_game_manika/core/utils/const.dart';
@@ -52,11 +53,16 @@ class VoiceService {
         request.files.add(file);
       }
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
       final response = await http.Response.fromStream(streamedResponse);
 
       print('DEBUG: [VOICE] Upload Status: ${response.statusCode}');
       return response.statusCode == 200 || response.statusCode == 201;
+    } on TimeoutException {
+      print('DEBUG: [VOICE] Upload timed out');
+      return false;
     } catch (e) {
       print('DEBUG: [VOICE] Error uploading samples: $e');
       return false;
@@ -88,5 +94,21 @@ class VoiceService {
       print('DEBUG: [VOICE] Error in chat: $e');
     }
     return null;
+  }
+
+  /// Delete voice profile and all recorded samples
+  Future<bool> deleteVoiceProfile() async {
+    try {
+      final headers = await _headers();
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/api/voice/delete-profile/'),
+        headers: headers,
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('DEBUG: [VOICE] Error deleting profile: $e');
+      return false;
+    }
   }
 }
