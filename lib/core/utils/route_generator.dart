@@ -9,6 +9,7 @@ import 'package:chess_game_manika/otp_page.dart';
 import 'package:chess_game_manika/reset_password.dart';
 import 'package:chess_game_manika/sign_up.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
+import 'package:chess_game_manika/ui/self_chat_screen.dart';
 import 'package:flutter/material.dart';
 
 class RouteGenerator {
@@ -60,17 +61,21 @@ class RouteGenerator {
         return MaterialPageRoute(
           builder: (_) => ResetPassword(contact: args.contact, otp: args.otp),
         );
-         case Routes.gameRoomRoute:
+      case Routes.gameRoomRoute:
         final args = settings.arguments as RoomArguments;
 
         return MaterialPageRoute(
-          builder: (_) => GameBoard(roomId: args.roomId, currentUserId:args.userId,),
+          builder: (_) =>
+              GameBoard(roomId: args.roomId, currentUserId: args.userId),
         );
-      
+
       // case Routes.bottomNavBarRoute:
       //   return MaterialPageRoute(builder: (_) => const BottomnavBar());
       // case Routes.profileRoute:
       //   return MaterialPageRoute(builder: (_) => const ProfilePage());
+
+      case Routes.selfChatRoute:
+        return MaterialPageRoute(builder: (_) => const SelfChatScreen());
 
       default:
         return MaterialPageRoute(

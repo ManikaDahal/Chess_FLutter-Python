@@ -8,4 +8,5 @@ class Routes {
   static const bottomNavBarRoute = "/bottomNavbar";
   static const profileRoute = "/profile";
   static const gameRoomRoute = "/gameRoom";
+  static const selfChatRoute = "/selfChat";
 }

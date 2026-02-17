@@ -129,6 +129,26 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
 
+            Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              child: ListTile(
+                leading: const Icon(Icons.mic, color: Colors.blue),
+                title: const Text(
+                  "Talk with Yourself",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text("AI Voice Twin"),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () {
+                  RouteGenerator.navigateToPage(context, Routes.selfChatRoute);
+                },
+              ),
+            ),
+
             const SizedBox(height: 20),
 
             // // TEMPORARY TEST BUTTON
