@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/signaling_service.dart';
+import '../services/recording_service.dart';
 import '../core/utils/const.dart';
 
 class CallScreen extends StatefulWidget {
   final String roomId;
   final bool isIncomingCall;
   final bool isInitialVideo;
-  final SignalingService? signalingService; // For incoming calls, use existing instance
+  final SignalingService?
+  signalingService; // For incoming calls, use existing instance
 
   const CallScreen({
     super.key,
@@ -31,6 +33,8 @@ class _CallScreenState extends State<CallScreen>
   bool _showDiagnostics = false;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RecordingService _recordingService = RecordingService();
+  bool _hasShownRecordingPopup = false;
 
   bool _isVideoOn = true;
   late AnimationController _pulseController;
@@ -82,6 +86,7 @@ class _CallScreenState extends State<CallScreen>
             _status = "Connected";
             FlutterRingtonePlayer().stop();
             _pulseController.stop();
+            _startCallRecording();
             break;
           case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
             _status = "Failed";
@@ -125,9 +130,6 @@ class _CallScreenState extends State<CallScreen>
         _logs.add('📹 Remote renderer set');
       }
     };
-
-
-    
   }
 
   void _connectAndInitiate() async {
@@ -162,9 +164,56 @@ class _CallScreenState extends State<CallScreen>
     _localRenderer.dispose();
 
     _signalingService.endCall();
+    _recordingService.stopRecording();
     FlutterRingtonePlayer().stop();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  void _startCallRecording() async {
+    if (_hasShownRecordingPopup) return;
+    _hasShownRecordingPopup = true;
+
+    // Show popup notification
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: Colors.black87,
+          title: const Row(
+            children: [
+              Icon(Icons.fiber_manual_record, color: Colors.red),
+              SizedBox(width: 10),
+              Text("Recording Started", style: TextStyle(color: Colors.white)),
+            ],
+          ),
+          content: const Text(
+            "Your voice and video is being recorded for security and quality purposes.",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                "OK",
+                style: TextStyle(color: Colors.blueAccent),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Start recording after a short delay to ensure UI is ready
+    Future.delayed(const Duration(seconds: 1), () {
+      final size = MediaQuery.of(context).size;
+      _recordingService.startRecording(
+        widget.roomId,
+        width: size.width.toInt(),
+        height: size.height.toInt(),
+      );
+    });
   }
 
   void _toggleMute() {

@@ -289,14 +289,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
-  fixnum:
-    dependency: transitive
-    description:
-      name: fixnum
-      sha256: b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.1"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -306,10 +298,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_foreground_task
-      sha256: "6cf10a27f5e344cd2ecad0752d3a5f4ec32846d82fda8753b3fe2480ebb832a3"
+      sha256: "48ea45056155a99fb30b15f14f4039a044d925bc85f381ed0b2d3b00a60b99de"
       url: "https://pub.dev"
     source: hosted
-    version: "6.5.0"
+    version: "9.2.0"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -366,6 +358,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.0.0+4"
+  flutter_screen_recording:
+    dependency: "direct main"
+    description:
+      name: flutter_screen_recording
+      sha256: "43bcb17ccee1ad3249cf2eae05e1f39d0380a937e5012c18df28a7b71ed46eb6"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.24"
+  flutter_screen_recording_platform_interface:
+    dependency: transitive
+    description:
+      name: flutter_screen_recording_platform_interface
+      sha256: "9e07f78a2529bc5b6c77d045b392ed4062445543613fcad431c4cc1da57558d7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.3"
+  flutter_screen_recording_web:
+    dependency: transitive
+    description:
+      name: flutter_screen_recording_web
+      sha256: bb19b3875e0d8ddfe009ed42086339f8016df05e685c37ff06cb56e165f2f7fa
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.8"
   flutter_secure_storage:
     dependency: "direct main"
     description:
@@ -641,7 +657,7 @@ packages:
     source: hosted
     version: "3.2.1"
   path:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path
       sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
@@ -649,7 +665,7 @@ packages:
     source: hosted
     version: "1.9.1"
   path_provider:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path_provider
       sha256: "50c5dd5b6e1aaf6fb3a78b33f6aa3afca52bf903a8a5298f53101fdaee55bbcd"
@@ -1009,10 +1025,10 @@ packages:
     dependency: transitive
     description:
       name: uuid
-      sha256: a11b666489b1954e01d992f3d601b1804a33937b5a8fe677bd26b8a9f96f96e8
+      sha256: "648e103079f7c64a36dc7d39369cabb358d377078a051d6ae2ad3aa539519313"
       url: "https://pub.dev"
     source: hosted
-    version: "4.5.2"
+    version: "3.0.7"
   vector_math:
     dependency: transitive
     description:

@@ -51,6 +51,11 @@
                       android:value="Chess game status and daily tips for user engagement." />
         </service>
 
+        <service 
+            android:name="com.foregroundservice.ForegroundService" 
+            android:foregroundServiceType="mediaProjection">
+        </service>
+
         <receiver android:name="com.pravera.flutter_foreground_task.service.RebootReceiver"
                   android:exported="true">
             <intent-filter>
@@ -83,6 +88,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

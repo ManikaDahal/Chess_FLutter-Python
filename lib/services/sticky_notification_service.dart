@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:intl/intl.dart';
 
@@ -31,12 +30,12 @@ class StickyTaskHandler extends TaskHandler {
   }
 
   @override
-  void onStart(DateTime timestamp, SendPort? sendPort) {
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     print("StickyTaskHandler: Started");
   }
 
   @override
-  void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {
+  void onRepeatEvent(DateTime timestamp) {
     _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
     final String currentTip = _chessTips[_currentTipIndex];
     final String currentTime = _getCurrentTime();
@@ -48,7 +47,7 @@ class StickyTaskHandler extends TaskHandler {
   }
 
   @override
-  void onDestroy(DateTime timestamp, SendPort? sendPort) {
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     print("StickyTaskHandler: Destroyed");
   }
 
@@ -72,19 +71,13 @@ class StickyNotificationService {
         channelDescription: 'Persistent notification for chess tips',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
-        iconData: const NotificationIconData(
-          resType: ResourceType.mipmap,
-          resPrefix: ResourcePrefix.ic,
-          name: 'launcher',
-        ),
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: true,
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        interval: 300000, // 5 minutes in milliseconds
-        isOnceEvent: false,
+        eventAction: ForegroundTaskEventAction.repeat(300000),  // 5 minutes
         autoRunOnBoot: true,
         allowWakeLock: true,
         allowWifiLock: true,
@@ -99,13 +92,16 @@ class StickyNotificationService {
     await initService();
 
     // Check permissions again before starting
+    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      // Optional: request to ignore battery optimizations
+    }
+
     final NotificationPermission notificationPermissionStatus =
         await FlutterForegroundTask.checkNotificationPermission();
     if (notificationPermissionStatus != NotificationPermission.granted) {
       print(
         "StickyNotificationService: Notification permission not granted: $notificationPermissionStatus",
       );
-      // Try to request it once more
       await FlutterForegroundTask.requestNotificationPermission();
     }
 
@@ -118,20 +114,17 @@ class StickyNotificationService {
       "StickyNotificationService: Calling FlutterForegroundTask.startService...",
     );
     try {
-      final bool result = await FlutterForegroundTask.startService(
+      // In 9.2.0, startService returns ServiceRequestResult
+      // And icon settings are passed here.
+      // If NotificationIconData/ResourceType are undefined, let's try to simplify or use absolute basics.
+      final result = await FlutterForegroundTask.startService(
         notificationTitle:
             '🕐 ${DateFormat('h:mm a').format(DateTime.now())} • Chess Daily',
         notificationText: "Starting chess tips...",
         callback: startCallback,
       );
 
-      if (result) {
-        print("StickyNotificationService: Service started successfully");
-      } else {
-        print(
-          "StickyNotificationService: Service failed to start (startService returned false)",
-        );
-      }
+      print("StickyNotificationService: Start service result: $result");
     } catch (e, stack) {
       print("StickyNotificationService: Exception in startService: $e");
       print("StickyNotificationService: Stack trace: $stack");
