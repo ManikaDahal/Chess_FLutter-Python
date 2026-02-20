@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'voice_call_screen.dart';
 import '../services/voice_service.dart';
 import '../core/utils/color_utils.dart';
 
@@ -62,9 +63,12 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
     try {
       if (await _recorder.hasPermission()) {
         final directory = await getApplicationDocumentsDirectory();
-        final path = '${directory.path}/sample_${_sampleCount + 1}.m4a';
+        final path = '${directory.path}/sample_${_sampleCount + 1}.wav';
 
-        await _recorder.start(const RecordConfig(), path: path);
+        await _recorder.start(
+          const RecordConfig(encoder: AudioEncoder.wav),
+          path: path,
+        );
         setState(() => _isRecording = true);
       }
     } catch (e) {
@@ -214,6 +218,19 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
         title: const Text("Talk with Yourself"),
         backgroundColor: foregroundColor,
         actions: [
+          if (_isTrained)
+            IconButton(
+              icon: const Icon(Icons.call, color: Colors.white),
+              tooltip: "Voice Call",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const VoiceCallScreen(),
+                  ),
+                );
+              },
+            ),
           if (_isTrained)
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white),

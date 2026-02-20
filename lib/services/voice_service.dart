@@ -88,7 +88,8 @@ class VoiceService {
         return jsonDecode(response.body);
       } else {
         print('DEBUG: [VOICE] Chat failed: ${response.statusCode}');
-        print('DEBUG: [VOICE] Body: ${response.body}');
+        print('DEBUG: [VOICE] Body: ${response.
+        body}');
       }
     } catch (e) {
       print('DEBUG: [VOICE] Error in chat: $e');

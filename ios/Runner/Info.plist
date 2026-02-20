@@ -47,5 +47,9 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>We need access to your microphone for audio calls during the game.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We need access to your microphone to listen to your voice during calls with your digital twin.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>We use speech recognition to turn your voice into text for your digital twin to understand.</string>
 </dict>
 </plist>
