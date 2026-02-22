@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../core/utils/const.dart';
 import 'token_storage.dart';
 import 'package:path/path.dart' as p;
+import 'sticky_notification_service.dart';
 
 class RecordingService {
   static final RecordingService _instance = RecordingService._internal();
@@ -26,64 +27,102 @@ class RecordingService {
     _currentRoomId = roomId;
 
     try {
+      // Use a more unique filename with room ID and milliseconds
       final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      final String fileName = 'chess_call_$timestamp';
+      final String fileName = 'chess_${roomId}_$timestamp';
 
+      final Directory? appDocDir = await getApplicationDocumentsDirectory();
       debugPrint('STARTING RECORDING: $fileName');
+      if (appDocDir != null) {
+        debugPrint(
+          'Target Directory for internal reference: ${appDocDir.path}',
+        );
+      }
 
       // flutter_screen_recording API
+      // Note: Passing fileName only; plugin saves to a default location usually.
       bool started = await FlutterScreenRecording.startRecordScreenAndAudio(
         fileName,
       );
 
       if (started) {
         _isRecording = true;
-        debugPrint('Recording started for room: $roomId');
+        debugPrint('✅ Recording started for room: $roomId');
       } else {
-        debugPrint('Failed to start recording');
+        debugPrint('❌ Failed to start recording');
       }
     } catch (e) {
-      debugPrint('Error starting recording: $e');
+      debugPrint('❌ Error starting recording: $e');
       _isRecording = false;
     }
   }
 
+  bool _isStopping = false;
+
   Future<void> stopRecording() async {
-    if (!_isRecording) return;
+    if (!_isRecording || _isStopping) {
+      debugPrint(
+        'RecordingService: stopRecording skipped. Recording: $_isRecording, Stopping: $_isStopping',
+      );
+      return;
+    }
 
     try {
-      debugPrint('STOPPING RECORDING');
-      final String path = await FlutterScreenRecording.stopRecordScreen;
+      _isStopping = true;
+      debugPrint('STOPPING RECORDING...');
       _isRecording = false;
-      _lastRecordingPath = path;
-      debugPrint('Recording stopped locally. Path: $path');
 
-      // Upload if we have a path
-      if (_lastRecordingPath != null && _currentRoomId != null) {
-        // flutter_screen_recording usually returns the full path,
-        // but let's double check if it exists
-        _uploadRecording(_lastRecordingPath!, _currentRoomId!);
+      final String path = await FlutterScreenRecording.stopRecordScreen;
+      _lastRecordingPath = path;
+      debugPrint('✅ Recording stopped. Resulting Path: $path');
+
+      // Small delay to ensure file is flushed
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (path.isNotEmpty) {
+        final file = File(path);
+        if (await file.exists()) {
+          final size = await file.length();
+          debugPrint('📄 Recording file size: $size bytes');
+        } else {
+          debugPrint('⚠️ Recording file does not exist at path: $path');
+        }
       }
+
+      // Upload if we have a path and room ID
+      if (_lastRecordingPath != null &&
+          _lastRecordingPath!.isNotEmpty &&
+          _currentRoomId != null) {
+        _uploadRecording(_lastRecordingPath!, _currentRoomId!);
+      } else {
+        debugPrint(
+          '⚠️ Missing path or roomId for upload. Path: $_lastRecordingPath, Room: $_currentRoomId',
+        );
+      }
+
+      _isStopping = false;
     } catch (e) {
-      debugPrint('Error stopping recording: $e');
+      debugPrint('❌ Error stopping recording: $e');
       _isRecording = false;
+      _isStopping = false;
     }
   }
 
   Future<void> _uploadRecording(String filePath, String roomId) async {
     try {
-      // Delay slightly to ensure file is closed by recorder
+      // Delay to ensure file is completely written and closed by OS/Plugin
+      debugPrint('Waiting 2 seconds before upload to ensure file stability...');
       await Future.delayed(const Duration(seconds: 2));
 
       final File file = File(filePath);
       if (!await file.exists()) {
-        debugPrint('Recording file not found at $filePath');
+        debugPrint('❌ Upload failed: File not found at $filePath');
         return;
       }
 
       final String? token = await _storage.getAccessToken();
       if (token == null) {
-        debugPrint('No access token found for upload');
+        debugPrint('❌ Upload failed: No access token found');
         return;
       }
 
@@ -100,17 +139,21 @@ class RecordingService {
         ),
       );
 
-      debugPrint('Uploading recording to $uri for room $roomId');
+      debugPrint('⬆️ Uploading ${p.basename(filePath)} to $uri');
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      if (response.statusCode == 201) {
-        debugPrint('Recording uploaded successfully');
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        debugPrint('✅ Recording uploaded successfully');
+        // Optional: delete local file after success
+        // await file.delete();
       } else {
-        debugPrint('Upload failed: ${response.statusCode} - ${response.body}');
+        debugPrint(
+          '❌ Upload failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
-      debugPrint('Error uploading recording: $e');
+      debugPrint('❌ Error during upload: $e');
     }
   }
 }

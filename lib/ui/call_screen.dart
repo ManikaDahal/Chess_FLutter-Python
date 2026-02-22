@@ -1,3 +1,4 @@
+import 'package:chess_game_manika/services/sticky_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -156,18 +157,70 @@ class _CallScreenState extends State<CallScreen>
     }
   }
 
+  bool _isCleanedUp = false;
+
   @override
   void dispose() {
-    _remoteRenderer.srcObject = null;
-    _localRenderer.srcObject = null;
+    _cleanupResources();
     _remoteRenderer.dispose();
     _localRenderer.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
 
+  // Synchronous cleanup for dispose()
+  void _cleanupResources() {
+    if (_isCleanedUp) return;
+    _isCleanedUp = true;
+
+    _remoteRenderer.srcObject = null;
+    _localRenderer.srcObject = null;
     _signalingService.endCall();
     _recordingService.stopRecording();
     FlutterRingtonePlayer().stop();
-    _pulseController.dispose();
-    super.dispose();
+  }
+
+  // Asynchronous cleanup for manual "End" button
+  Future<void> _endCallAndCleanup() async {
+    if (!mounted || _isCleanedUp) return;
+    _isCleanedUp = true;
+
+    setState(() => _status = "Ending call...");
+
+    // 1. Detach renderers immediately
+    _remoteRenderer.srcObject = null;
+    _localRenderer.srcObject = null;
+    FlutterRingtonePlayer().stop();
+
+    // 2. Stop recording (with a timeout to prevent hanging)
+    try {
+      debugPrint('CallScreen: Requesting recording stop...');
+      await _recordingService.stopRecording().timeout(
+        const Duration(seconds: 4),
+      );
+    } catch (e) {
+      debugPrint('Error or timeout stopping recording: $e');
+    }
+
+    // 3. Stop signaling and media streams (with a timeout)
+    try {
+      debugPrint('CallScreen: Requesting signaling end...');
+      await _signalingService.endCall().timeout(const Duration(seconds: 2));
+    } catch (e) {
+      debugPrint('Error or timeout ending call: $e');
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+
+      // 4. Trigger chess tips restart AFTER the screen is popped
+      Future.delayed(const Duration(seconds: 1), () async {
+        debugPrint('CallScreen: Restarting sticky notification service...');
+        await StickyNotificationService.stopService();
+        await Future.delayed(const Duration(milliseconds: 500));
+        await StickyNotificationService.startService();
+      });
+    }
   }
 
   void _startCallRecording() async {
@@ -491,7 +544,7 @@ class _CallScreenState extends State<CallScreen>
                 icon: Icons.call_end,
                 color: Colors.redAccent,
                 label: "End",
-                onPressed: () => Navigator.pop(context),
+                onPressed: _endCallAndCleanup,
               ),
               if (widget.isIncomingCall &&
                   (_status.contains("Incoming") &&

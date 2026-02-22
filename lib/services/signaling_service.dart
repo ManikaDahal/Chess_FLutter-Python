@@ -488,27 +488,51 @@ class SignalingService {
     }
   }
 
-  void endCall() {
+  bool _isEnding = false;
+
+  Future<void> endCall() async {
+    if (_isEnding) {
+      _log('⚠️ endCall already in progress, skipping');
+      return;
+    }
+    _isEnding = true;
+
     _log('🛑 Ending call and releasing resources');
-    if (_localStream != null) {
-      _localStream!.getTracks().forEach((track) {
-        _log('⏹️ Stopping track: ${track.kind}');
+
+    final local = _localStream;
+    _localStream = null;
+    if (local != null) {
+      _log('⏹️ Stopping ${local.getTracks().length} tracks in local stream');
+      for (var track in local.getTracks()) {
+        _log('⏹️ Stopping track: ${track.kind} (${track.id})');
         track.stop();
-      });
-      _localStream!.dispose();
-      _localStream = null;
+      }
+      await local.dispose();
     }
+
+    final remote = _remoteStream;
     _remoteStream = null;
-    if (_peerConnection != null) {
-      _log('🔌 Closing PeerConnection');
-      _peerConnection!.close();
-      _peerConnection = null;
+    if (remote != null) {
+      _log('⏹️ Stopping ${remote.getTracks().length} tracks in remote stream');
+      for (var track in remote.getTracks()) {
+        track.stop();
+      }
+      await remote.dispose();
     }
+
+    final pc = _peerConnection;
+    _peerConnection = null;
+    if (pc != null) {
+      _log('🔌 Closing PeerConnection');
+      await pc.close();
+    }
+
     _pendingOffer = null;
     _pendingMediaType = null;
     _remoteCandidatesBuffer.clear();
     _isRemoteDescriptionSet = false;
     _isCaller = false;
+    _isEnding = false;
   }
 
   void _startIceRestartTimer() {

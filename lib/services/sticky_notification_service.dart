@@ -32,11 +32,10 @@ class StickyTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     print("StickyTaskHandler: Started");
+    _updateNotification();
   }
 
-  @override
-  void onRepeatEvent(DateTime timestamp) {
-    _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
+  void _updateNotification() {
     final String currentTip = _chessTips[_currentTipIndex];
     final String currentTime = _getCurrentTime();
 
@@ -44,6 +43,12 @@ class StickyTaskHandler extends TaskHandler {
       notificationTitle: '🕐 $currentTime • Chess Daily',
       notificationText: currentTip,
     );
+  }
+
+  @override
+  void onRepeatEvent(DateTime timestamp) {
+    _currentTipIndex = (_currentTipIndex + 1) % _chessTips.length;
+    _updateNotification();
   }
 
   @override
@@ -77,7 +82,7 @@ class StickyNotificationService {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(300000),  // 5 minutes
+        eventAction: ForegroundTaskEventAction.repeat(120000), // 2 minutes
         autoRunOnBoot: true,
         allowWakeLock: true,
         allowWifiLock: true,
