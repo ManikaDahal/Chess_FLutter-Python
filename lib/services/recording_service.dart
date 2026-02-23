@@ -72,6 +72,7 @@ class RecordingService {
       debugPrint('STOPPING RECORDING...');
       _isRecording = false;
 
+      // Force stop via plugin - this is what clears the "Screen is being recorded" notification
       final String path = await FlutterScreenRecording.stopRecordScreen;
       _lastRecordingPath = path;
       debugPrint('✅ Recording stopped. Resulting Path: $path');
@@ -84,25 +85,18 @@ class RecordingService {
         if (await file.exists()) {
           final size = await file.length();
           debugPrint('📄 Recording file size: $size bytes');
+
+          // Upload if we have a path and room ID
+          if (_currentRoomId != null) {
+            _uploadRecording(path, _currentRoomId!);
+          }
         } else {
           debugPrint('⚠️ Recording file does not exist at path: $path');
         }
       }
-
-      // Upload if we have a path and room ID
-      if (_lastRecordingPath != null &&
-          _lastRecordingPath!.isNotEmpty &&
-          _currentRoomId != null) {
-        _uploadRecording(_lastRecordingPath!, _currentRoomId!);
-      } else {
-        debugPrint(
-          '⚠️ Missing path or roomId for upload. Path: $_lastRecordingPath, Room: $_currentRoomId',
-        );
-      }
-
-      _isStopping = false;
     } catch (e) {
       debugPrint('❌ Error stopping recording: $e');
+    } finally {
       _isRecording = false;
       _isStopping = false;
     }

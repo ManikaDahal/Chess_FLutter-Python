@@ -29,6 +29,9 @@ class SignalingService {
   Function(RTCPeerConnectionState)? onConnectionStateChange;
   Function(String)? onLog;
 
+  final _connectionController = StreamController<bool>.broadcast();
+  Stream<bool> get connectionStream => _connectionController.stream;
+
   void _log(String message) {
     debugPrint('SERVICE_LOG: $message');
     onLog?.call(message);
@@ -40,10 +43,16 @@ class SignalingService {
   // Callback for when the call is accepted
   Function()? onCallAccepted;
 
+  // Callback for when peer hangs up
+  Function()? onHangup;
+
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
   String? get currentRoomId => _currentRoomId;
+  bool get isCallActive => _peerConnection != null && _isConnected;
+  MediaStream? get localStream => _localStream;
+  MediaStream? get remoteStream => _remoteStream;
 
   bool _isRemoteDescriptionSet = false;
 
@@ -91,15 +100,25 @@ class SignalingService {
     _currentRoomId = roomId;
 
     if (_isConnected && !_isReconnecting) {
-      _log('Already connected to signaling');
-      return;
+      if (_currentRoomId == roomId) {
+        _log('Already connected to room: $roomId');
+        return;
+      } else if (isCallActive) {
+        _log(
+          '⚠️ Cannot switch room while call is active (Current: $_currentRoomId, Target: $roomId)',
+        );
+        return;
+      }
+      _log('🔄 Switching room from $_currentRoomId to $roomId');
+      // We don't return here if it's a different room and NO active call,
+      // but we should probably inform GlobalCallHandler to handle this better.
     }
 
     // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
     final cleanWsUrl = wsUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
     final url = '$cleanWsUrl/ws/call/$roomId/';
 
-    _log('🌐 Connecting to Signaling: $url');
+    _log('🌐 Connecting to Signaling: $url (Room: $roomId)');
 
     try {
       await _ensurePeerConnection();
@@ -109,12 +128,14 @@ class SignalingService {
       );
 
       _channel = WebSocketChannel.connect(uri);
+      _isConnected = true; // Set to true immediately upon connection
+      _connectionController.add(true);
+      _startHeartbeat(); // Start heartbeat right away
 
+      _log('✅ WebSocket Connected to $roomId');
       _channel!.stream.listen(
         (message) {
-          _isConnected = true;
           _isReconnecting = false;
-          _startHeartbeat();
           _handleMessage(message);
         },
         onError: (error) {
@@ -123,6 +144,7 @@ class SignalingService {
         },
         onDone: () {
           _log('📡 WebSocket Closed');
+          _connectionController.add(false);
           _handleDisconnect();
         },
       );
@@ -243,6 +265,9 @@ class SignalingService {
     } else if (type == 'call_answer') {
       onCallAccepted?.call();
       await _handleAnswer(data['answer']);
+    } else if (type == 'call_hangup') {
+      _log(' Peer hung up');
+      onHangup?.call();
     } else if (type == 'new_ice_candidate') {
       await _handleCandidate(data['candidate']);
     }
@@ -432,6 +457,10 @@ class SignalingService {
 
   void _sendSignal(Map<String, dynamic> data) {
     if (_channel != null) {
+      // Add sender hash if not present to avoid reflecting self-messages
+      if (!data.containsKey('sender')) {
+        data['sender'] = _channel?.hashCode.toString();
+      }
       _log('TX: ${data['type']}');
       _channel!.sink.add(jsonEncode(data));
     } else {
@@ -490,14 +519,18 @@ class SignalingService {
 
   bool _isEnding = false;
 
-  Future<void> endCall() async {
+  Future<void> endCall({bool sendSignal = true}) async {
     if (_isEnding) {
       _log('⚠️ endCall already in progress, skipping');
       return;
     }
     _isEnding = true;
 
-    _log('🛑 Ending call and releasing resources');
+    _log('🛑 Ending call (SendSignal: $sendSignal)');
+
+    if (sendSignal && _isConnected) {
+      _sendSignal({'type': 'call_hangup'});
+    }
 
     final local = _localStream;
     _localStream = null;

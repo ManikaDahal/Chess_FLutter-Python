@@ -596,18 +596,49 @@ class _GameBoardState extends State<GameBoard>
                   final bool isAttempting =
                       _gameService.currentRoomId == widget.roomId && !connected;
 
-                  return Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: connected
-                            ? Colors.green
-                            : (isAttempting ? Colors.amber : Colors.red),
-                        shape: BoxShape.circle,
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildConnectionIndicator(
+                        "Game",
+                        connected,
+                        isAttempting: isAttempting,
                       ),
-                    ),
+                      const SizedBox(width: 4),
+                      // Signaling Indicator (User Specific)
+                      StreamBuilder<bool>(
+                        stream: GlobalCallHandler()
+                            .userSignalingService
+                            ?.connectionStream,
+                        initialData: GlobalCallHandler()
+                            .userSignalingService
+                            ?.isConnected,
+                        builder: (context, sigSnapshot) {
+                          return _buildConnectionIndicator(
+                            "UserSig",
+                            sigSnapshot.data ?? false,
+                            colorOverride: Colors.blue,
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      // General Signaling Indicator
+                      StreamBuilder<bool>(
+                        stream: GlobalCallHandler()
+                            .generalSignalingService
+                            ?.connectionStream,
+                        initialData: GlobalCallHandler()
+                            .generalSignalingService
+                            ?.isConnected,
+                        builder: (context, genSnapshot) {
+                          return _buildConnectionIndicator(
+                            "GenSig",
+                            genSnapshot.data ?? false,
+                            colorOverride: Colors.teal,
+                          );
+                        },
+                      ),
+                    ],
                   );
                 },
               )
@@ -655,7 +686,20 @@ class _GameBoardState extends State<GameBoard>
                     isIncomingCall: false,
                     isInitialVideo: false,
                     signalingService:
-                        GlobalCallHandler().generalSignalingService,
+                        (widget.opponentId != null &&
+                            GlobalCallHandler()
+                                    .userSignalingService
+                                    ?.currentRoomId ==
+                                callRoomId)
+                        ? GlobalCallHandler().userSignalingService
+                        : (callRoomId == "chess_room_1" &&
+                              GlobalCallHandler()
+                                      .generalSignalingService
+                                      ?.currentRoomId ==
+                                  "chess_room_1")
+                        ? GlobalCallHandler().generalSignalingService
+                        : null, // Create fresh instance if global ones are busy/different
+                    currentUserId: widget.currentUserId,
                   ),
                 ),
               );
@@ -677,7 +721,20 @@ class _GameBoardState extends State<GameBoard>
                     isIncomingCall: false,
                     isInitialVideo: true,
                     signalingService:
-                        GlobalCallHandler().generalSignalingService,
+                        (widget.opponentId != null &&
+                            GlobalCallHandler()
+                                    .userSignalingService
+                                    ?.currentRoomId ==
+                                callRoomId)
+                        ? GlobalCallHandler().userSignalingService
+                        : (callRoomId == "chess_room_1" &&
+                              GlobalCallHandler()
+                                      .generalSignalingService
+                                      ?.currentRoomId ==
+                                  "chess_room_1")
+                        ? GlobalCallHandler().generalSignalingService
+                        : null,
+                    currentUserId: widget.currentUserId,
                   ),
                 ),
               );
@@ -749,21 +806,47 @@ class _GameBoardState extends State<GameBoard>
             ),
         ],
       ),
-      body: GridView.builder(
-        itemCount: 64,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 8,
+      body: Stack(
+        children: [
+          GridView.builder(
+            itemCount: 64,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 8,
+            ),
+            itemBuilder: (context, index) {
+              int row = index ~/ 8, col = index % 8;
+              return Square(
+                isWhiteSquare: isWhiteSquare(index),
+                piece: board[row][col],
+                isSelected: row == selectedRow && col == selectedCol,
+                isValidMove: validMoves.any((m) => m[0] == row && m[1] == col),
+                onTap: () => onSquareTap(row, col),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectionIndicator(
+    String label,
+    bool connected, {
+    bool isAttempting = false,
+    Color? colorOverride,
+  }) {
+    return Tooltip(
+      message:
+          "$label: ${connected ? 'Connected' : (isAttempting ? 'Connecting...' : 'Disconnected')}",
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: connected
+              ? (colorOverride ?? Colors.green)
+              : (isAttempting ? Colors.amber : Colors.red),
+          shape: BoxShape.circle,
         ),
-        itemBuilder: (context, index) {
-          int row = index ~/ 8, col = index % 8;
-          return Square(
-            isWhiteSquare: isWhiteSquare(index),
-            piece: board[row][col],
-            isSelected: row == selectedRow && col == selectedCol,
-            isValidMove: validMoves.any((m) => m[0] == row && m[1] == col),
-            onTap: () => onSquareTap(row, col),
-          );
-        },
       ),
     );
   }

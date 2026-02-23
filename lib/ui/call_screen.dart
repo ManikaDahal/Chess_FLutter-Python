@@ -1,5 +1,5 @@
-import 'package:chess_game_manika/services/sticky_notification_service.dart';
 import 'package:flutter/material.dart';
+import '../core/utils/global_callhandler.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/signaling_service.dart';
@@ -12,6 +12,7 @@ class CallScreen extends StatefulWidget {
   final bool isInitialVideo;
   final SignalingService?
   signalingService; // For incoming calls, use existing instance
+  final int? currentUserId; // Required to restore room residency on exit
 
   const CallScreen({
     super.key,
@@ -19,6 +20,7 @@ class CallScreen extends StatefulWidget {
     this.isIncomingCall = false,
     this.isInitialVideo = true,
     this.signalingService,
+    this.currentUserId,
   });
 
   @override
@@ -36,6 +38,7 @@ class _CallScreenState extends State<CallScreen>
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RecordingService _recordingService = RecordingService();
   bool _hasShownRecordingPopup = false;
+  bool _isMinimizing = false;
 
   bool _isVideoOn = true;
   late AnimationController _pulseController;
@@ -113,6 +116,11 @@ class _CallScreenState extends State<CallScreen>
       }
     };
 
+    _signalingService.onHangup = () {
+      debugPrint('CallScreen: Hangup signal received from peer');
+      _endCallAndCleanup(fromPeer: true);
+    };
+
     _signalingService.onLocalStream = (stream) {
       if (mounted) {
         setState(() {
@@ -161,65 +169,87 @@ class _CallScreenState extends State<CallScreen>
 
   @override
   void dispose() {
-    _cleanupResources();
-    _remoteRenderer.dispose();
-    _localRenderer.dispose();
-    _pulseController.dispose();
+    debugPrint(
+      'CallScreen: dispose() called. isCleanedUp: $_isCleanedUp, isMinimizing: $_isMinimizing',
+    );
+
+    // Always dispose renderers safely
+    try {
+      _remoteRenderer.srcObject = null;
+      _localRenderer.srcObject = null;
+      _remoteRenderer.dispose();
+      _localRenderer.dispose();
+    } catch (e) {
+      debugPrint('CallScreen: Error disposing renderers: $e');
+    }
+
+    // Only run cleanup if it hasn't been done yet (e.g., when Android kills the screen directly)
+    // If _endCallAndCleanup() already ran, skip to avoid double-ending the stream
+    if (!_isCleanedUp && !_isMinimizing) {
+      debugPrint('CallScreen: Running emergency dispose cleanup...');
+      try {
+        _signalingService.endCall(sendSignal: true);
+      } catch (e) {
+        debugPrint('CallScreen: Error in emergency endCall: $e');
+      }
+      try {
+        _recordingService.stopRecording();
+      } catch (e) {
+        debugPrint('CallScreen: Error in emergency stopRecording: $e');
+      }
+      GlobalCallHandler().isMinimized.value = false;
+      GlobalCallHandler().activeRoomId.value = null;
+    }
+
+    try {
+      FlutterRingtonePlayer().stop();
+      _pulseController.dispose();
+    } catch (e) {
+      debugPrint('CallScreen: Error in final dispose: $e');
+    }
+
     super.dispose();
   }
 
-  // Synchronous cleanup for dispose()
-  void _cleanupResources() {
-    if (_isCleanedUp) return;
-    _isCleanedUp = true;
-
-    _remoteRenderer.srcObject = null;
-    _localRenderer.srcObject = null;
-    _signalingService.endCall();
-    _recordingService.stopRecording();
-    FlutterRingtonePlayer().stop();
-  }
-
   // Asynchronous cleanup for manual "End" button
-  Future<void> _endCallAndCleanup() async {
+  Future<void> _endCallAndCleanup({bool fromPeer = false}) async {
     if (!mounted || _isCleanedUp) return;
     _isCleanedUp = true;
 
-    setState(() => _status = "Ending call...");
+    setState(() => _status = fromPeer ? "Peer hung up" : "Ending call...");
 
     // 1. Detach renderers immediately
     _remoteRenderer.srcObject = null;
     _localRenderer.srcObject = null;
     FlutterRingtonePlayer().stop();
 
-    // 2. Stop recording (with a timeout to prevent hanging)
+    // 2. Stop recording (with a timeout and error catching to prevent app hang/closure)
     try {
       debugPrint('CallScreen: Requesting recording stop...');
       await _recordingService.stopRecording().timeout(
-        const Duration(seconds: 4),
+        const Duration(seconds: 3),
       );
     } catch (e) {
       debugPrint('Error or timeout stopping recording: $e');
     }
 
-    // 3. Stop signaling and media streams (with a timeout)
+    // 3. Stop signaling and media streams
     try {
       debugPrint('CallScreen: Requesting signaling end...');
-      await _signalingService.endCall().timeout(const Duration(seconds: 2));
+      // If we got a hangup signal, don't send one back (sendSignal: false)
+      await _signalingService
+          .endCall(sendSignal: !fromPeer)
+          .timeout(const Duration(seconds: 2));
+
+      // Restore Global Signaling residency
+      GlobalCallHandler().ensureRoomResidency(widget.currentUserId);
     } catch (e) {
       debugPrint('Error or timeout ending call: $e');
     }
 
     if (mounted) {
-      Navigator.pop(context);
-
-      // 4. Trigger chess tips restart AFTER the screen is popped
-      Future.delayed(const Duration(seconds: 1), () async {
-        debugPrint('CallScreen: Restarting sticky notification service...');
-        await StickyNotificationService.stopService();
-        await Future.delayed(const Duration(milliseconds: 500));
-        await StickyNotificationService.startService();
-      });
+      debugPrint('CallScreen: Popping call screen');
+      Navigator.of(context).pop();
     }
   }
 
@@ -300,6 +330,14 @@ class _CallScreenState extends State<CallScreen>
     setState(() => _status = "Connecting...");
   }
 
+  void _minimizeCall() {
+    debugPrint('CallScreen: Minimizing call for room ${widget.roomId}');
+    _isMinimizing = true;
+    GlobalCallHandler().activeRoomId.value = widget.roomId;
+    GlobalCallHandler().isMinimized.value = true;
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -345,7 +383,23 @@ class _CallScreenState extends State<CallScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // Header
-                _buildHeader(),
+                Stack(
+                  children: [
+                    _buildHeader(),
+                    Positioned(
+                      left: 10,
+                      top: 10,
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.close_fullscreen,
+                          color: Colors.white,
+                        ),
+                        onPressed: _minimizeCall,
+                        tooltip: "Minimize",
+                      ),
+                    ),
+                  ],
+                ),
 
                 if (_status != "Connected" || _showDiagnostics)
                   Expanded(

@@ -8,7 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'bottom_navbar.dart'; 
+import 'bottom_navbar.dart';
+import 'package:chess_game_manika/widgets/floating_call_overlay.dart';
 
 import 'package:chess_game_manika/services/permission_service.dart';
 import 'package:chess_game_manika/services/sticky_notification_service.dart';
@@ -94,6 +95,22 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         ),
+        builder: (context, child) {
+          return Stack(
+            children: [
+              if (child != null) child,
+              ValueListenableBuilder<bool>(
+                valueListenable: GlobalCallHandler().isMinimized,
+                builder: (context, isMinimized, _) {
+                  if (isMinimized) {
+                    return const FloatingCallOverlay();
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            ],
+          );
+        },
         // Auto-login: skip Login page if already logged in
         home: autoLogin
             ? BottomNavBarWrapper() // Main page

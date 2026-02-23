@@ -1,4 +1,5 @@
 import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/services/api_services.dart';
@@ -148,6 +149,12 @@ class _UserListState extends State<UserList> {
           roomId: roomId,
           isIncomingCall: false,
           isInitialVideo: isVideo,
+          signalingService:
+              (GlobalCallHandler().userSignalingService?.currentRoomId ==
+                  roomId)
+              ? GlobalCallHandler().userSignalingService
+              : null, // Create new instance if room doesn't match to avoid hijacking
+          currentUserId: widget.currentUserId,
         ),
       ),
     );

@@ -174,6 +174,7 @@
 // }
 
 import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:chess_game_manika/services/recording_service.dart';
 import 'package:chess_game_manika/services/signaling_service.dart';
 import 'package:chess_game_manika/ui/call_screen.dart';
 import 'package:flutter/material.dart';
@@ -194,36 +195,53 @@ class GlobalCallHandler {
   SignalingService? get generalSignalingService => _generalSignalingService;
   SignalingService? get userSignalingService => _userSignalingService;
 
+  // Track minimized state
+  final ValueNotifier<bool> isMinimized = ValueNotifier<bool>(false);
+  final ValueNotifier<String?> activeRoomId = ValueNotifier<String?>(null);
+
+  SignalingService? get activeService {
+    if (_userSignalingService?.isCallActive == true)
+      return _userSignalingService;
+    if (_generalSignalingService?.isCallActive == true)
+      return _generalSignalingService;
+    return null;
+  }
+
   // CHANGE: Modified init() to connect to general chess_room_1 using a dedicated instance
   // This room is used for chess board calls (everyone can hear)
   void init() async {
     if (_initialized) return;
     _initialized = true;
 
-    const roomId = "chess_room_1";
+    const homeRoom = "chess_room_1";
 
     // Create a dedicated instance for general signaling
     _generalSignalingService = SignalingService();
 
     // Listen for incoming calls in the general room
     _generalSignalingService!.onIncomingCall = () {
-      debugPrint('🔔 Incoming call received in general room: $roomId');
+      debugPrint('🔔 Incoming call received in general room: $homeRoom');
       final context = Constants.navigatorKey.currentContext;
       if (context != null) {
         bool isVideo = _generalSignalingService!.pendingMediaType == 'video';
-        _showIncomingCallDialog(context, roomId, isVideo: isVideo);
+        _showIncomingCallDialog(context, homeRoom, isVideo: isVideo);
       } else {
         debugPrint('❌ Cannot show incoming call dialog: context is null');
       }
     };
 
+    _generalSignalingService!.onHangup = () {
+      debugPrint('🔔 Peer hung up in general room');
+      _handleGlobalHangup();
+    };
+
     // ✅ START SIGNALING for general chess room
     try {
       debugPrint(
-        '🌐 Connecting to general signaling: ${Constants.wsBaseUrl} (Room: $roomId)',
+        '🌐 Connecting to general signaling: ${Constants.wsBaseUrl} (Room: $homeRoom)',
       );
-      await _generalSignalingService!.connect(Constants.wsBaseUrl, roomId);
-      debugPrint('✅ Connected to general signaling room: $roomId');
+      await _generalSignalingService!.connect(Constants.wsBaseUrl, homeRoom);
+      debugPrint('✅ Connected to general signaling room: $homeRoom');
     } catch (e) {
       debugPrint('❌ Failed to connect to general signaling: $e');
     }
@@ -260,8 +278,38 @@ class GlobalCallHandler {
       );
       await _userSignalingService!.connect(Constants.wsBaseUrl, roomId);
       debugPrint('✅ Connected to user-specific signaling room: $roomId');
+
+      _userSignalingService!.onHangup = () {
+        debugPrint('🔔 Peer hung up in user-specific room');
+        _handleGlobalHangup(userId: userId);
+      };
     } catch (e) {
       debugPrint('❌ Failed to connect to user-specific signaling: $e');
+    }
+  }
+
+  void _handleGlobalHangup({int? userId}) {
+    if (isMinimized.value) {
+      debugPrint('🏠 Global handler: Cleaning up minimized call after hangup');
+      isMinimized.value = false;
+      RecordingService().stopRecording();
+      ensureRoomResidency(userId);
+    }
+  }
+
+  // RE-CONNECTION LOGIC: Ensure global services are on their correct "home" rooms
+  void ensureRoomResidency(int? userId) {
+    if (_generalSignalingService != null &&
+        _generalSignalingService!.currentRoomId != "chess_room_1") {
+      debugPrint('🏠 Re-connecting general signaling to home room');
+      _generalSignalingService!.connect(Constants.wsBaseUrl, "chess_room_1");
+    }
+
+    if (userId != null &&
+        _userSignalingService != null &&
+        _userSignalingService!.currentRoomId != "user_$userId") {
+      debugPrint('🏠 Re-connecting user signaling to home room: user_$userId');
+      _userSignalingService!.connect(Constants.wsBaseUrl, "user_$userId");
     }
   }
 
