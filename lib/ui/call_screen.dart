@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../core/utils/global_callhandler.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/signaling_service.dart';
 import '../services/recording_service.dart';
 import '../core/utils/const.dart';
+import '../services/sticky_notification_service.dart';
 
 class CallScreen extends StatefulWidget {
   final String roomId;
@@ -73,12 +76,34 @@ class _CallScreenState extends State<CallScreen>
     // Initialize renderers first, then start signaling
     _initRenderers().then((_) {
       if (mounted) {
-        // CHANGE: Using wsBaseUrl for WebSocket (Render)
         _wsUrl = Constants.wsBaseUrl;
         _setupSignalingListeners();
+        // If this screen is being restored (e.g. from minimized overlay),
+        // the service already has streams. Attach them immediately.
+        _attachExistingStreams();
         _connectAndInitiate();
       }
     });
+  }
+
+  /// Instantly populates renderers if the signaling service already has
+  /// active streams (used when restoring a minimized call).
+  void _attachExistingStreams() {
+    final existingRemote = _signalingService.remoteStream;
+    final existingLocal = _signalingService.localStream;
+    if (existingRemote != null && mounted) {
+      setState(() {
+        _remoteRenderer.srcObject = existingRemote;
+        _status = 'Connected';
+      });
+      debugPrint('CallScreen: Attached existing remote stream on restore');
+    }
+    if (existingLocal != null && mounted) {
+      setState(() {
+        _localRenderer.srcObject = existingLocal;
+      });
+      debugPrint('CallScreen: Attached existing local stream on restore');
+    }
   }
 
   void _setupSignalingListeners() {
@@ -251,6 +276,23 @@ class _CallScreenState extends State<CallScreen>
       debugPrint('CallScreen: Popping call screen');
       Navigator.of(context).pop();
     }
+
+    // Safely revive sticky notification AFTER the screen has been popped.
+    // Never stop the service first (that causes crashes).
+    // Use a Timer so we're clear of any Flutter/OS teardown.
+    Timer(const Duration(seconds: 3), () async {
+      try {
+        final isRunning = await FlutterForegroundTask.isRunningService;
+        if (!isRunning) {
+          debugPrint('CallScreen: Reviving sticky notification after call...');
+          await StickyNotificationService.startService();
+        } else {
+          debugPrint('CallScreen: Sticky notification already running.');
+        }
+      } catch (e) {
+        debugPrint('CallScreen: Could not revive sticky notification: $e');
+      }
+    });
   }
 
   void _startCallRecording() async {
