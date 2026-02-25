@@ -41,6 +41,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Notification icon for flutter_foreground_task -->
+        <meta-data
+            android:name="com.example.chess_python.service.NOTIFICATION_ICON"
+            android:resource="@mipmap/ic_launcher" />
             
         <service 
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService" 

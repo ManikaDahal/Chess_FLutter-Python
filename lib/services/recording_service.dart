@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import '../core/utils/const.dart';
 import 'token_storage.dart';
 import 'package:path/path.dart' as p;
-import 'sticky_notification_service.dart';
+import 'notification_service.dart';
 
 class RecordingService {
   static final RecordingService _instance = RecordingService._internal();
@@ -60,43 +60,64 @@ class RecordingService {
   bool _isStopping = false;
 
   Future<void> stopRecording() async {
-    if (!_isRecording || _isStopping) {
-      debugPrint(
-        'RecordingService: stopRecording skipped. Recording: $_isRecording, Stopping: $_isStopping',
-      );
+    if (!_isRecording) {
+      debugPrint('RecordingService: stopRecording skipped. Not recording.');
+      return;
+    }
+    if (_isStopping) {
+      debugPrint('RecordingService: stopRecording skipped. Already stopping.');
       return;
     }
 
     try {
       _isStopping = true;
-      debugPrint('STOPPING RECORDING...');
-      _isRecording = false;
+      debugPrint('🔴 [RECORDING] Requesting stop from plugin...');
 
-      // Force stop via plugin - this is what clears the "Screen is being recorded" notification
+      // Stop the plugin. This triggers the native stop and returns the path.
       final String path = await FlutterScreenRecording.stopRecordScreen;
       _lastRecordingPath = path;
-      debugPrint('✅ Recording stopped. Resulting Path: $path');
+      _isRecording = false; // Set to false only after native stop returns
 
-      // Small delay to ensure file is flushed
-      await Future.delayed(const Duration(milliseconds: 500));
+      debugPrint('✅ [RECORDING] native stop returned. Path: $path');
 
       if (path.isNotEmpty) {
+        // Show recording stop notification
+        try {
+          NotificationService.showNotification(
+            title: "Recording Saved",
+            body: "Your call recording has been saved and is being uploaded.",
+            payload: {'room_id': _currentRoomId ?? '0'},
+          );
+        } catch (e) {
+          debugPrint('⚠️ Error showing recording notification: $e');
+        }
+
+        // Small delay to ensure OS file handles are released
+        await Future.delayed(const Duration(milliseconds: 1000));
+
         final file = File(path);
         if (await file.exists()) {
           final size = await file.length();
-          debugPrint('📄 Recording file size: $size bytes');
+          debugPrint('📄 [RECORDING] File size finalized: $size bytes');
 
-          // Upload if we have a path and room ID
           if (_currentRoomId != null) {
+            debugPrint(
+              '⬆️ [RECORDING] Scheduling upload for room: $_currentRoomId',
+            );
             _uploadRecording(path, _currentRoomId!);
           }
         } else {
-          debugPrint('⚠️ Recording file does not exist at path: $path');
+          debugPrint(
+            '⚠️ [RECORDING] WARNING: File missing after stop at $path',
+          );
         }
+      } else {
+        debugPrint('⚠️ [RECORDING] WARNING: Plugin returned empty path');
       }
-    } catch (e) {
-      debugPrint('❌ Error stopping recording: $e');
+    } catch (e, st) {
+      debugPrint('❌ [RECORDING] FATAL STOP ERROR: $e\n$st');
     } finally {
+      debugPrint('🏁 [RECORDING] Stop logic completed.');
       _isRecording = false;
       _isStopping = false;
     }
@@ -105,8 +126,8 @@ class RecordingService {
   Future<void> _uploadRecording(String filePath, String roomId) async {
     try {
       // Delay to ensure file is completely written and closed by OS/Plugin
-      debugPrint('Waiting 2 seconds before upload to ensure file stability...');
-      await Future.delayed(const Duration(seconds: 2));
+      debugPrint('Waiting 5 seconds before upload to ensure file stability...');
+      await Future.delayed(const Duration(seconds: 5));
 
       final File file = File(filePath);
       if (!await file.exists()) {

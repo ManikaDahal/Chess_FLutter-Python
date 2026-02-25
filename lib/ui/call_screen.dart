@@ -1,7 +1,6 @@
 import 'dart:async';
+import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import '../core/utils/global_callhandler.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/signaling_service.dart';
@@ -43,6 +42,11 @@ class _CallScreenState extends State<CallScreen>
   bool _hasShownRecordingPopup = false;
   bool _isMinimizing = false;
 
+  // Stream subscriptions for cleanup
+  StreamSubscription? _hangupSubscription;
+  StreamSubscription? _acceptSubscription;
+  StreamSubscription? _connectionSubscription;
+
   bool _isVideoOn = true;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -58,9 +62,17 @@ class _CallScreenState extends State<CallScreen>
 
     // Set initial status based on call type
     String callType = widget.isInitialVideo ? "Video" : "Audio";
-    _status = widget.isIncomingCall
-        ? "Incoming $callType Call..."
-        : "${callType} Calling...";
+
+    // Check if we are restoring an already active call.
+    // We check for remoteStream specifically because isCallActive can be true
+    // briefly during initiation of a new call before the peer has picked up.
+    if (_signalingService.remoteStream != null) {
+      _status = "Connected";
+    } else {
+      _status = widget.isIncomingCall
+          ? "Incoming $callType Call..."
+          : "${callType} Calling...";
+    }
     _isVideoOn = widget.isInitialVideo;
 
     // Pulse animation for avatar
@@ -91,18 +103,31 @@ class _CallScreenState extends State<CallScreen>
   void _attachExistingStreams() {
     final existingRemote = _signalingService.remoteStream;
     final existingLocal = _signalingService.localStream;
+
+    // If we have a remote stream, we are definitely connected.
     if (existingRemote != null && mounted) {
-      setState(() {
-        _remoteRenderer.srcObject = existingRemote;
-        _status = 'Connected';
+      setState(() => _status = 'Connected');
+
+      // Short delay to ensure texture/renderer is ready
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _remoteRenderer.srcObject = existingRemote;
+          });
+          debugPrint('CallScreen: Attached existing remote stream on restore');
+        }
       });
-      debugPrint('CallScreen: Attached existing remote stream on restore');
     }
+
     if (existingLocal != null && mounted) {
-      setState(() {
-        _localRenderer.srcObject = existingLocal;
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _localRenderer.srcObject = existingLocal;
+          });
+          debugPrint('CallScreen: Attached existing local stream on restore');
+        }
       });
-      debugPrint('CallScreen: Attached existing local stream on restore');
     }
   }
 
@@ -135,35 +160,41 @@ class _CallScreenState extends State<CallScreen>
       if (mounted) setState(() => _logs.add(log));
     };
 
-    _signalingService.onCallAccepted = () {
+    // Use broadcast streams instead of direct callbacks to avoid listener hijacking
+    _acceptSubscription = _signalingService.onCallAcceptedStream.listen((_) {
       if (mounted) {
         setState(() => _status = "Connected");
       }
-    };
+    });
 
-    _signalingService.onHangup = () {
+    _hangupSubscription = _signalingService.onHangupStream.listen((_) {
       debugPrint('CallScreen: Hangup signal received from peer');
       _endCallAndCleanup(fromPeer: true);
-    };
+    });
 
-    _signalingService.onLocalStream = (stream) {
-      if (mounted) {
-        setState(() {
-          _localRenderer.srcObject = stream;
-        });
-        _logs.add('📹 Local renderer set');
-      }
-    };
+    _signalingService.localStreamNotifier.addListener(_onLocalStreamChanged);
+    _signalingService.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
+  }
 
-    _signalingService.onRemoteStream = (stream) {
-      if (mounted) {
-        setState(() {
-          _status = "Connected";
-          _remoteRenderer.srcObject = stream;
-        });
-        _logs.add('📹 Remote renderer set');
-      }
-    };
+  void _onLocalStreamChanged() {
+    final stream = _signalingService.localStreamNotifier.value;
+    if (mounted && stream != null) {
+      setState(() {
+        _localRenderer.srcObject = stream;
+      });
+      _logs.add('📹 Local renderer set');
+    }
+  }
+
+  void _onRemoteStreamChanged() {
+    final stream = _signalingService.remoteStreamNotifier.value;
+    if (mounted && stream != null) {
+      setState(() {
+        _status = "Connected";
+        _remoteRenderer.srcObject = stream;
+      });
+      _logs.add('📹 Remote renderer set');
+    }
   }
 
   void _connectAndInitiate() async {
@@ -171,6 +202,13 @@ class _CallScreenState extends State<CallScreen>
       // Connect if not already connected (from BottomnavBar)
       if (!_signalingService.isConnected) {
         await _signalingService.connect(_wsUrl, widget.roomId);
+      }
+
+      // If we already have a remote stream (we are restoring), don't start call again
+      if (_signalingService.remoteStream != null) {
+        debugPrint('CallScreen: Stream already active, skipping initiation.');
+        if (mounted) setState(() => _status = "Connected");
+        return;
       }
 
       // If we are the caller, start the call
@@ -227,6 +265,15 @@ class _CallScreenState extends State<CallScreen>
     }
 
     try {
+      _signalingService.localStreamNotifier.removeListener(
+        _onLocalStreamChanged,
+      );
+      _signalingService.remoteStreamNotifier.removeListener(
+        _onRemoteStreamChanged,
+      );
+      _hangupSubscription?.cancel();
+      _acceptSubscription?.cancel();
+      _connectionSubscription?.cancel();
       FlutterRingtonePlayer().stop();
       _pulseController.dispose();
     } catch (e) {
@@ -236,63 +283,101 @@ class _CallScreenState extends State<CallScreen>
     super.dispose();
   }
 
-  // Asynchronous cleanup for manual "End" button
+  // Called when user presses End, or peer sends hangup signal.
+  // Strategy: navigate away FIRST, then clean up native resources in a
+  // fully-isolated static async context that cannot crash the UI.
   Future<void> _endCallAndCleanup({bool fromPeer = false}) async {
-    if (!mounted || _isCleanedUp) return;
+    if (_isCleanedUp) return;
     _isCleanedUp = true;
 
-    setState(() => _status = fromPeer ? "Peer hung up" : "Ending call...");
+    debugPrint('CallScreen: Starting cleanup (fromPeer=$fromPeer)');
 
-    // 1. Detach renderers immediately
-    _remoteRenderer.srcObject = null;
-    _localRenderer.srcObject = null;
-    FlutterRingtonePlayer().stop();
-
-    // 2. Stop recording (with a timeout and error catching to prevent app hang/closure)
+    // Immediately detach renderers and stop ringtone (sync, safe)
     try {
-      debugPrint('CallScreen: Requesting recording stop...');
-      await _recordingService.stopRecording().timeout(
-        const Duration(seconds: 3),
-      );
-    } catch (e) {
-      debugPrint('Error or timeout stopping recording: $e');
-    }
-
-    // 3. Stop signaling and media streams
+      _remoteRenderer.srcObject = null;
+    } catch (_) {}
     try {
-      debugPrint('CallScreen: Requesting signaling end...');
-      // If we got a hangup signal, don't send one back (sendSignal: false)
-      await _signalingService
-          .endCall(sendSignal: !fromPeer)
-          .timeout(const Duration(seconds: 2));
+      _localRenderer.srcObject = null;
+    } catch (_) {}
+    try {
+      FlutterRingtonePlayer().stop();
+    } catch (_) {}
 
-      // Restore Global Signaling residency
-      GlobalCallHandler().ensureRoomResidency(widget.currentUserId);
-    } catch (e) {
-      debugPrint('Error or timeout ending call: $e');
-    }
+    // Capture all references BEFORE popping (widget.* unavailable after pop)
+    final signalingService = _signalingService;
+    final recordingService = _recordingService;
+    final currentUserId = widget.currentUserId;
+    final shouldSendHangup = !fromPeer;
 
+    // Navigate away NOW — removes Flutter from the equation before native teardown
     if (mounted) {
-      debugPrint('CallScreen: Popping call screen');
       Navigator.of(context).pop();
     }
 
-    // Safely revive sticky notification AFTER the screen has been popped.
-    // Never stop the service first (that causes crashes).
-    // Use a Timer so we're clear of any Flutter/OS teardown.
-    Timer(const Duration(seconds: 3), () async {
-      try {
-        final isRunning = await FlutterForegroundTask.isRunningService;
-        if (!isRunning) {
-          debugPrint('CallScreen: Reviving sticky notification after call...');
-          await StickyNotificationService.startService();
-        } else {
-          debugPrint('CallScreen: Sticky notification already running.');
-        }
-      } catch (e) {
-        debugPrint('CallScreen: Could not revive sticky notification: $e');
+    // Run all heavy cleanup AFTER the screen is gone — completely safe
+    _runPostCallCleanup(
+      signalingService: signalingService,
+      recordingService: recordingService,
+      currentUserId: currentUserId,
+      sendHangup: shouldSendHangup,
+    );
+  }
+
+  static Future<void> _runPostCallCleanup({
+    required SignalingService signalingService,
+    required RecordingService recordingService,
+    required int? currentUserId,
+    required bool sendHangup,
+  }) async {
+    // 1. PAUSE: Give the UI/OS a moment to stabilize after the pop/minimization
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    // 2. STOP RECORDING.
+    // We do this BEFORE ending signaling to ensure the audio/video tracks are still "alive"
+    // while the recorder is wrapping up the file meta-data.
+    try {
+      if (recordingService.isRecording) {
+        debugPrint('PostCallCleanup: Stopping recording...');
+        // Extra safety delay before stopping
+        await Future.delayed(const Duration(milliseconds: 500));
+        await recordingService.stopRecording();
+        debugPrint('PostCallCleanup: Recording stop logic completed');
       }
-    });
+    } catch (e) {
+      debugPrint('PostCallCleanup: Recording stop error (non-fatal): $e');
+    }
+
+    // 3. PAUSE: Let the recorder service finish and release its file locks/native resources
+    await Future.delayed(const Duration(milliseconds: 2000));
+
+    // 4. END SIGNALING / WebRTC. Releasing Camera/Mic now.
+    try {
+      debugPrint('PostCallCleanup: Ending signaling...');
+      // By now, the recorder is done, so it's safe to tear down the PeerConnection
+      await signalingService.endCall(sendSignal: sendHangup);
+      debugPrint('PostCallCleanup: Signaling ended');
+    } catch (e) {
+      debugPrint('PostCallCleanup: Signaling end error (non-fatal): $e');
+    }
+
+    // 5. PAUSE: Final settle
+    await Future.delayed(const Duration(milliseconds: 1000));
+
+    // 6. REVIVE FOREGROUND SERVICE LATER (Process life-line)
+    // We start this LATE to ensure no conflict with Recording's foreground service
+    try {
+      debugPrint('PostCallCleanup: Reviving sticky notification service...');
+      await StickyNotificationService.startService();
+    } catch (e) {
+      debugPrint('PostCallCleanup: Notification revival error: $e');
+    }
+
+    // 7. Restore global state
+    try {
+      GlobalCallHandler().ensureRoomResidency(currentUserId);
+    } catch (e) {
+      debugPrint('PostCallCleanup: Room residency error (non-fatal): $e');
+    }
   }
 
   void _startCallRecording() async {
@@ -319,7 +404,19 @@ class _CallScreenState extends State<CallScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                Navigator.pop(context);
+                // Start recording AFTER user acknowledges and the app dialog is gone
+                // to avoid conflict with the system's "Start recording/casting?" permission dialog
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  final size = MediaQuery.of(context).size;
+                  _recordingService.startRecording(
+                    widget.roomId,
+                    width: size.width.toInt(),
+                    height: size.height.toInt(),
+                  );
+                });
+              },
               child: const Text(
                 "OK",
                 style: TextStyle(color: Colors.blueAccent),
@@ -329,16 +426,6 @@ class _CallScreenState extends State<CallScreen>
         ),
       );
     }
-
-    // Start recording after a short delay to ensure UI is ready
-    Future.delayed(const Duration(seconds: 1), () {
-      final size = MediaQuery.of(context).size;
-      _recordingService.startRecording(
-        widget.roomId,
-        width: size.width.toInt(),
-        height: size.height.toInt(),
-      );
-    });
   }
 
   void _toggleMute() {

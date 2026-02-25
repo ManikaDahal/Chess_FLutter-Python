@@ -73,9 +73,9 @@ class StickyNotificationService {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'sticky_chess_channel',
         channelName: 'Chess Daily',
-        channelDescription: 'Persistent notification for chess tips',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        channelImportance: NotificationChannelImportance.HIGH,
+        priority: NotificationPriority.HIGH,
+        enableVibration: false,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: true,
@@ -112,6 +112,7 @@ class StickyNotificationService {
 
     if (await FlutterForegroundTask.isRunningService) {
       print("StickyNotificationService: Service is already running");
+      // Optional: Update existing service if needed
       return;
     }
 
@@ -119,9 +120,6 @@ class StickyNotificationService {
       "StickyNotificationService: Calling FlutterForegroundTask.startService...",
     );
     try {
-      // In 9.2.0, startService returns ServiceRequestResult
-      // And icon settings are passed here.
-      // If NotificationIconData/ResourceType are undefined, let's try to simplify or use absolute basics.
       final result = await FlutterForegroundTask.startService(
         notificationTitle:
             '🕐 ${DateFormat('h:mm a').format(DateTime.now())} • Chess Daily',

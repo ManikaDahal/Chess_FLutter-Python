@@ -5,7 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 
-typedef StreamStateCallback = void Function(MediaStream stream);
+// typedef StreamStateCallback = void Function(MediaStream stream);
 
 class SignalingService {
   // REMOVED: Singleton pattern to allow multiple instances (e.g., for general and user-specific rooms)
@@ -16,6 +16,13 @@ class SignalingService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
+
+  // ValueNotifiers to allow multiple listeners (e.g. CallScreen and Overlay)
+  final ValueNotifier<MediaStream?> remoteStreamNotifier =
+      ValueNotifier<MediaStream?>(null);
+  final ValueNotifier<MediaStream?> localStreamNotifier =
+      ValueNotifier<MediaStream?>(null);
+
   bool _isCaller = false;
   String? _wsUrl;
   Timer? _reconnectTimer;
@@ -23,8 +30,9 @@ class SignalingService {
   bool _isReconnecting = false;
   final List<RTCIceCandidate> _remoteCandidatesBuffer = [];
 
-  StreamStateCallback? onLocalStream;
-  StreamStateCallback? onRemoteStream;
+  // Deprecated: Use localStreamNotifier and remoteStreamNotifier instead
+  // StreamStateCallback? onLocalStream;
+  // StreamStateCallback? onRemoteStream;
   Function(RTCSignalingState)? onSignalingStateChange;
   Function(RTCPeerConnectionState)? onConnectionStateChange;
   Function(String)? onLog;
@@ -37,13 +45,25 @@ class SignalingService {
     onLog?.call(message);
   }
 
-  // Callback for incoming call
+  final _incomingCallController = StreamController<void>.broadcast();
+  Stream<void> get onIncomingCallStream => _incomingCallController.stream;
+
+  final _hangupController = StreamController<void>.broadcast();
+  Stream<void> get onHangupStream => _hangupController.stream;
+
+  final _callAcceptedController = StreamController<void>.broadcast();
+  Stream<void> get onCallAcceptedStream => _callAcceptedController.stream;
+
+  // Deprecated: Use streams instead
+  @Deprecated('Use onIncomingCallStream')
   Function()? onIncomingCall;
 
   // Callback for when the call is accepted
+  @Deprecated('Use onCallAcceptedStream')
   Function()? onCallAccepted;
 
   // Callback for when peer hangs up
+  @Deprecated('Use onHangupStream')
   Function()? onHangup;
 
   bool _isConnected = false;
@@ -244,7 +264,8 @@ class SignalingService {
       );
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
-        onRemoteStream?.call(_remoteStream!);
+        remoteStreamNotifier.value = _remoteStream;
+        // onRemoteStream?.call(_remoteStream!);
       }
     };
   }
@@ -261,13 +282,17 @@ class SignalingService {
     if (type == 'call_offer') {
       _pendingOffer = data['offer'];
       _pendingMediaType = data['mediaType'] ?? 'video';
-      onIncomingCall?.call();
+      _incomingCallController.add(null);
+      onIncomingCall?.call(); // Still call deprecated if set
     } else if (type == 'call_answer') {
-      onCallAccepted?.call();
+      _log('📶 Call accepted signal received');
+      _callAcceptedController.add(null);
+      onCallAccepted?.call(); // Still call deprecated if set
       await _handleAnswer(data['answer']);
     } else if (type == 'call_hangup') {
-      _log(' Peer hung up');
-      onHangup?.call();
+      _log('📶 Peer hung up signal received');
+      _hangupController.add(null);
+      onHangup?.call(); // Still call deprecated if set
     } else if (type == 'new_ice_candidate') {
       await _handleCandidate(data['candidate']);
     }
@@ -334,8 +359,9 @@ class SignalingService {
         _localStream = await navigator.mediaDevices.getUserMedia(
           mediaConstraints,
         );
+        localStreamNotifier.value = _localStream;
         _log('✅ Got Local Stream: ${_localStream!.id}');
-        onLocalStream?.call(_localStream!);
+        // onLocalStream?.call(_localStream!); // Deprecated
 
         _localStream!.getTracks().forEach((track) {
           _peerConnection!.addTrack(track, _localStream!);
@@ -535,7 +561,7 @@ class SignalingService {
     final local = _localStream;
     _localStream = null;
     if (local != null) {
-      _log('⏹️ Stopping ${local.getTracks().length} tracks in local stream');
+      localStreamNotifier.value = null;
       for (var track in local.getTracks()) {
         _log('⏹️ Stopping track: ${track.kind} (${track.id})');
         track.stop();
@@ -546,7 +572,7 @@ class SignalingService {
     final remote = _remoteStream;
     _remoteStream = null;
     if (remote != null) {
-      _log('⏹️ Stopping ${remote.getTracks().length} tracks in remote stream');
+      remoteStreamNotifier.value = null;
       for (var track in remote.getTracks()) {
         track.stop();
       }

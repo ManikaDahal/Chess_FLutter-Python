@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../services/signaling_service.dart';
 import '../core/utils/const.dart';
 import '../core/utils/global_callhandler.dart';
 import '../ui/call_screen.dart';
@@ -14,12 +15,40 @@ class FloatingCallOverlay extends StatefulWidget {
 class _FloatingCallOverlayState extends State<FloatingCallOverlay> {
   Offset _offset = const Offset(20, 100);
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  SignalingService? _activeSignalingService;
 
   @override
   void initState() {
     super.initState();
     debugPrint('FloatingCallOverlay: Initializing overlay state');
     _initRenderer();
+
+    // Listen for minimize changes to connect/disconnect
+    GlobalCallHandler().isMinimized.addListener(_handleMinimizeChange);
+  }
+
+  void _handleMinimizeChange() {
+    if (GlobalCallHandler().isMinimized.value) {
+      debugPrint('FloatingCallOverlay: Minimized, connecting to service...');
+      _connectToService();
+    } else {
+      debugPrint('FloatingCallOverlay: Restored, detaching stream...');
+      _detachStream();
+    }
+  }
+
+  void _detachStream() {
+    // Stop listening to stream changes when not minimized to avoid wasting resources
+    // or interfering with CallScreen.
+    _activeSignalingService?.remoteStreamNotifier.removeListener(
+      _onRemoteStreamChanged,
+    );
+    _activeSignalingService = null;
+    if (mounted) {
+      setState(() {
+        _remoteRenderer.srcObject = null;
+      });
+    }
   }
 
   Future<void> _initRenderer() async {
@@ -33,21 +62,26 @@ class _FloatingCallOverlayState extends State<FloatingCallOverlay> {
     debugPrint(
       'FloatingCallOverlay: Connecting to service. Active service found: ${service != null}',
     );
+
     if (service != null && mounted) {
-      if (service.remoteStream != null) {
-        setState(() {
-          _remoteRenderer.srcObject = service.remoteStream;
+      _activeSignalingService = service;
+
+      // Update immediately if stream already exists
+      if (service.remoteStreamNotifier.value != null) {
+        // Give renderer a moment to be "ready" after initialize()
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted &&
+              _activeSignalingService?.remoteStreamNotifier.value != null) {
+            setState(() {
+              _remoteRenderer.srcObject =
+                  _activeSignalingService!.remoteStreamNotifier.value;
+            });
+          }
         });
       }
 
-      // Also listen for stream updates
-      service.onRemoteStream = (stream) {
-        if (mounted) {
-          setState(() {
-            _remoteRenderer.srcObject = stream;
-          });
-        }
-      };
+      // Listen for stream updates
+      service.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
 
       // If service disconnects or peer hangs up, close overlay
       service.onConnectionStateChange = (state) {
@@ -59,12 +93,22 @@ class _FloatingCallOverlayState extends State<FloatingCallOverlay> {
           }
         }
       };
-    } else {
-      // If no active service found yet, retry in a second
+    } else if (GlobalCallHandler().isMinimized.value) {
+      // If no active service found yet but we are minimized, retry in a second
       Future.delayed(const Duration(seconds: 1), () {
         if (mounted && GlobalCallHandler().isMinimized.value) {
           _connectToService();
         }
+      });
+    }
+  }
+
+  void _onRemoteStreamChanged() {
+    if (mounted && _activeSignalingService != null) {
+      debugPrint('FloatingCallOverlay: Remote stream updated');
+      setState(() {
+        _remoteRenderer.srcObject =
+            _activeSignalingService!.remoteStreamNotifier.value;
       });
     }
   }
@@ -78,6 +122,10 @@ class _FloatingCallOverlayState extends State<FloatingCallOverlay> {
 
   @override
   void dispose() {
+    GlobalCallHandler().isMinimized.removeListener(_handleMinimizeChange);
+    _activeSignalingService?.remoteStreamNotifier.removeListener(
+      _onRemoteStreamChanged,
+    );
     _remoteRenderer.dispose();
     super.dispose();
   }
@@ -138,20 +186,27 @@ class _FloatingCallOverlayState extends State<FloatingCallOverlay> {
                       color: Colors.black,
                       child: Stack(
                         children: [
-                          if (_remoteRenderer.srcObject != null)
-                            RTCVideoView(
-                              _remoteRenderer,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitCover,
-                            )
-                          else
-                            const Center(
-                              child: Icon(
-                                Icons.person,
-                                color: Colors.white24,
-                                size: 40,
-                              ),
-                            ),
+                          ValueListenableBuilder<MediaStream?>(
+                            valueListenable:
+                                _activeSignalingService?.remoteStreamNotifier ??
+                                ValueNotifier(null),
+                            builder: (context, stream, _) {
+                              if (stream != null) {
+                                return RTCVideoView(
+                                  _remoteRenderer,
+                                  objectFit: RTCVideoViewObjectFit
+                                      .RTCVideoViewObjectFitCover,
+                                );
+                              }
+                              return const Center(
+                                child: Icon(
+                                  Icons.person,
+                                  color: Colors.white24,
+                                  size: 40,
+                                ),
+                              );
+                            },
+                          ),
                           // Note: In a real implementation, we'd need to pass the stream
                           // or have a shared renderer. For now, showing status.
                           Align(
