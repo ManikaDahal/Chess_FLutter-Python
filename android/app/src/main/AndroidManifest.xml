@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.chess_python">
+    package="com.manikadahal.chessgame">
     <application
         android:label="chess Manika"
         android:name="${applicationName}"

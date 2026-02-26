@@ -13,6 +13,26 @@
         }
       },
       "oauth_client": [],
+      
+      "api_key": [
+        {
+          "current_key": "AIzaSyC0Oqh9s9I8IhLNGHqpBxy6npdE4D99X8s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:244432064616:android:df5f3c72d432fc9e32abdd",
+        "android_client_info": {
+          "package_name": "com.manikadahal.chessgame"
+        }
+      },
+      "oauth_client": [],
       "api_key": [
         {
           "current_key": "AIzaSyC0Oqh9s9I8IhLNGHqpBxy6npdE4D99X8s"
