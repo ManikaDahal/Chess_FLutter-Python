@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter_screen_recording/flutter_screen_recording.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import '../core/utils/const.dart';
-import 'token_storage.dart';
+import 'package:flutter_screen_recording/flutter_screen_recording.dart';
 import 'package:path/path.dart' as p;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+
+import '../core/utils/const.dart';
 import 'notification_service.dart';
+import 'token_storage.dart';
+import 'sticky_notification_service.dart'; // Your sticky FGS wrapper
+
+enum RecordingStatus { idle, starting, recording, stopping, saved, failed }
 
 class RecordingService {
   static final RecordingService _instance = RecordingService._internal();
@@ -15,160 +19,166 @@ class RecordingService {
   RecordingService._internal();
 
   final TokenStorage _storage = TokenStorage();
+
   bool _isRecording = false;
+  bool _isStopping = false;
   String? _lastRecordingPath;
   String? _currentRoomId;
 
+  final ValueNotifier<RecordingStatus> statusNotifier =
+      ValueNotifier<RecordingStatus>(RecordingStatus.idle);
+  bool hasShownRecordingPopup = false;
   bool get isRecording => _isRecording;
   String? get lastRecordingPath => _lastRecordingPath;
 
+  /// Start recording
   Future<void> startRecording(String roomId, {int? width, int? height}) async {
     if (_isRecording) return;
+
     _currentRoomId = roomId;
+    statusNotifier.value = RecordingStatus.starting;
 
     try {
-      // Use a more unique filename with room ID and milliseconds
-      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      final String fileName = 'chess_${roomId}_$timestamp';
+      // --- 1️⃣ Update sticky notification to recording state ---
+      await StickyNotificationService.setRecordingState(true);
 
-      final Directory? appDocDir = await getApplicationDocumentsDirectory();
-      debugPrint('STARTING RECORDING: $fileName');
-      if (appDocDir != null) {
-        debugPrint(
-          'Target Directory for internal reference: ${appDocDir.path}',
-        );
+      // --- 2️⃣ Request permissions ---
+      if (Platform.isAndroid) {
+        await _requestAndroidPermissions();
       }
 
-      // flutter_screen_recording API
-      // Note: Passing fileName only; plugin saves to a default location usually.
-      bool started = await FlutterScreenRecording.startRecordScreenAndAudio(
-        fileName,
-      );
+      // --- 3️⃣ Start screen + audio recording ---
+      final String fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}';
+      final bool started =
+          await FlutterScreenRecording.startRecordScreenAndAudio(
+            fileName,
+          ).timeout(const Duration(seconds: 15), onTimeout: () => false);
 
       if (started) {
         _isRecording = true;
-        debugPrint('✅ Recording started for room: $roomId');
+        statusNotifier.value = RecordingStatus.recording;
+        debugPrint('🔴 Recording started: $fileName');
       } else {
+        statusNotifier.value = RecordingStatus.failed;
         debugPrint('❌ Failed to start recording');
-      }
-    } catch (e) {
-      debugPrint('❌ Error starting recording: $e');
-      _isRecording = false;
-    }
-  }
-
-  bool _isStopping = false;
-
-  Future<void> stopRecording() async {
-    if (!_isRecording) {
-      debugPrint('RecordingService: stopRecording skipped. Not recording.');
-      return;
-    }
-    if (_isStopping) {
-      debugPrint('RecordingService: stopRecording skipped. Already stopping.');
-      return;
-    }
-
-    try {
-      _isStopping = true;
-      debugPrint('🔴 [RECORDING] Requesting stop from plugin...');
-
-      // Stop the plugin. This triggers the native stop and returns the path.
-      final String path = await FlutterScreenRecording.stopRecordScreen;
-      _lastRecordingPath = path;
-      _isRecording = false; // Set to false only after native stop returns
-
-      debugPrint('✅ [RECORDING] native stop returned. Path: $path');
-
-      if (path.isNotEmpty) {
-        // Show recording stop notification
-        try {
-          NotificationService.showNotification(
-            title: "Recording Saved",
-            body: "Your call recording has been saved and is being uploaded.",
-            payload: {'room_id': _currentRoomId ?? '0'},
-          );
-        } catch (e) {
-          debugPrint('⚠️ Error showing recording notification: $e');
-        }
-
-        // Small delay to ensure OS file handles are released
-        await Future.delayed(const Duration(milliseconds: 1000));
-
-        final file = File(path);
-        if (await file.exists()) {
-          final size = await file.length();
-          debugPrint('📄 [RECORDING] File size finalized: $size bytes');
-
-          if (_currentRoomId != null) {
-            debugPrint(
-              '⬆️ [RECORDING] Scheduling upload for room: $_currentRoomId',
-            );
-            _uploadRecording(path, _currentRoomId!);
-          }
-        } else {
-          debugPrint(
-            '⚠️ [RECORDING] WARNING: File missing after stop at $path',
-          );
-        }
-      } else {
-        debugPrint('⚠️ [RECORDING] WARNING: Plugin returned empty path');
+        // Revert sticky notification on failure
+        await StickyNotificationService.setRecordingState(false);
       }
     } catch (e, st) {
-      debugPrint('❌ [RECORDING] FATAL STOP ERROR: $e\n$st');
-    } finally {
-      debugPrint('🏁 [RECORDING] Stop logic completed.');
-      _isRecording = false;
-      _isStopping = false;
+      debugPrint('❌ startRecording error: $e\n$st');
+      statusNotifier.value = RecordingStatus.failed;
+      await StickyNotificationService.setRecordingState(false);
     }
   }
 
+  /// Stop recording
+  Future<void> stopRecording() async {
+    if (!_isRecording || _isStopping) return;
+
+    _isStopping = true;
+    statusNotifier.value = RecordingStatus.stopping;
+
+    try {
+      final String path = await FlutterScreenRecording.stopRecordScreen;
+      _lastRecordingPath = path;
+      _isRecording = false;
+
+      if (path.isNotEmpty) {
+        statusNotifier.value = RecordingStatus.saved;
+
+        // Show recording saved notification
+        NotificationService.showNotification(
+          title: "Recording Saved",
+          body: "Your call recording has been saved.",
+          payload: {'room_id': _currentRoomId ?? '0'},
+        );
+
+        // Upload recording in background
+        _uploadRecording(path, _currentRoomId ?? '0');
+      } else {
+        statusNotifier.value = RecordingStatus.failed;
+        _showFailureNotification("Recording failed: No file produced.");
+      }
+    } catch (e, st) {
+      debugPrint('❌ stopRecording error: $e\n$st');
+      statusNotifier.value = RecordingStatus.failed;
+      _showFailureNotification("Recording failed due to error.");
+    } finally {
+      _isStopping = false;
+      _isRecording = false;
+      if (statusNotifier.value != RecordingStatus.saved) {
+        statusNotifier.value = RecordingStatus.idle;
+      }
+
+      // --- 4️⃣ Revert sticky notification state ---
+      await StickyNotificationService.setRecordingState(false);
+    }
+  }
+
+  /// Request Android permissions safely
+  Future<void> _requestAndroidPermissions() async {
+    debugPrint('Requesting microphone & media permissions...');
+    await Permission.microphone.request();
+    if (!await Permission.microphone.isGranted) {
+      throw Exception('Microphone permission denied');
+    }
+
+    if (await Permission.videos.isDenied || await Permission.audio.isDenied) {
+      await [Permission.videos, Permission.audio].request();
+    }
+
+    await Permission.storage.request();
+    await Future.delayed(
+      const Duration(milliseconds: 300),
+    ); // brief safety wait
+    debugPrint('Permissions granted ✅');
+  }
+
+  /// Show failure notification
+  void _showFailureNotification(String body) {
+    try {
+      NotificationService.showNotification(
+        title: "Recording Failed",
+        body: body,
+        payload: {'room_id': _currentRoomId ?? '0', 'error': 'true'},
+      );
+    } catch (e) {
+      debugPrint('⚠️ Error showing failure notification: $e');
+    }
+  }
+
+  /// Upload recording without blocking main thread
   Future<void> _uploadRecording(String filePath, String roomId) async {
     try {
-      // Delay to ensure file is completely written and closed by OS/Plugin
-      debugPrint('Waiting 5 seconds before upload to ensure file stability...');
-      await Future.delayed(const Duration(seconds: 5));
-
       final File file = File(filePath);
-      if (!await file.exists()) {
-        debugPrint('❌ Upload failed: File not found at $filePath');
-        return;
-      }
+      if (!await file.exists()) return;
 
       final String? token = await _storage.getAccessToken();
-      if (token == null) {
-        debugPrint('❌ Upload failed: No access token found');
-        return;
-      }
+      if (token == null) return;
 
       final uri = Uri.parse('${Constants.videoBaseUrl}/api/call/upload/');
-      final request = http.MultipartRequest('POST', uri);
-      request.headers['Authorization'] = 'Bearer $token';
-      request.fields['room_id'] = roomId;
+      final request = http.MultipartRequest('POST', uri)
+        ..headers['Authorization'] = 'Bearer $token'
+        ..fields['room_id'] = roomId
+        ..files.add(
+          await http.MultipartFile.fromPath(
+            'file',
+            filePath,
+            filename: p.basename(filePath),
+          ),
+        );
 
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          filePath,
-          filename: p.basename(filePath),
-        ),
-      );
-
-      debugPrint('⬆️ Uploading ${p.basename(filePath)} to $uri');
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        debugPrint('✅ Recording uploaded successfully');
-        // Optional: delete local file after success
-        // await file.delete();
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✅ Upload successful');
       } else {
         debugPrint(
           '❌ Upload failed: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
-      debugPrint('❌ Error during upload: $e');
+      debugPrint('❌ Upload error: $e');
     }
   }
 }

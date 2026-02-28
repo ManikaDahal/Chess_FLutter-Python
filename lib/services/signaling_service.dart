@@ -69,8 +69,13 @@ class SignalingService {
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
+  bool _inCallSession = false;
+  bool get inCallSession => _inCallSession;
+
   String? get currentRoomId => _currentRoomId;
-  bool get isCallActive => _peerConnection != null && _isConnected;
+  bool get hasActiveCall =>
+      _inCallSession || _peerConnection != null || _pendingOffer != null;
+  bool get isCallConnected => _remoteStream != null;
   MediaStream? get localStream => _localStream;
   MediaStream? get remoteStream => _remoteStream;
 
@@ -123,7 +128,7 @@ class SignalingService {
       if (_currentRoomId == roomId) {
         _log('Already connected to room: $roomId');
         return;
-      } else if (isCallActive) {
+      } else if (hasActiveCall) {
         _log(
           '⚠️ Cannot switch room while call is active (Current: $_currentRoomId, Target: $roomId)',
         );
@@ -311,6 +316,7 @@ class SignalingService {
 
     await _ensurePeerConnection();
     await _setupLocalStream(isVideo: isVideo);
+    _inCallSession = true;
     await _handleOffer(_pendingOffer!);
     _pendingOffer = null;
   }
@@ -457,6 +463,7 @@ class SignalingService {
 
   Future<void> startCall({bool isVideo = true}) async {
     _isCaller = true;
+    _inCallSession = true;
     _log('📞 Starting Call (video: $isVideo)');
     await _ensurePeerConnection();
     await _setupLocalStream(isVideo: isVideo);
@@ -591,6 +598,7 @@ class SignalingService {
     _remoteCandidatesBuffer.clear();
     _isRemoteDescriptionSet = false;
     _isCaller = false;
+    _inCallSession = false;
     _isEnding = false;
   }
 

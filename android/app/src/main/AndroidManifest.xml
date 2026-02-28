@@ -4,13 +4,14 @@
         android:label="chess Manika"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
+            android:theme="@style/NormalTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
@@ -49,17 +50,16 @@
             
         <service 
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService" 
-            android:foregroundServiceType="specialUse" 
             android:stopWithTask="false"
+            android:foregroundServiceType="microphone|mediaProjection"
             android:exported="false">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" 
-                      android:value="Chess game status and daily tips for user engagement." />
         </service>
+        <service
+            android:name="com.isvisoft.flutter_screen_recording.ScreenRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
 
-        <service 
-            android:name="com.foregroundservice.ForegroundService" 
-            android:foregroundServiceType="mediaProjection">
-        </service>
+       
 
         <receiver android:name="com.pravera.flutter_foreground_task.service.RebootReceiver"
                   android:exported="true">
@@ -92,8 +92,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

@@ -39,7 +39,6 @@ class _CallScreenState extends State<CallScreen>
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RecordingService _recordingService = RecordingService();
-  bool _hasShownRecordingPopup = false;
   bool _isMinimizing = false;
 
   // Stream subscriptions for cleanup
@@ -63,11 +62,9 @@ class _CallScreenState extends State<CallScreen>
     // Set initial status based on call type
     String callType = widget.isInitialVideo ? "Video" : "Audio";
 
-    // Check if we are restoring an already active call.
-    // We check for remoteStream specifically because isCallActive can be true
-    // briefly during initiation of a new call before the peer has picked up.
-    if (_signalingService.remoteStream != null) {
-      _status = "Connected";
+    // Check if we are restoring an already active call session.
+    if (_signalingService.hasActiveCall) {
+      _status = _signalingService.isCallConnected ? "Connected" : "Calling...";
     } else {
       _status = widget.isIncomingCall
           ? "Incoming $callType Call..."
@@ -86,14 +83,60 @@ class _CallScreenState extends State<CallScreen>
     );
 
     // Initialize renderers first, then start signaling
-    _initRenderers().then((_) {
+    _initRenderers().then((_) async {
       if (mounted) {
         _wsUrl = Constants.wsBaseUrl;
         _setupSignalingListeners();
+        _setupRecordingStatusListener(); // Listen for recording changes
+
+        // NOTE: We do NOT stop the StickyNotificationService here anymore.
+        // It will be stopped once the user confirms recording in the dialog.
+        // An early stop here was causing a double-stop bug.
+
         // If this screen is being restored (e.g. from minimized overlay),
         // the service already has streams. Attach them immediately.
         _attachExistingStreams();
         _connectAndInitiate();
+      }
+    });
+  }
+
+  void _setupRecordingStatusListener() {
+    _recordingService.statusNotifier.addListener(() {
+      if (!mounted) return;
+      final status = _recordingService.statusNotifier.value;
+      debugPrint('CallScreen: Recording status changed to: $status');
+
+      // Wrap in try/catch: in release mode, ScaffoldMessenger can fail if
+      // the widget tree is in an unexpected state during async callbacks.
+      try {
+        if (status == RecordingStatus.recording) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("🔴 Recording ACTIVE"),
+              backgroundColor: Colors.redAccent,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else if (status == RecordingStatus.saved) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✅ Recording Saved successfully!"),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        } else if (status == RecordingStatus.failed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("❌ Recording failed to save."),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('CallScreen: Error showing recording status snackbar: $e');
       }
     });
   }
@@ -189,6 +232,9 @@ class _CallScreenState extends State<CallScreen>
   void _onRemoteStreamChanged() {
     final stream = _signalingService.remoteStreamNotifier.value;
     if (mounted && stream != null) {
+      debugPrint(
+        'CallScreen: [STATUS_SYNC] Remote stream detected, setting status to Connected',
+      );
       setState(() {
         _status = "Connected";
         _remoteRenderer.srcObject = stream;
@@ -204,10 +250,16 @@ class _CallScreenState extends State<CallScreen>
         await _signalingService.connect(_wsUrl, widget.roomId);
       }
 
-      // If we already have a remote stream (we are restoring), don't start call again
-      if (_signalingService.remoteStream != null) {
-        debugPrint('CallScreen: Stream already active, skipping initiation.');
-        if (mounted) setState(() => _status = "Connected");
+      // If we are already in the middle of a call session (sent offer or sent answer),
+      // then we are restoring the UI and should not re-initiate signaling.
+      if (_signalingService.inCallSession) {
+        debugPrint(
+          'CallScreen: Signaling session already active (restoring), skipping initiation.',
+        );
+        // If it's already connected, ensure the status reflects it
+        if (_signalingService.isCallConnected && mounted) {
+          setState(() => _status = "Connected");
+        }
         return;
       }
 
@@ -381,15 +433,15 @@ class _CallScreenState extends State<CallScreen>
   }
 
   void _startCallRecording() async {
-    if (_hasShownRecordingPopup) return;
-    _hasShownRecordingPopup = true;
+    if (_recordingService.hasShownRecordingPopup) return;
+    _recordingService.hasShownRecordingPopup = true;
 
     // Show popup notification
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           backgroundColor: Colors.black87,
           title: const Row(
             children: [
@@ -404,14 +456,41 @@ class _CallScreenState extends State<CallScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                // Start recording AFTER user acknowledges and the app dialog is gone
-                // to avoid conflict with the system's "Start recording/casting?" permission dialog
-                Future.delayed(const Duration(milliseconds: 500), () {
-                  final size = MediaQuery.of(context).size;
-                  _recordingService.startRecording(
-                    widget.roomId,
+              onPressed: () async {
+                // Capture details BEFORE popping the dialog to be absolutely safe
+                final size = MediaQuery.of(context).size;
+                final roomId = widget.roomId;
+
+                Navigator.pop(dialogContext);
+
+                // Stop sticky notification to avoid conflict with recording FGS
+                // We use a longer delay (2s) to ensure OS resources are released
+                debugPrint('CallScreen: Stopping StickyNotificationService before recording...');
+                await StickyNotificationService.stopService();
+                await Future.delayed(const Duration(milliseconds: 500));
+
+                debugPrint('CallScreen: User clicked OK on recording dialog');
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Preparing recording... (Please grant microphone & screen casting permission if asked)",
+                      ),
+                      backgroundColor: Colors.blueAccent,
+                      duration: Duration(seconds: 4),
+                    ),
+                  );
+                }
+
+                // Wait 3 seconds to ensure SNACKBAR shows and FGS is ready.
+                Future.delayed(const Duration(milliseconds: 3000), () async {
+                  debugPrint(
+                    'CallScreen: Triggering RecordingService.startRecording with roomId: $roomId',
+                  );
+
+                  await _recordingService.startRecording(
+                    roomId,
                     width: size.width.toInt(),
                     height: size.height.toInt(),
                   );

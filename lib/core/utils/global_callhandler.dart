@@ -26,9 +26,9 @@ class GlobalCallHandler {
   final ValueNotifier<String?> activeRoomId = ValueNotifier<String?>(null);
 
   SignalingService? get activeService {
-    if (_userSignalingService?.isCallActive == true)
+    if (_userSignalingService?.hasActiveCall == true)
       return _userSignalingService;
-    if (_generalSignalingService?.isCallActive == true)
+    if (_generalSignalingService?.hasActiveCall == true)
       return _generalSignalingService;
     return null;
   }

@@ -10,74 +10,53 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'bottom_navbar.dart';
 import 'package:chess_game_manika/widgets/floating_call_overlay.dart';
-
 import 'package:chess_game_manika/services/permission_service.dart';
 import 'package:chess_game_manika/services/sticky_notification_service.dart';
 
-// Background message handler for FCM
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print("FCM: Handling a background message: ${message.messageId}");
-
-  // Only show local notification if it's a data-only message
-  // AND it's explicitly typed as a chat message.
   if (message.notification == null && message.data.isNotEmpty) {
-    final data = message.data;
-
-    // Type Check: Only show manual notification if it's a chat message
-    if (data['type'] == 'chat_message') {
-      final String title = data['sender_name'] ?? 'New Message';
-      final String body = data['message'] ?? 'You have a new message';
-
+    if (message.data['type'] == 'chat_message') {
       await NotificationService.showNotification(
-        title: title,
-        body: body,
-        payload: Map<String, dynamic>.from(data),
-      );
-    } else {
-      print(
-        "FCM: Background handler ignoring non-chat data message: ${data['type']}",
+        title: message.data['sender_name'] ?? 'New Message',
+        body: message.data['message'] ?? 'You have a new message',
+        payload: Map<String, dynamic>.from(message.data),
       );
     }
   }
 }
 
 Future<void> main() async {
+  // 1. Must ensure bindings are ready for plugins
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Sticky Notification Service
-  await StickyNotificationService.initService();
-
-  // Request permissions (Notification and WorkManager/ForegroundTask)
-  await PermissionService.requestPermissionsOnce();
-
-  // Initialize Firebase
+  // 2. Initialize Firebase early
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // Start global call listener
-  GlobalCallHandler().init();
+  // 3. Request permissions synchronously before service start
+  await PermissionService.requestPermissionsOnce();
 
-  // Initialize notification service
+  // 4. Initialize and START the Sticky Service before runApp
+  // This avoids the 5-second watchdog crash (DidNotStartInTimeException)
+  await StickyNotificationService.initService();
+  try {
+    await StickyNotificationService.startService();
+  } catch (e) {
+    debugPrint("Service failed to start: $e");
+  }
+
+  // 5. Initialize other singleton services
+  GlobalCallHandler().init();
   await NotificationService.init(navKey: Constants.navigatorKey);
 
-  // Load saved login state
+  // 6. Load user data
   final prefs = await SharedPreferences.getInstance();
   final bool loggedIn = prefs.getBool('loggedIn') ?? false;
   final int? userId = prefs.getInt('userId');
 
-  // DO NOT await this here, as it might block the UI/runApp
-
   runApp(MyApp(autoLogin: loggedIn && userId != null));
-
-  // Check for initial message (terminated state navigation)
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    NotificationService.checkForInitialMessage();
-    // Start sticky notification after UI is up
-    print("Main: Starting StickyNotificationService...");
-    await StickyNotificationService.startService();
-  });
 }
 
 class MyApp extends StatelessWidget {
@@ -102,19 +81,13 @@ class MyApp extends StatelessWidget {
               ValueListenableBuilder<bool>(
                 valueListenable: GlobalCallHandler().isMinimized,
                 builder: (context, isMinimized, _) {
-                  if (isMinimized) {
-                    return const FloatingCallOverlay();
-                  }
-                  return const SizedBox.shrink();
+                  return isMinimized ? const FloatingCallOverlay() : const SizedBox.shrink();
                 },
               ),
             ],
           );
         },
-        // Auto-login: skip Login page if already logged in
-        home: autoLogin
-            ? BottomNavBarWrapper() // Main page
-            : Login(), // Show login page
+        home: autoLogin ? BottomNavBarWrapper() : Login(),
       ),
     );
   }
