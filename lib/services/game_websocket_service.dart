@@ -160,6 +160,13 @@ class GameWebsocketService {
     _channel!.sink.add(jsonEncode(data));
   }
 
+  void sendLeave(int roomId, int userId) {
+    if (_channel == null || !_isConnected) return;
+    _channel!.sink.add(
+      jsonEncode({"type": "user_left", "room_id": roomId, "user_id": userId}),
+    );
+  }
+
   void resetGame(int roomId) {
     if (_channel == null || !_isConnected) return;
     _channel!.sink.add(jsonEncode({"type": "reset"}));

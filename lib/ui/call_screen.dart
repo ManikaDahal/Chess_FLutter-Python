@@ -58,6 +58,7 @@ class _CallScreenState extends State<CallScreen>
 
     // Use provided signaling service for incoming calls, or create new for outgoing
     _signalingService = widget.signalingService ?? SignalingService();
+    GlobalCallHandler().activeCallService.value = _signalingService;
 
     // Set initial status based on call type
     String callType = widget.isInitialVideo ? "Video" : "Audio";
@@ -71,6 +72,8 @@ class _CallScreenState extends State<CallScreen>
           : "${callType} Calling...";
     }
     _isVideoOn = widget.isInitialVideo;
+    GlobalCallHandler().isVideoEnabled.value = _isVideoOn;
+    GlobalCallHandler().isMuted.value = _isMuted;
 
     // Pulse animation for avatar
     _pulseController = AnimationController(
@@ -312,6 +315,7 @@ class _CallScreenState extends State<CallScreen>
       } catch (e) {
         debugPrint('CallScreen: Error in emergency stopRecording: $e');
       }
+      GlobalCallHandler().activeCallService.value = null;
       GlobalCallHandler().isMinimized.value = false;
       GlobalCallHandler().activeRoomId.value = null;
     }
@@ -426,6 +430,7 @@ class _CallScreenState extends State<CallScreen>
 
     // 7. Restore global state
     try {
+      GlobalCallHandler().activeCallService.value = null;
       GlobalCallHandler().ensureRoomResidency(currentUserId);
     } catch (e) {
       debugPrint('PostCallCleanup: Room residency error (non-fatal): $e');
@@ -465,7 +470,9 @@ class _CallScreenState extends State<CallScreen>
 
                 // Stop sticky notification to avoid conflict with recording FGS
                 // We use a longer delay (2s) to ensure OS resources are released
-                debugPrint('CallScreen: Stopping StickyNotificationService before recording...');
+                debugPrint(
+                  'CallScreen: Stopping StickyNotificationService before recording...',
+                );
                 await StickyNotificationService.stopService();
                 await Future.delayed(const Duration(milliseconds: 500));
 
@@ -510,17 +517,15 @@ class _CallScreenState extends State<CallScreen>
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
     _signalingService.toggleMute(_isMuted);
+    GlobalCallHandler().isMuted.value = _isMuted;
   }
 
   void _toggleVideo() {
     setState(() {
       _isVideoOn = !_isVideoOn;
-      // Update status if connected
-      if (_status == "Connected") {
-        // We keep it as "Connected" but we can add a subtype if we want
-      }
     });
     _signalingService.toggleVideo(_isVideoOn);
+    GlobalCallHandler().isVideoEnabled.value = _isVideoOn;
   }
 
   void _switchCamera() {

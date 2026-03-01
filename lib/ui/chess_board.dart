@@ -10,6 +10,8 @@ import '../helper/helper.dart';
 import '../ui/call_screen.dart';
 import '../core/utils/global_callhandler.dart';
 import '../services/game_websocket_service.dart';
+import '../services/signaling_service.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 class GameBoard extends StatefulWidget {
   final int roomId;
@@ -46,10 +48,66 @@ class _GameBoardState extends State<GameBoard>
   List<int> blackKingPosition = [0, 4];
   bool checkStatus = false;
   bool _isSyncing = false; // Track if we are replaying history
-  DateTime? _connectionStartTime; // Track when we started connecting
 
   final GameWebsocketService _gameService = GameWebsocketService();
   StreamSubscription? _gameSubscription;
+
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+
+  void _startCall(bool isVideo) {
+    final String callRoomId = widget.opponentId != null
+        ? "user_${widget.opponentId}"
+        : "chess_call_${widget.roomId}";
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          roomId: callRoomId,
+          isIncomingCall: false,
+          isInitialVideo: isVideo,
+          signalingService:
+              (widget.opponentId != null &&
+                  GlobalCallHandler().userSignalingService?.currentRoomId ==
+                      callRoomId)
+              ? GlobalCallHandler().userSignalingService
+              : (callRoomId == "chess_room_1" &&
+                    GlobalCallHandler()
+                            .generalSignalingService
+                            ?.currentRoomId ==
+                        "chess_room_1")
+              ? GlobalCallHandler().generalSignalingService
+              : null,
+          currentUserId: widget.currentUserId,
+        ),
+      ),
+    );
+  }
+
+  void _showLeaveDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Leave Game?"),
+        content: const Text("Are you sure you want to leave this room?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // close dialog
+              Navigator.pop(context); // exit GameBoard
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Leave", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   bool get wantKeepAlive => true;
@@ -57,12 +115,18 @@ class _GameBoardState extends State<GameBoard>
   @override
   void initState() {
     super.initState();
+    _initRenderers();
     _initializeBoard();
     if (widget.isMultiplayer) {
+      // SYNC: Populate GlobalCallHandler with game context for the overlay
+      GlobalCallHandler().activeChessRoomId.value = widget.roomId;
+      GlobalCallHandler().currentUserId.value = widget.currentUserId;
+      GlobalCallHandler().opponentId.value = widget.opponentId;
+      GlobalCallHandler().amIWhite.value = widget.amIWhite;
+
       print(
         "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
       );
-      _connectionStartTime = DateTime.now();
       _gameService.connect(widget.roomId);
       _gameSubscription = _gameService.stream.listen((data) {
         // Filter moves by roomId to prevent crosstalk
@@ -111,6 +175,18 @@ class _GameBoardState extends State<GameBoard>
             }
             _isSyncing = false;
           });
+        } else if (data['type'] == 'user_left') {
+          print("OPPONENT LEFT [Room ${widget.roomId}]: ${data['user_id']}");
+          if (data['user_id']?.toString() != widget.currentUserId.toString()) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Opponent left the game"),
+                backgroundColor: Colors.redAccent,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
         } else if (data['type'] == 'reset') {
           print("RECEIVE RESET [Room ${widget.roomId}]");
           setState(() => _initializeBoard());
@@ -127,9 +203,24 @@ class _GameBoardState extends State<GameBoard>
     }
   }
 
+  Future<void> _initRenderers() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
+  }
+
   @override
   void dispose() {
     _gameSubscription?.cancel();
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
+    // SEND LEAVE SIGNAL
+    if (widget.isMultiplayer) {
+      _gameService.sendLeave(widget.roomId, widget.currentUserId);
+    }
+    // Clear game context from GlobalCallHandler
+    if (GlobalCallHandler().activeChessRoomId.value == widget.roomId) {
+      GlobalCallHandler().activeChessRoomId.value = null;
+    }
     super.dispose();
   }
 
@@ -586,77 +677,53 @@ class _GameBoardState extends State<GameBoard>
     super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
-        leading: widget.isMultiplayer
-            ? StreamBuilder<bool>(
-                stream: _gameService.connectionStream,
-                initialData: _gameService.isConnected,
-                builder: (context, snapshot) {
-                  final bool connected = snapshot.data ?? false;
-                  // If not connected, but currentRoomId is not null, we might be attempting
-                  final bool isAttempting =
-                      _gameService.currentRoomId == widget.roomId && !connected;
-
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildConnectionIndicator(
-                        "Game",
-                        connected,
-                        isAttempting: isAttempting,
-                      ),
-                      const SizedBox(width: 4),
-                      // Signaling Indicator (User Specific)
-                      StreamBuilder<bool>(
-                        stream: GlobalCallHandler()
-                            .userSignalingService
-                            ?.connectionStream,
-                        initialData: GlobalCallHandler()
-                            .userSignalingService
-                            ?.isConnected,
-                        builder: (context, sigSnapshot) {
-                          return _buildConnectionIndicator(
-                            "UserSig",
-                            sigSnapshot.data ?? false,
-                            colorOverride: Colors.blue,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 4),
-                      // General Signaling Indicator
-                      StreamBuilder<bool>(
-                        stream: GlobalCallHandler()
-                            .generalSignalingService
-                            ?.connectionStream,
-                        initialData: GlobalCallHandler()
-                            .generalSignalingService
-                            ?.isConnected,
-                        builder: (context, genSnapshot) {
-                          return _buildConnectionIndicator(
-                            "GenSig",
-                            genSnapshot.data ?? false,
-                            colorOverride: Colors.teal,
-                          );
-                        },
-                      ),
-                    ],
-                  );
-                },
-              )
-            : null,
-        title: Text(
-          _isSyncing
-              ? "Syncing game..."
-              : (_gameService.currentRoomId == widget.roomId &&
-                        !_gameService.isConnected
-                    ? (_connectionStartTime != null &&
-                              DateTime.now()
-                                      .difference(_connectionStartTime!)
-                                      .inSeconds >
-                                  15
-                          ? "Connecting (Slow)..."
-                          : "Connecting...")
-                    : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}"),
-          style: const TextStyle(fontSize: 18),
+        leadingWidth: 40,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Column(
+          children: [
+            Text(
+              _isSyncing
+                  ? "Syncing..."
+                  : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (widget.isMultiplayer)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  StreamBuilder<bool>(
+                    stream: _gameService.connectionStream,
+                    initialData: _gameService.isConnected,
+                    builder: (context, snapshot) =>
+                        _buildStatusDot(snapshot.data ?? false),
+                  ),
+                  const SizedBox(width: 8),
+                  StreamBuilder<bool>(
+                    stream: GlobalCallHandler()
+                        .userSignalingService
+                        ?.connectionStream,
+                    initialData:
+                        GlobalCallHandler().userSignalingService?.isConnected,
+                    builder: (context, snapshot) =>
+                        _buildStatusDot(snapshot.data ?? false, Colors.blue),
+                  ),
+                  const SizedBox(width: 8),
+                  StreamBuilder<bool>(
+                    stream: GlobalCallHandler()
+                        .generalSignalingService
+                        ?.connectionStream,
+                    initialData: GlobalCallHandler()
+                        .generalSignalingService
+                        ?.isConnected,
+                    builder: (context, snapshot) =>
+                        _buildStatusDot(snapshot.data ?? false, Colors.teal),
+                  ),
+                ],
+              ),
+          ],
         ),
         centerTitle: true,
         actions: [
@@ -665,82 +732,50 @@ class _GameBoardState extends State<GameBoard>
               icon: const Icon(Icons.refresh, color: Colors.amber),
               tooltip: "Retry Connection",
               onPressed: () {
-                setState(() => _connectionStartTime = DateTime.now());
                 _gameService.connect(widget.roomId);
               },
             ),
-          IconButton(
-            icon: const Icon(Icons.phone),
-            tooltip: "Audio Call",
-            onPressed: () {
-              // Correct Call Room ID: target the opponent's individual signaling room
-              final String callRoomId = widget.opponentId != null
-                  ? "user_${widget.opponentId}"
-                  : "chess_call_${widget.roomId}";
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CallScreen(
-                    roomId: callRoomId,
-                    isIncomingCall: false,
-                    isInitialVideo: false,
-                    signalingService:
-                        (widget.opponentId != null &&
-                            GlobalCallHandler()
-                                    .userSignalingService
-                                    ?.currentRoomId ==
-                                callRoomId)
-                        ? GlobalCallHandler().userSignalingService
-                        : (callRoomId == "chess_room_1" &&
-                              GlobalCallHandler()
-                                      .generalSignalingService
-                                      ?.currentRoomId ==
-                                  "chess_room_1")
-                        ? GlobalCallHandler().generalSignalingService
-                        : null, // Create fresh instance if global ones are busy/different
-                    currentUserId: widget.currentUserId,
+          if (widget.isMultiplayer)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'audio') _startCall(false);
+                if (value == 'video') _startCall(true);
+                if (value == 'leave') _showLeaveDialog();
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'audio',
+                  child: ListTile(
+                    leading: Icon(Icons.phone),
+                    title: Text("Audio Call"),
                   ),
                 ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            tooltip: "Video Call",
-            onPressed: () {
-              final String callRoomId = widget.opponentId != null
-                  ? "user_${widget.opponentId}"
-                  : "chess_call_${widget.roomId}";
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CallScreen(
-                    roomId: callRoomId,
-                    isIncomingCall: false,
-                    isInitialVideo: true,
-                    signalingService:
-                        (widget.opponentId != null &&
-                            GlobalCallHandler()
-                                    .userSignalingService
-                                    ?.currentRoomId ==
-                                callRoomId)
-                        ? GlobalCallHandler().userSignalingService
-                        : (callRoomId == "chess_room_1" &&
-                              GlobalCallHandler()
-                                      .generalSignalingService
-                                      ?.currentRoomId ==
-                                  "chess_room_1")
-                        ? GlobalCallHandler().generalSignalingService
-                        : null,
-                    currentUserId: widget.currentUserId,
+                const PopupMenuItem(
+                  value: 'video',
+                  child: ListTile(
+                    leading: Icon(Icons.videocam),
+                    title: Text("Video Call"),
                   ),
                 ),
-              );
-            },
-          ),
-
+                if (widget.showLeaveButton)
+                  const PopupMenuItem(
+                    value: 'leave',
+                    child: ListTile(
+                      leading: Icon(Icons.exit_to_app, color: Colors.red),
+                      title: Text(
+                        "Leave Game",
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          else if (widget.showLeaveButton)
+            IconButton(
+              icon: const Icon(Icons.exit_to_app, color: Colors.red),
+              onPressed: _showLeaveDialog,
+            ),
           Consumer<ChatProvider>(
             builder: (_, provider, __) {
               return badges.Badge(
@@ -769,85 +804,301 @@ class _GameBoardState extends State<GameBoard>
               );
             },
           ),
-          if (widget.showLeaveButton)
-            IconButton(
-              icon: const Icon(Icons.exit_to_app, color: Colors.red),
-              tooltip: "Leave Game",
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text("Leave Game?"),
-                    content: const Text(
-                      "Are you sure you want to leave this room?",
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text("Cancel"),
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context); // close dialog
-                          Navigator.pop(context); // exit GameBoard
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                        ),
-                        child: const Text(
-                          "Leave",
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
         ],
       ),
-      body: Stack(
-        children: [
-          GridView.builder(
-            itemCount: 64,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 8,
-            ),
-            itemBuilder: (context, index) {
-              int row = index ~/ 8, col = index % 8;
-              return Square(
-                isWhiteSquare: isWhiteSquare(index),
-                piece: board[row][col],
-                isSelected: row == selectedRow && col == selectedCol,
-                isValidMove: validMoves.any((m) => m[0] == row && m[1] == col),
-                onTap: () => onSquareTap(row, col),
-              );
-            },
-          ),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: GlobalCallHandler().isMinimized,
+        builder: (context, isMinimized, _) {
+          final bool showCallView =
+              widget.isMultiplayer &&
+              isMinimized &&
+              GlobalCallHandler().activeService != null;
+
+          if (showCallView) {
+            return Column(
+              children: [
+                Expanded(child: _buildIntegratedCallHeader()),
+                AspectRatio(aspectRatio: 1.0, child: _buildChessBoard()),
+              ],
+            );
+          }
+
+          return Column(
+            children: [
+              AspectRatio(aspectRatio: 1.0, child: _buildChessBoard()),
+              if (widget.isMultiplayer)
+                const Expanded(
+                  child: Center(
+                    child: Text(
+                      "Chess Room",
+                      style: TextStyle(
+                        color: Colors.white10,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildConnectionIndicator(
-    String label,
-    bool connected, {
-    bool isAttempting = false,
-    Color? colorOverride,
-  }) {
-    return Tooltip(
-      message:
-          "$label: ${connected ? 'Connected' : (isAttempting ? 'Connecting...' : 'Disconnected')}",
-      child: Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          color: connected
-              ? (colorOverride ?? Colors.green)
-              : (isAttempting ? Colors.amber : Colors.red),
-          shape: BoxShape.circle,
-        ),
+  Widget _buildStatusDot(bool connected, [Color? activeColor]) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: connected ? (activeColor ?? Colors.green) : Colors.red,
+        shape: BoxShape.circle,
+        boxShadow: connected
+            ? [
+                BoxShadow(
+                  color: (activeColor ?? Colors.green).withOpacity(0.5),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
       ),
+    );
+  }
+
+  Widget _buildIntegratedCallHeader() {
+    return ValueListenableBuilder<SignalingService?>(
+      valueListenable: GlobalCallHandler().activeCallService,
+      builder: (context, activeCall, _) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: GlobalCallHandler().isMinimized,
+          builder: (context, isMinimized, _) {
+            final service = GlobalCallHandler().activeService;
+            if (!isMinimized || service == null) {
+              return Container(
+                color: Colors.black,
+                child: const Center(
+                  child: Text(
+                    "Chess Room",
+                    style: TextStyle(
+                      color: Colors.white24,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Container(
+              decoration: const BoxDecoration(color: Colors.black),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildVideoOrAvatar(
+                          service.remoteStreamNotifier,
+                          "Opponent",
+                          Icons.person,
+                          false,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Expanded(
+                        child: _buildVideoOrAvatar(
+                          service.localStreamNotifier,
+                          "You",
+                          Icons.videocam,
+                          true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Controls Overlay
+                  Positioned(
+                    bottom: 8,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildMiniActionCircle(
+                          icon: GlobalCallHandler().isMuted.value
+                              ? Icons.mic_off
+                              : Icons.mic,
+                          color: GlobalCallHandler().isMuted.value
+                              ? Colors.redAccent
+                              : Colors.white24,
+                          onPressed: () {
+                            setState(() {
+                              GlobalCallHandler().isMuted.value =
+                                  !GlobalCallHandler().isMuted.value;
+                              service.toggleMute(
+                                GlobalCallHandler().isMuted.value,
+                              );
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniActionCircle(
+                          icon: GlobalCallHandler().isVideoEnabled.value
+                              ? Icons.videocam
+                              : Icons.videocam_off,
+                          color: GlobalCallHandler().isVideoEnabled.value
+                              ? Colors.white24
+                              : Colors.redAccent,
+                          onPressed: () {
+                            setState(() {
+                              GlobalCallHandler().isVideoEnabled.value =
+                                  !GlobalCallHandler().isVideoEnabled.value;
+                              service.toggleVideo(
+                                GlobalCallHandler().isVideoEnabled.value,
+                              );
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniActionCircle(
+                          icon: Icons.open_in_full,
+                          color: Colors.blueAccent,
+                          onPressed: () {
+                            GlobalCallHandler().isMinimized.value = false;
+                            final roomId =
+                                GlobalCallHandler().activeRoomId.value;
+                            if (roomId != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CallScreen(
+                                    roomId: roomId,
+                                    isIncomingCall: false,
+                                    signalingService: service,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniActionCircle(
+                          icon: Icons.call_end,
+                          color: Colors.redAccent,
+                          onPressed: () {
+                            service.endCall();
+                            GlobalCallHandler().isMinimized.value = false;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildVideoOrAvatar(
+    ValueNotifier<MediaStream?> streamNotifier,
+    String label,
+    IconData placeholder,
+    bool isLocal,
+  ) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: GlobalCallHandler().isVideoEnabled,
+      builder: (context, videoEnabled, _) {
+        return ValueListenableBuilder<MediaStream?>(
+          valueListenable: streamNotifier,
+          builder: (context, stream, _) {
+            if (isLocal) {
+              if (_localRenderer.srcObject != stream) {
+                _localRenderer.srcObject = stream;
+              }
+            } else {
+              if (_remoteRenderer.srcObject != stream) {
+                _remoteRenderer.srcObject = stream;
+              }
+            }
+            bool showVideo = videoEnabled && stream != null;
+            if (isLocal && !videoEnabled) showVideo = false;
+            // For remote, it depends on their stream tracks
+            if (!isLocal && stream != null && stream.getVideoTracks().isEmpty)
+              showVideo = false;
+
+            return Container(
+              color: Colors.black54,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (showVideo)
+                    RTCVideoView(
+                      isLocal ? _localRenderer : _remoteRenderer,
+                      mirror: isLocal,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    )
+                  else
+                    Center(
+                      child: Icon(placeholder, color: Colors.white24, size: 40),
+                    ),
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMiniActionCircle({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return InkWell(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, size: 20, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildChessBoard() {
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 64,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 8,
+      ),
+      itemBuilder: (context, index) {
+        int row = index ~/ 8, col = index % 8;
+        return Square(
+          isWhiteSquare: isWhiteSquare(index),
+          piece: board[row][col],
+          isSelected: row == selectedRow && col == selectedCol,
+          isValidMove: validMoves.any((m) => m[0] == row && m[1] == col),
+          onTap: () => onSquareTap(row, col),
+        );
+      },
     );
   }
 }

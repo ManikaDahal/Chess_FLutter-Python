@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'bottom_navbar.dart';
-import 'package:chess_game_manika/widgets/floating_call_overlay.dart';
 import 'package:chess_game_manika/services/permission_service.dart';
 import 'package:chess_game_manika/services/sticky_notification_service.dart';
 
@@ -75,17 +74,7 @@ class MyApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         ),
         builder: (context, child) {
-          return Stack(
-            children: [
-              if (child != null) child,
-              ValueListenableBuilder<bool>(
-                valueListenable: GlobalCallHandler().isMinimized,
-                builder: (context, isMinimized, _) {
-                  return isMinimized ? const FloatingCallOverlay() : const SizedBox.shrink();
-                },
-              ),
-            ],
-          );
+          return child ?? const SizedBox.shrink();
         },
         home: autoLogin ? BottomNavBarWrapper() : Login(),
       ),

@@ -24,11 +24,25 @@ class GlobalCallHandler {
   // Track minimized state
   final ValueNotifier<bool> isMinimized = ValueNotifier<bool>(false);
   final ValueNotifier<String?> activeRoomId = ValueNotifier<String?>(null);
+  // Tracking the active SignalingService used by the UI (e.g., in CallScreen)
+  final ValueNotifier<SignalingService?> activeCallService =
+      ValueNotifier<SignalingService?>(null);
+
+  // Game context for overlay
+  final ValueNotifier<int?> activeChessRoomId = ValueNotifier<int?>(null);
+  final ValueNotifier<int?> currentUserId = ValueNotifier<int?>(null);
+  final ValueNotifier<int?> opponentId = ValueNotifier<int?>(null);
+  final ValueNotifier<bool> amIWhite = ValueNotifier<bool>(true);
+
+  // Call state syncing
+  final ValueNotifier<bool> isMuted = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> isVideoEnabled = ValueNotifier<bool>(true);
 
   SignalingService? get activeService {
-    if (_userSignalingService?.hasActiveCall == true)
+    if (activeCallService.value != null) return activeCallService.value;
+    if (_userSignalingService?.inCallSession == true)
       return _userSignalingService;
-    if (_generalSignalingService?.hasActiveCall == true)
+    if (_generalSignalingService?.inCallSession == true)
       return _generalSignalingService;
     return null;
   }
