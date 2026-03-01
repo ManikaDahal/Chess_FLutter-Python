@@ -43,32 +43,10 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Notification icon for flutter_foreground_task -->
-        <meta-data
-            android:name="com.example.chess_python.service.NOTIFICATION_ICON"
-            android:resource="@mipmap/ic_launcher" />
-            
-        <service 
-            android:name="com.pravera.flutter_foreground_task.service.ForegroundService" 
-            android:stopWithTask="false"
-            android:foregroundServiceType="microphone|mediaProjection"
-            android:exported="false">
-        </service>
         <service
             android:name="com.isvisoft.flutter_screen_recording.ScreenRecordingService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|microphone" />
-
-       
-
-        <receiver android:name="com.pravera.flutter_foreground_task.service.RebootReceiver"
-                  android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

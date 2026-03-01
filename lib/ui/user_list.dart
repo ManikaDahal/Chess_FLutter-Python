@@ -155,6 +155,7 @@ class _UserListState extends State<UserList> {
               ? GlobalCallHandler().userSignalingService
               : null, // Create new instance if room doesn't match to avoid hijacking
           currentUserId: widget.currentUserId,
+          canMinimize: false,
         ),
       ),
     );

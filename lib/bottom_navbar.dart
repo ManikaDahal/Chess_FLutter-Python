@@ -14,8 +14,6 @@ import 'package:chess_game_manika/profile_page.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/login.dart';
 import 'package:chess_game_manika/ui/video_gallery_screen.dart';
-import 'package:chess_game_manika/services/sticky_notification_service.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -48,27 +46,6 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     super.dispose();
-  }
-
-  /// When the app returns to the foreground (e.g. after a call),
-  /// check if the sticky notification is still running and revive it if not.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _ensureStickyNotification();
-    }
-  }
-
-  Future<void> _ensureStickyNotification() async {
-    try {
-      final isRunning = await FlutterForegroundTask.isRunningService;
-      if (!isRunning) {
-        debugPrint('BottomNav: Sticky notification stopped — restarting...');
-        await StickyNotificationService.startService();
-      }
-    } catch (e) {
-      debugPrint('BottomNav: Could not check/revive sticky notification: $e');
-    }
   }
 
   Future<void> _initUser() async {

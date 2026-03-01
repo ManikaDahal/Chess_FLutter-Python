@@ -10,7 +10,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'bottom_navbar.dart';
 import 'package:chess_game_manika/services/permission_service.dart';
-import 'package:chess_game_manika/services/sticky_notification_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -37,16 +36,7 @@ Future<void> main() async {
   // 3. Request permissions synchronously before service start
   await PermissionService.requestPermissionsOnce();
 
-  // 4. Initialize and START the Sticky Service before runApp
-  // This avoids the 5-second watchdog crash (DidNotStartInTimeException)
-  await StickyNotificationService.initService();
-  try {
-    await StickyNotificationService.startService();
-  } catch (e) {
-    debugPrint("Service failed to start: $e");
-  }
-
-  // 5. Initialize other singleton services
+  // 4. Initialize singletons
   GlobalCallHandler().init();
   await NotificationService.init(navKey: Constants.navigatorKey);
 

@@ -2,7 +2,6 @@ import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/services/recording_service.dart';
 import 'package:chess_game_manika/services/signaling_service.dart';
 import 'package:chess_game_manika/ui/call_screen.dart';
-import 'package:chess_game_manika/services/sticky_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:vibration/vibration.dart';
@@ -132,18 +131,11 @@ class GlobalCallHandler {
     // Ensure the signaling service fully clears its peer connection and streams
     activeService?.endCall(sendSignal: false);
 
-    if (isMinimized.value) {
-      debugPrint('🏠 Global handler: Cleaning up minimized call after hangup');
-      isMinimized.value = false;
-      RecordingService().stopRecording();
+    isMinimized.value = false;
+    activeRoomId.value = null;
+    RecordingService().stopRecording();
 
-      // Revive sticky notification after recording stops
-      Future.delayed(const Duration(milliseconds: 3000), () {
-        StickyNotificationService.startService();
-      });
-
-      ensureRoomResidency(userId);
-    }
+    ensureRoomResidency(userId);
   }
 
   // RE-CONNECTION LOGIC: Ensure global services are on their correct "home" rooms
@@ -209,6 +201,8 @@ class GlobalCallHandler {
                     isIncomingCall: true,
                     isInitialVideo: isVideo,
                     signalingService: serviceToUse,
+                    currentUserId: currentUserId.value,
+                    canMinimize: activeChessRoomId.value != null,
                   ),
                 ),
               );

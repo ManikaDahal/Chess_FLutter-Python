@@ -6,7 +6,6 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/signaling_service.dart';
 import '../services/recording_service.dart';
 import '../core/utils/const.dart';
-import '../services/sticky_notification_service.dart';
 
 class CallScreen extends StatefulWidget {
   final String roomId;
@@ -15,6 +14,7 @@ class CallScreen extends StatefulWidget {
   final SignalingService?
   signalingService; // For incoming calls, use existing instance
   final int? currentUserId; // Required to restore room residency on exit
+  final bool canMinimize; // Restrict minimization for non-game calls
 
   const CallScreen({
     super.key,
@@ -23,6 +23,7 @@ class CallScreen extends StatefulWidget {
     this.isInitialVideo = true,
     this.signalingService,
     this.currentUserId,
+    this.canMinimize = true,
   });
 
   @override
@@ -161,6 +162,7 @@ class _CallScreenState extends State<CallScreen>
             _remoteRenderer.srcObject = existingRemote;
           });
           debugPrint('CallScreen: Attached existing remote stream on restore');
+          _startCallRecording(); // Ensure recording trigger on restore
         }
       });
     }
@@ -243,6 +245,7 @@ class _CallScreenState extends State<CallScreen>
         _remoteRenderer.srcObject = stream;
       });
       _logs.add('📹 Remote renderer set');
+      _startCallRecording(); // Trigger recording as soon as media flows
     }
   }
 
@@ -262,6 +265,7 @@ class _CallScreenState extends State<CallScreen>
         // If it's already connected, ensure the status reflects it
         if (_signalingService.isCallConnected && mounted) {
           setState(() => _status = "Connected");
+          _startCallRecording(); // Ensure trigger if already connected
         }
         return;
       }
@@ -419,18 +423,11 @@ class _CallScreenState extends State<CallScreen>
     // 5. PAUSE: Final settle
     await Future.delayed(const Duration(milliseconds: 1000));
 
-    // 6. REVIVE FOREGROUND SERVICE LATER (Process life-line)
-    // We start this LATE to ensure no conflict with Recording's foreground service
-    try {
-      debugPrint('PostCallCleanup: Reviving sticky notification service...');
-      await StickyNotificationService.startService();
-    } catch (e) {
-      debugPrint('PostCallCleanup: Notification revival error: $e');
-    }
-
     // 7. Restore global state
     try {
       GlobalCallHandler().activeCallService.value = null;
+      GlobalCallHandler().isMinimized.value = false;
+      GlobalCallHandler().activeRoomId.value = null;
       GlobalCallHandler().ensureRoomResidency(currentUserId);
     } catch (e) {
       debugPrint('PostCallCleanup: Room residency error (non-fatal): $e');
@@ -467,14 +464,6 @@ class _CallScreenState extends State<CallScreen>
                 final roomId = widget.roomId;
 
                 Navigator.pop(dialogContext);
-
-                // Stop sticky notification to avoid conflict with recording FGS
-                // We use a longer delay (2s) to ensure OS resources are released
-                debugPrint(
-                  'CallScreen: Stopping StickyNotificationService before recording...',
-                );
-                await StickyNotificationService.stopService();
-                await Future.delayed(const Duration(milliseconds: 500));
 
                 debugPrint('CallScreen: User clicked OK on recording dialog');
 
@@ -599,18 +588,19 @@ class _CallScreenState extends State<CallScreen>
                 Stack(
                   children: [
                     _buildHeader(),
-                    Positioned(
-                      left: 10,
-                      top: 10,
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.close_fullscreen,
-                          color: Colors.white,
+                    if (widget.canMinimize)
+                      Positioned(
+                        left: 10,
+                        top: 10,
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.close_fullscreen,
+                            color: Colors.white,
+                          ),
+                          onPressed: _minimizeCall,
+                          tooltip: "Minimize",
                         ),
-                        onPressed: _minimizeCall,
-                        tooltip: "Minimize",
                       ),
-                    ),
                   ],
                 ),
 

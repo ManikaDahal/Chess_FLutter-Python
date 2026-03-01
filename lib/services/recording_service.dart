@@ -9,7 +9,6 @@ import 'package:http/http.dart' as http;
 import '../core/utils/const.dart';
 import 'notification_service.dart';
 import 'token_storage.dart';
-import 'sticky_notification_service.dart'; // Your sticky FGS wrapper
 
 enum RecordingStatus { idle, starting, recording, stopping, saved, failed }
 
@@ -39,35 +38,53 @@ class RecordingService {
     statusNotifier.value = RecordingStatus.starting;
 
     try {
+      debugPrint('RecordingService: Starting recording for room $roomId...');
       // --- 1️⃣ Update sticky notification to recording state ---
-      await StickyNotificationService.setRecordingState(true);
+      // await StickyNotificationService.setRecordingState(true);
 
       // --- 2️⃣ Request permissions ---
       if (Platform.isAndroid) {
+        debugPrint('RecordingService: Requesting Android permissions...');
         await _requestAndroidPermissions();
       }
 
       // --- 3️⃣ Start screen + audio recording ---
       final String fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}';
+      debugPrint(
+        'RecordingService: Calling FlutterScreenRecording.startRecordScreenAndAudio with fileName: $fileName',
+      );
+
       final bool started =
           await FlutterScreenRecording.startRecordScreenAndAudio(
             fileName,
-          ).timeout(const Duration(seconds: 15), onTimeout: () => false);
+          ).timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              debugPrint(
+                'RecordingService: startRecordScreenAndAudio TIMED OUT',
+              );
+              return false;
+            },
+          );
 
       if (started) {
         _isRecording = true;
         statusNotifier.value = RecordingStatus.recording;
-        debugPrint('🔴 Recording started: $fileName');
+        debugPrint(
+          '🔴 RecordingService: SUCCESS! Started recording: $fileName',
+        );
       } else {
         statusNotifier.value = RecordingStatus.failed;
-        debugPrint('❌ Failed to start recording');
+        debugPrint(
+          '❌ RecordingService: FAILED! FlutterScreenRecording returned false',
+        );
         // Revert sticky notification on failure
-        await StickyNotificationService.setRecordingState(false);
+        // await StickyNotificationService.setRecordingState(false);
       }
     } catch (e, st) {
-      debugPrint('❌ startRecording error: $e\n$st');
+      debugPrint('❌ RecordingService: ERROR in startRecording: $e\n$st');
       statusNotifier.value = RecordingStatus.failed;
-      await StickyNotificationService.setRecordingState(false);
+      // await StickyNotificationService.setRecordingState(false);
     }
   }
 
@@ -79,12 +96,16 @@ class RecordingService {
     statusNotifier.value = RecordingStatus.stopping;
 
     try {
+      debugPrint('RecordingService: Stopping recording...');
       final String path = await FlutterScreenRecording.stopRecordScreen;
       _lastRecordingPath = path;
       _isRecording = false;
 
+      debugPrint('RecordingService: stopRecordScreen returned path: "$path"');
+
       if (path.isNotEmpty) {
         statusNotifier.value = RecordingStatus.saved;
+        debugPrint('RecordingService: SUCCESS! File saved at $path');
 
         // Show recording saved notification
         NotificationService.showNotification(
@@ -94,13 +115,15 @@ class RecordingService {
         );
 
         // Upload recording in background
+        debugPrint('RecordingService: Initiating upload for $path');
         _uploadRecording(path, _currentRoomId ?? '0');
       } else {
         statusNotifier.value = RecordingStatus.failed;
+        debugPrint('❌ RecordingService: FAILED! path is empty');
         _showFailureNotification("Recording failed: No file produced.");
       }
     } catch (e, st) {
-      debugPrint('❌ stopRecording error: $e\n$st');
+      debugPrint('❌ RecordingService: ERROR in stopRecording: $e\n$st');
       statusNotifier.value = RecordingStatus.failed;
       _showFailureNotification("Recording failed due to error.");
     } finally {
@@ -109,9 +132,11 @@ class RecordingService {
       if (statusNotifier.value != RecordingStatus.saved) {
         statusNotifier.value = RecordingStatus.idle;
       }
+      // Reset flag so subsequent calls can show the recording prompt
+      hasShownRecordingPopup = false;
 
       // --- 4️⃣ Revert sticky notification state ---
-      await StickyNotificationService.setRecordingState(false);
+      // await StickyNotificationService.setRecordingState(false);
     }
   }
 

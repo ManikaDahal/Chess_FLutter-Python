@@ -80,6 +80,7 @@ class _GameBoardState extends State<GameBoard>
               ? GlobalCallHandler().generalSignalingService
               : null,
           currentUserId: widget.currentUserId,
+          canMinimize: true,
         ),
       ),
     );
@@ -975,6 +976,8 @@ class _GameBoardState extends State<GameBoard>
                                     roomId: roomId,
                                     isIncomingCall: false,
                                     signalingService: service,
+                                    currentUserId: widget.currentUserId,
+                                    canMinimize: true,
                                   ),
                                 ),
                               );

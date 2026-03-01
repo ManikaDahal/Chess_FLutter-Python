@@ -567,10 +567,13 @@ class SignalingService {
 
     final local = _localStream;
     _localStream = null;
+    localStreamNotifier.value = null; // Update notifier immediately
     if (local != null) {
-      localStreamNotifier.value = null;
-      for (var track in local.getTracks()) {
-        _log('⏹️ Stopping track: ${track.kind} (${track.id})');
+      _log('⏹️ Stopping local stream tracks...');
+      final tracks = local.getTracks();
+      for (var track in tracks) {
+        _log('⏹️ Stopping local track: ${track.kind} (${track.id})');
+        track.enabled = false;
         track.stop();
       }
       await local.dispose();
@@ -578,9 +581,13 @@ class SignalingService {
 
     final remote = _remoteStream;
     _remoteStream = null;
+    remoteStreamNotifier.value = null; // Update notifier immediately
     if (remote != null) {
-      remoteStreamNotifier.value = null;
-      for (var track in remote.getTracks()) {
+      _log('⏹️ Stopping remote stream tracks...');
+      final tracks = remote.getTracks();
+      for (var track in tracks) {
+        _log('⏹️ Stopping remote track: ${track.kind} (${track.id})');
+        track.enabled = false;
         track.stop();
       }
       await remote.dispose();
