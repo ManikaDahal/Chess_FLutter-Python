@@ -33,7 +33,20 @@ class NotificationService {
         if (details.payload != null) {
           try {
             final payload = jsonDecode(details.payload!);
-            _handleFcmPayload(Map<String, dynamic>.from(payload));
+            final payloadMap = Map<String, dynamic>.from(payload);
+
+            // Extract trackingId and update backend status to "opened"
+            final String? trackingId =
+                payloadMap['trackingId']?.toString() ??
+                payloadMap['id']?.toString();
+            if (trackingId != null && trackingId.isNotEmpty) {
+              print(
+                "FCM [LocalNotification]: Marking status as opened for ID: $trackingId",
+              );
+              ApiService().updateNotificationStatus(trackingId, 'opened');
+            }
+
+            _handleFcmPayload(payloadMap);
           } catch (e) {
             print("Error parsing notification payload: $e");
           }
@@ -101,7 +114,13 @@ class NotificationService {
       }
 
       // Forward to ChatProvider for unified processing (deduplication, unread counts, alerts)
-      ChatProvider.instance?.processIncomingPayload(message.data);
+      Map<String, dynamic> dataPayload = Map<String, dynamic>.from(
+        message.data,
+      );
+      if (trackingId != null) {
+        dataPayload['trackingId'] = trackingId;
+      }
+      ChatProvider.instance?.processIncomingPayload(dataPayload);
     });
 
     // Handle notification click when app is in background but not terminated

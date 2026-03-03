@@ -173,7 +173,10 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
         // Only process if it looks like a chat message
         if (data['type'] == 'chat_message' || data.containsKey('message')) {
           final msg = ChatMessage.fromJson(data);
-          _processIncomingMessage(msg);
+          _processIncomingMessage(
+            msg,
+            trackingId: data['trackingId']?.toString(),
+          );
         } else {
           print(
             "ChatProvider: Ignoring non-chat payload Type: ${data['type']}",
@@ -185,7 +188,7 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  void _processIncomingMessage(ChatMessage msg) {
+  void _processIncomingMessage(ChatMessage msg, {String? trackingId}) {
     // Sanitization: Ignore empty message bodies
     if (msg.message.trim().isEmpty) {
       print("ChatProvider: Ignoring empty message payload.");
@@ -252,7 +255,9 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
     );
 
     if (!fromMe && !isVisible && isForeground) {
-      print("ChatProvider: Triggering manual foreground notification alert");
+      print(
+        "ChatProvider: Triggering manual foreground notification alert (Tracking ID: $trackingId)",
+      );
       NotificationService.showNotification(
         title: msg.senderName,
         body: msg.message,
@@ -261,6 +266,7 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
           "user_id": msg.userId,
           "message": msg.message,
           "sender_name": msg.senderName,
+          if (trackingId != null) "trackingId": trackingId,
         },
       );
     } else if (!isForeground) {

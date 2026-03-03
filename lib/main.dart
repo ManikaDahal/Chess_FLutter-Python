@@ -16,10 +16,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   if (message.notification == null && message.data.isNotEmpty) {
     if (message.data['type'] == 'chat_message') {
+      Map<String, dynamic> payload = Map<String, dynamic>.from(message.data);
+      if (message.messageId != null) {
+        payload['trackingId'] = message.messageId;
+      }
       await NotificationService.showNotification(
         title: message.data['sender_name'] ?? 'New Message',
         body: message.data['message'] ?? 'You have a new message',
-        payload: Map<String, dynamic>.from(message.data),
+        payload: payload,
       );
     }
   }
