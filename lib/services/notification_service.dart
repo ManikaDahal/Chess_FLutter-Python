@@ -94,6 +94,12 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('FCM: Got a foreground message. Data: ${message.data}');
 
+      // Update status to delivered
+      final String? messageId = message.data['id'];
+      if (messageId != null && messageId.isNotEmpty) {
+        ApiService().updateNotificationStatus(messageId, 'delivered');
+      }
+
       // Forward to ChatProvider for unified processing (deduplication, unread counts, alerts)
       ChatProvider.instance?.processIncomingPayload(message.data);
     });
@@ -101,6 +107,13 @@ class NotificationService {
     // Handle notification click when app is in background but not terminated
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       print('FCM: Notification clicked!');
+
+      // Update status to opened
+      final String? messageId = message.data['id'];
+      if (messageId != null && messageId.isNotEmpty) {
+        ApiService().updateNotificationStatus(messageId, 'opened');
+      }
+
       _handleFcmPayload(message.data);
     });
 
@@ -111,6 +124,12 @@ class NotificationService {
         print(
           'FCM: App opened from terminated state via notification. Delaying navigation.',
         );
+
+        // Update status to opened
+        final String? messageId = message.data['id'];
+        if (messageId != null && messageId.isNotEmpty) {
+          ApiService().updateNotificationStatus(messageId, 'opened');
+        }
       }
     });
   }
