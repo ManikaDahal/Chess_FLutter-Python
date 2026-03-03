@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/invite_services.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
@@ -16,6 +17,13 @@ class NotificationService {
   /// Keep a navigator key to allow navigation from anywhere
   static GlobalKey<NavigatorState>? navigatorKey;
   static bool _isLocalInit = false;
+
+  // Stream to broadcast FCM events to the UI
+  static final StreamController<Map<String, dynamic>> _fcmEventController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  static Stream<Map<String, dynamic>> get fcmEventStream =>
+      _fcmEventController.stream;
 
   static Future<void> _initLocal() async {
     if (_isLocalInit) return;
@@ -120,6 +128,13 @@ class NotificationService {
       if (trackingId != null) {
         dataPayload['trackingId'] = trackingId;
       }
+
+      // If it is a game response, we want to handle the transition immediately in the foreground
+      if (dataPayload['type'] == 'invite_accepted' ||
+          dataPayload['type'] == 'invite_declined') {
+        _handleFcmPayload(dataPayload);
+      }
+
       ChatProvider.instance?.processIncomingPayload(dataPayload);
     });
 
@@ -176,14 +191,18 @@ class NotificationService {
 
     if (data['type'] == 'invite_accepted') {
       print(
-        "FCM [invite_accepted]: Receiver accepted. Inviter should stay on current board.",
+        "FCM [invite_accepted]: Receiver accepted. Inviter should enter the board.",
       );
-      _showStatusDialog(data, "Invitation Accepted", Colors.green);
+      // Broadcast the event so the waiting screen can handle it smoothly
+      _fcmEventController.add(data);
       return;
     }
 
     if (data['type'] == 'invite_declined') {
       print("FCM [invite_declined]: Receiver declined.");
+      // Broadcast the event
+      _fcmEventController.add(data);
+
       _showStatusDialog(data, "Invitation Declined", Colors.red);
       return;
     }

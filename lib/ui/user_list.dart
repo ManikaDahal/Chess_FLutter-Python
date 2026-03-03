@@ -5,9 +5,9 @@ import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/ui/call_screen.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
-import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/invite_services.dart';
+import 'package:chess_game_manika/ui/invite_waiting_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -83,7 +83,7 @@ class _UserListState extends State<UserList> {
     }
   }
 
-  void _playChess(int targetUserId) async {
+  void _playChess(int targetUserId, String targetUserName) async {
     if (_isEnteringChat) return;
 
     setState(() {
@@ -111,13 +111,10 @@ class _UserListState extends State<UserList> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => GameBoard(
+              builder: (_) => InviteWaitingScreen(
+                targetUserId: targetUserId,
+                targetUserName: targetUserName, // Need to pass username
                 roomId: roomId,
-                currentUserId: widget.currentUserId,
-                isMultiplayer: true,
-                amIWhite: true, // Inviter is always White
-                opponentId: targetUserId,
-                showLeaveButton: true,
               ),
             ),
           );
@@ -238,7 +235,7 @@ class _UserListState extends State<UserList> {
                             color: Colors.orange,
                           ),
                           tooltip: "Play Chess",
-                          onPressed: () => _playChess(targetUserId),
+                          onPressed: () => _playChess(targetUserId, username),
                         ),
                       ],
                     ),

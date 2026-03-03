@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
@@ -16,6 +17,7 @@ class SignalingService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
+  late Completer<void> _readyCompleter;
 
   // ValueNotifiers to allow multiple listeners (e.g. CallScreen and Overlay)
   final ValueNotifier<MediaStream?> remoteStreamNotifier =
@@ -53,6 +55,12 @@ class SignalingService {
 
   final _callAcceptedController = StreamController<void>.broadcast();
   Stream<void> get onCallAcceptedStream => _callAcceptedController.stream;
+
+  // New stream for syncing custom states (like mute/video toggles without full SDP renegotiation)
+  final _customMessageController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onCustomMessageStream =>
+      _customMessageController.stream;
 
   // Deprecated: Use streams instead
   @Deprecated('Use onIncomingCallStream')
@@ -119,10 +127,12 @@ class SignalingService {
   };
 
   Timer? _iceRestartTimer;
+  Timer? _handshakeTimeout;
 
   Future<void> connect(String wsUrl, String roomId) async {
     _wsUrl = wsUrl;
     _currentRoomId = roomId;
+    _readyCompleter = Completer<void>();
 
     if (_isConnected && !_isReconnecting) {
       if (_currentRoomId == roomId) {
@@ -135,8 +145,6 @@ class SignalingService {
         return;
       }
       _log('🔄 Switching room from $_currentRoomId to $roomId');
-      // We don't return here if it's a different room and NO active call,
-      // but we should probably inform GlobalCallHandler to handle this better.
     }
 
     // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
@@ -145,49 +153,169 @@ class SignalingService {
 
     _log('🌐 Connecting to Signaling: $url (Room: $roomId)');
 
-    try {
+    // inner helper that actually does one attempt and may throw
+    Future<void> _attempt(Uri uri) async {
       await _ensurePeerConnection();
-      final uri = Uri.parse(url);
+
+      // sanitize fragments or extra characters that might have crept in
+      if (uri.fragment.isNotEmpty) {
+        uri = uri.replace(fragment: '');
+      }
+
+      // Fix: Use proper default ports if not explicitly set
+      if (uri.port == 0) {
+        final port = uri.scheme == 'wss' ? 443 : 80;
+        uri = uri.replace(port: port);
+      }
+
       _log(
         '📍 URI Components: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}',
       );
 
-      _channel = WebSocketChannel.connect(uri);
-      _isConnected = true; // Set to true immediately upon connection
-      _connectionController.add(true);
-      _startHeartbeat(); // Start heartbeat right away
+      // diagnostics probe as before
+      try {
+        final probeScheme = (uri.scheme == 'wss')
+            ? 'https'
+            : (uri.scheme == 'ws' ? 'http' : uri.scheme);
+        final probeUri = uri.replace(scheme: probeScheme);
+        _log('🔎 Probing HTTP endpoint: $probeUri');
+        final resp = await http
+            .get(probeUri)
+            .timeout(const Duration(seconds: 8));
+        _log('🔎 Probe response: ${resp.statusCode}');
+        _log('🔎 Probe headers: ${resp.headers}');
+        final hasUpgrade =
+            resp.headers['upgrade']?.toLowerCase() == 'websocket';
+        if (!hasUpgrade) {
+          final msg =
+              'Server lacks websocket support on this path ('
+              'status ${resp.statusCode})';
+          _log('⚠️ $msg');
+          throw Exception(msg);
+        }
+      } catch (e) {
+        _log('⚠️ Probe failed: $e');
+        rethrow;
+      }
 
-      _log('✅ WebSocket Connected to $roomId');
+      _channel = WebSocketChannel.connect(uri);
+    }
+
+    try {
+      try {
+        await _attempt(Uri.parse(url));
+      } catch (e) {
+        _log(
+          '🔁 First attempt failed (${e.runtimeType}): $e – attempting fallback scheme',
+        );
+        // try flipping wss<->ws, https<->http just in case
+        Uri fallback = Uri.parse(url);
+        if (fallback.scheme == 'wss') {
+          fallback = fallback.replace(scheme: 'ws');
+        } else if (fallback.scheme == 'ws') {
+          fallback = fallback.replace(scheme: 'wss');
+        }
+        try {
+          await _attempt(fallback);
+        } catch (e2) {
+          _log('❌ Both connection attempts failed (${e2.runtimeType}): $e2');
+          // Update status immediately so UI can show error
+          _isConnected = false;
+          _connectionController.add(false);
+          if (!_readyCompleter.isCompleted) {
+            _readyCompleter.completeError('Connection failed: $e2');
+          }
+          return; // Stop here if we don't have a channel
+        }
+      }
+
+      if (_channel == null) {
+        _log('❌ WebSocket channel is null after all attempts');
+        if (!_readyCompleter.isCompleted) {
+          _readyCompleter.completeError('Channel is null');
+        }
+        return;
+      }
+      _handshakeTimeout?.cancel();
+      _handshakeTimeout = Timer(const Duration(seconds: 10), () {
+        _log('⏱️ WebSocket handshake timeout - no response from server');
+        _channel?.sink.close();
+        _handleDisconnect();
+        if (!_readyCompleter.isCompleted) {
+          _readyCompleter.completeError('Handshake timeout');
+        }
+      });
+
+      bool firstMessageReceived = false;
       _channel!.stream.listen(
         (message) {
+          _handshakeTimeout?.cancel();
+
+          // On first message, mark as truly connected
+          if (!firstMessageReceived) {
+            firstMessageReceived = true;
+            _isConnected = true;
+            _connectionController.add(true);
+            _startHeartbeat();
+            _log('✅ WebSocket Connected to $roomId');
+            // Signal that connection is ready
+            if (!_readyCompleter.isCompleted) {
+              _readyCompleter.complete();
+            }
+          }
+
           _isReconnecting = false;
           _handleMessage(message);
         },
         onError: (error) {
+          _handshakeTimeout?.cancel();
+          _isConnected = false;
           _log('❌ WebSocket Error: $error');
           _handleDisconnect();
+          if (!_readyCompleter.isCompleted) {
+            _readyCompleter.completeError(error);
+          }
         },
         onDone: () {
+          _handshakeTimeout?.cancel();
+          _isConnected = false;
           _log('📡 WebSocket Closed');
           _connectionController.add(false);
           _handleDisconnect();
+          if (!_readyCompleter.isCompleted) {
+            _readyCompleter.completeError('WebSocket closed');
+          }
+        },
+      );
+
+      // NOW actually wait for the connection to be ready before returning
+      await _readyCompleter.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          _log('❌ Connection ready timeout after 15 seconds');
+          throw Exception(
+            'WebSocket connection failed to establish within 15 seconds',
+          );
         },
       );
     } catch (e) {
-      _log('❌ Connection Error: $e');
+      _handshakeTimeout?.cancel();
+      _log('❌ Connection Error during setup: $e');
       _handleDisconnect();
+      // swallow error to avoid unhandled exceptions at call sites
     }
   }
 
   void _handleDisconnect() {
     _isConnected = false;
+    _handshakeTimeout?.cancel();
     _stopHeartbeat();
     _reconnectTimer?.cancel();
 
-    if (_currentRoomId != null) {
+    if (_currentRoomId != null && _wsUrl != null) {
       _isReconnecting = true;
       _reconnectTimer = Timer(const Duration(seconds: 3), () {
-        if (_currentRoomId != null && !_isConnected) {
+        if (_currentRoomId != null && _wsUrl != null && !_isConnected) {
           connect(_wsUrl!, _currentRoomId!);
         }
       });
@@ -300,6 +428,9 @@ class SignalingService {
       onHangup?.call(); // Still call deprecated if set
     } else if (type == 'new_ice_candidate') {
       await _handleCandidate(data['candidate']);
+    } else if (type == 'custom_message') {
+      _log('📶 Custom message received: ${data['data']}');
+      _customMessageController.add(Map<String, dynamic>.from(data['data']));
     }
   }
 
@@ -501,6 +632,10 @@ class SignalingService {
     }
   }
 
+  void sendCustomMessage(Map<String, dynamic> customData) {
+    _sendSignal({'type': 'custom_message', 'data': customData});
+  }
+
   void toggleMute(bool mute) {
     if (_localStream != null) {
       _localStream!.getAudioTracks().forEach((track) {
@@ -645,6 +780,7 @@ class SignalingService {
   void disconnect() {
     _log('🔌 Manually disconnecting from signaling');
     _currentRoomId = null;
+    _handshakeTimeout?.cancel();
     _reconnectTimer?.cancel();
     _stopHeartbeat();
     _stopIceRestartTimer();

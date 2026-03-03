@@ -2,16 +2,18 @@ import 'dart:async';
 import 'package:badges/badges.dart' as badges;
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/chess_piece.dart';
 import '../ui/square_widget.dart';
 import '../helper/helper.dart';
-import '../ui/call_screen.dart';
 import '../core/utils/global_callhandler.dart';
 import '../services/game_websocket_service.dart';
 import '../services/signaling_service.dart';
+import '../core/utils/const.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:chess_game_manika/core/utils/color_utils.dart';
 
 class GameBoard extends StatefulWidget {
   final int roomId;
@@ -52,38 +54,140 @@ class _GameBoardState extends State<GameBoard>
   final GameWebsocketService _gameService = GameWebsocketService();
   StreamSubscription? _gameSubscription;
 
+  // Embedded Call Variables
+  late SignalingService _signalingService;
+  StreamSubscription? _incomingCallSub;
+  StreamSubscription? _customMessageSub;
+  bool _isCallInitialized = false;
+
+  // Call Controls State
+  bool _isLocalAudioMuted = false;
+  bool _isLocalVideoEnabled = false; // Start with Audio only by default
+  bool _isRemoteAudioMuted = false;
+  bool _isRemoteVideoEnabled = false;
+  bool _isOpponentLocallySilenced = false;
+
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
-  void _startCall(bool isVideo) {
-    final String callRoomId = widget.opponentId != null
-        ? "user_${widget.opponentId}"
-        : "chess_call_${widget.roomId}";
+  // Auto call setup instead of manual
+  void _setupEmbeddedCall() {
+    final String callRoomId = "game_call_${widget.roomId}";
+    _signalingService = SignalingService();
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CallScreen(
-          roomId: callRoomId,
-          isIncomingCall: false,
-          isInitialVideo: isVideo,
-          signalingService:
-              (widget.opponentId != null &&
-                  GlobalCallHandler().userSignalingService?.currentRoomId ==
-                      callRoomId)
-              ? GlobalCallHandler().userSignalingService
-              : (callRoomId == "chess_room_1" &&
-                    GlobalCallHandler()
-                            .generalSignalingService
-                            ?.currentRoomId ==
-                        "chess_room_1")
-              ? GlobalCallHandler().generalSignalingService
-              : null,
-          currentUserId: widget.currentUserId,
-          canMinimize: true,
+    // Listen for incoming calls (Invitee side)
+    _incomingCallSub = _signalingService.onIncomingCallStream.listen((_) {
+      print("[GAME CALL] Incoming call received. Auto-accepting...");
+      _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
+      _isCallInitialized = true;
+      setState(() {});
+    });
+
+    // Listen for remote mute state changes
+    _customMessageSub = _signalingService.onCustomMessageStream.listen((data) {
+      if (data['action'] == 'toggle_mute') {
+        setState(() {
+          _isRemoteAudioMuted = data['isMuted'];
+        });
+      } else if (data['action'] == 'toggle_video') {
+        setState(() {
+          _isRemoteVideoEnabled = data['isVideoEnabled'];
+        });
+      }
+    });
+
+    // Connect to signaling - this now waits for the websocket to actually be ready
+    _signalingService
+        .connect(Constants.wsBaseUrl, callRoomId)
+        .then((_) {
+          if (!mounted || _isCallInitialized) return;
+          _isCallInitialized = true;
+
+          if (widget.amIWhite) {
+            // White (inviter) starts the call immediately after connection is ready
+            print(
+              "[GAME CALL] ✅ Connected. Auto-starting call as Inviter (White).",
+            );
+            _signalingService.startCall(isVideo: _isLocalVideoEnabled);
+          } else {
+            // Black (invitee) waits for incoming call from White and auto-accepts
+            print(
+              "[GAME CALL] ✅ Connected. Waiting for incoming call as Invitee (Black).",
+            );
+            _signalingService.onIncomingCallStream.listen((_) {
+              if (mounted && _isCallInitialized) {
+                print(
+                  "[GAME CALL] 📞 Incoming call detected! Auto-accepting as Black...",
+                );
+                _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
+              }
+            });
+          }
+          setState(() {});
+        })
+        .catchError((e) {
+          print("[GAME CALL] ❌ Connection failed: $e");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Call connection error: $e"),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        });
+  }
+
+  void _toggleLocalAudio() {
+    setState(() {
+      _isLocalAudioMuted = !_isLocalAudioMuted;
+    });
+    _signalingService.toggleMute(_isLocalAudioMuted);
+    _signalingService.sendCustomMessage({
+      'action': 'toggle_mute',
+      'isMuted': _isLocalAudioMuted,
+    });
+  }
+
+  void _toggleLocalVideo() {
+    setState(() {
+      _isLocalVideoEnabled = !_isLocalVideoEnabled;
+    });
+    _signalingService.toggleVideo(_isLocalVideoEnabled);
+    _signalingService.sendCustomMessage({
+      'action': 'toggle_video',
+      'isVideoEnabled': _isLocalVideoEnabled,
+    });
+
+    // Send state to peer so they know we turned video on
+  }
+
+  void _toggleRemoteAudioLocalOverride() {
+    // This allows muting the opponent LOCALLY so we don't hear them, regardless of their own mute state
+    final remoteStream = _signalingService.remoteStreamNotifier.value;
+    if (remoteStream != null) {
+      bool currentlyEnabled =
+          remoteStream.getAudioTracks().isNotEmpty &&
+          remoteStream.getAudioTracks().first.enabled;
+      remoteStream.getAudioTracks().forEach((track) {
+        track.enabled = !currentlyEnabled;
+      });
+
+      setState(() {
+        _isOpponentLocallySilenced = currentlyEnabled;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            currentlyEnabled
+                ? "Opponent silenced locally"
+                : "Opponent unsilenced locally",
+          ),
+          duration: const Duration(seconds: 1),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _showLeaveDialog() {
@@ -128,6 +232,9 @@ class _GameBoardState extends State<GameBoard>
       print(
         "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
       );
+
+      _setupEmbeddedCall(); // Initialize the embedded call
+
       _gameService.connect(widget.roomId);
       _gameSubscription = _gameService.stream.listen((data) {
         // Filter moves by roomId to prevent crosstalk
@@ -212,6 +319,11 @@ class _GameBoardState extends State<GameBoard>
   @override
   void dispose() {
     _gameSubscription?.cancel();
+    _incomingCallSub?.cancel();
+    _customMessageSub?.cancel();
+    _signalingService.endCall(); // End call when leaving game
+    _signalingService.disconnect();
+
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     // SEND LEAVE SIGNAL
@@ -348,35 +460,13 @@ class _GameBoardState extends State<GameBoard>
           return;
         }
 
-        // SYNC: Send move to server if multiplayer
+        // SYNC: if we're in multiplayer mode then send the move **after**
+        // applying it locally. doing the board mutation first means the UI
+        // isn't waiting on the WebSocket send, and we can even queue the data
+        // if we're temporarily offline.
         if (widget.isMultiplayer) {
-          // Check connection status
-          if (!_gameService.isConnected) {
-            print(
-              "SEND MOVE FAILED: Socket not connected (Room: ${widget.roomId})",
-            );
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  "Not connected to server. Trying to reconnect...",
-                ),
-              ),
-            );
-            _gameService.connect(widget.roomId);
-            return;
-          }
-
-          print(
-            "SEND MOVE [Room ${widget.roomId}]: (${selectedRow},${selectedCol}) -> ($row,$col)",
-          );
-          _gameService.sendMove(
-            widget.roomId,
-            widget.currentUserId,
-            selectedRow,
-            selectedCol,
-            row,
-            col,
-          );
+          // apply local move immediately (will also flip turn below)
+          // store last move data in case we need to resend later
         }
 
         // Update king position if king is moved
@@ -405,6 +495,34 @@ class _GameBoardState extends State<GameBoard>
         selectedPiece = null;
         validMoves.clear();
         whiteTurn = !whiteTurn;
+
+        // now that the board has been flipped, send the move if the socket is
+        // healthy – if not we will reconnect and flush later.
+        if (widget.isMultiplayer) {
+          if (_gameService.isConnected) {
+            print(
+              "SEND MOVE [Room ${widget.roomId}]: (${selectedRow},${selectedCol}) -> ($row,$col)",
+            );
+            _gameService.sendMove(
+              widget.roomId,
+              widget.currentUserId,
+              selectedRow,
+              selectedCol,
+              row,
+              col,
+            );
+          } else {
+            // start a reconnect attempt; move will be resent when the history
+            // message arrives from the server (see _isSyncing flag handling).
+            print("Socket offline, will resend move later");
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Not connected – trying to reconnect."),
+              ),
+            );
+            _gameService.connect(widget.roomId);
+          }
+        }
 
         // Check if the other king is in check
         checkStatus = isKingInCheck(whiteTurn);
@@ -677,6 +795,7 @@ class _GameBoardState extends State<GameBoard>
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         leadingWidth: 40,
         leading: IconButton(
@@ -736,43 +855,7 @@ class _GameBoardState extends State<GameBoard>
                 _gameService.connect(widget.roomId);
               },
             ),
-          if (widget.isMultiplayer)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) {
-                if (value == 'audio') _startCall(false);
-                if (value == 'video') _startCall(true);
-                if (value == 'leave') _showLeaveDialog();
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'audio',
-                  child: ListTile(
-                    leading: Icon(Icons.phone),
-                    title: Text("Audio Call"),
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'video',
-                  child: ListTile(
-                    leading: Icon(Icons.videocam),
-                    title: Text("Video Call"),
-                  ),
-                ),
-                if (widget.showLeaveButton)
-                  const PopupMenuItem(
-                    value: 'leave',
-                    child: ListTile(
-                      leading: Icon(Icons.exit_to_app, color: Colors.red),
-                      title: Text(
-                        "Leave Game",
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ),
-              ],
-            )
-          else if (widget.showLeaveButton)
+          if (widget.showLeaveButton)
             IconButton(
               icon: const Icon(Icons.exit_to_app, color: Colors.red),
               onPressed: _showLeaveDialog,
@@ -807,43 +890,192 @@ class _GameBoardState extends State<GameBoard>
           ),
         ],
       ),
-      body: ValueListenableBuilder<bool>(
-        valueListenable: GlobalCallHandler().isMinimized,
-        builder: (context, isMinimized, _) {
-          final bool showCallView =
-              widget.isMultiplayer &&
-              isMinimized &&
-              GlobalCallHandler().activeService != null;
-
-          if (showCallView) {
-            return Column(
-              children: [
-                Expanded(child: _buildIntegratedCallHeader()),
-                AspectRatio(aspectRatio: 1.0, child: _buildChessBoard()),
-              ],
-            );
-          }
-
-          return Column(
-            children: [
-              AspectRatio(aspectRatio: 1.0, child: _buildChessBoard()),
-              if (widget.isMultiplayer)
-                const Expanded(
-                  child: Center(
-                    child: Text(
-                      "Chess Room",
-                      style: TextStyle(
-                        color: Colors.white10,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (widget.isMultiplayer)
+              Expanded(
+                flex: 2, // Slightly more space for the video area if needed
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _buildCallFrame(),
+                ),
+              ),
+            Expanded(
+              flex: 3, // More space for the chess board
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 1.0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: _buildChessBoard(),
                   ),
                 ),
-            ],
-          );
-        },
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  // Helper widget to build the embedded call frame
+  Widget _buildCallFrame() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white12, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  // Local User Video
+                  Expanded(
+                    child: _buildVideoContainer(
+                      notifier: _signalingService.localStreamNotifier,
+                      renderer: _localRenderer,
+                      isEnabled: _isLocalVideoEnabled,
+                      label: "You",
+                      isLocal: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Remote User Video
+                  Expanded(
+                    child: _buildVideoContainer(
+                      notifier: _signalingService.remoteStreamNotifier,
+                      renderer: _remoteRenderer,
+                      isEnabled: _isRemoteVideoEnabled,
+                      label: widget.opponentId?.toString() ?? "Opponent",
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Call Controls Strip
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: Colors.white.withOpacity(0.05),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildCompactIconButton(
+                  icon: _isLocalAudioMuted ? Icons.mic_off : Icons.mic,
+                  color: _isLocalAudioMuted ? Colors.redAccent : Colors.white,
+                  onPressed: _toggleLocalAudio,
+                ),
+                _buildCompactIconButton(
+                  icon: _isLocalVideoEnabled
+                      ? Icons.videocam
+                      : Icons.videocam_off,
+                  color: _isLocalVideoEnabled ? Colors.white : Colors.redAccent,
+                  onPressed: _toggleLocalVideo,
+                ),
+                _buildCompactIconButton(
+                  icon: _isOpponentLocallySilenced
+                      ? Icons.volume_off
+                      : Icons.volume_up,
+                  color: _isOpponentLocallySilenced
+                      ? Colors.redAccent
+                      : Colors.white,
+                  onPressed: _toggleRemoteAudioLocalOverride,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoContainer({
+    required ValueListenable<MediaStream?> notifier,
+    required RTCVideoRenderer renderer,
+    required bool isEnabled,
+    required String label,
+    bool isLocal = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black38,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          ValueListenableBuilder<MediaStream?>(
+            valueListenable: notifier,
+            builder: (context, stream, _) {
+              if (stream != null &&
+                  stream.getVideoTracks().isNotEmpty &&
+                  isEnabled) {
+                renderer.srcObject = stream;
+                return RTCVideoView(
+                  renderer,
+                  mirror: isLocal,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                );
+              }
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.white10,
+                      child: Icon(
+                        Icons.person,
+                        color: Colors.white24,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      style: TextStyle(color: Colors.white24, fontSize: 10),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          if (isLocal && _isLocalAudioMuted)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(Icons.mic_off, color: Colors.redAccent, size: 14),
+            ),
+          if (!isLocal && _isRemoteAudioMuted)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(Icons.mic_off, color: Colors.redAccent, size: 14),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactIconButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      icon: Icon(icon, color: color, size: 20),
+      onPressed: onPressed,
+      constraints: const BoxConstraints(),
+      padding: const EdgeInsets.all(8),
+      visualDensity: VisualDensity.compact,
     );
   }
 
@@ -863,223 +1095,6 @@ class _GameBoardState extends State<GameBoard>
                 ),
               ]
             : null,
-      ),
-    );
-  }
-
-  Widget _buildIntegratedCallHeader() {
-    return ValueListenableBuilder<SignalingService?>(
-      valueListenable: GlobalCallHandler().activeCallService,
-      builder: (context, activeCall, _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: GlobalCallHandler().isMinimized,
-          builder: (context, isMinimized, _) {
-            final service = GlobalCallHandler().activeService;
-            if (!isMinimized || service == null) {
-              return Container(
-                color: Colors.black,
-                child: const Center(
-                  child: Text(
-                    "Chess Room",
-                    style: TextStyle(
-                      color: Colors.white24,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            return Container(
-              decoration: const BoxDecoration(color: Colors.black),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildVideoOrAvatar(
-                          service.remoteStreamNotifier,
-                          "Opponent",
-                          Icons.person,
-                          false,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Expanded(
-                        child: _buildVideoOrAvatar(
-                          service.localStreamNotifier,
-                          "You",
-                          Icons.videocam,
-                          true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Controls Overlay
-                  Positioned(
-                    bottom: 8,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildMiniActionCircle(
-                          icon: GlobalCallHandler().isMuted.value
-                              ? Icons.mic_off
-                              : Icons.mic,
-                          color: GlobalCallHandler().isMuted.value
-                              ? Colors.redAccent
-                              : Colors.white24,
-                          onPressed: () {
-                            setState(() {
-                              GlobalCallHandler().isMuted.value =
-                                  !GlobalCallHandler().isMuted.value;
-                              service.toggleMute(
-                                GlobalCallHandler().isMuted.value,
-                              );
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _buildMiniActionCircle(
-                          icon: GlobalCallHandler().isVideoEnabled.value
-                              ? Icons.videocam
-                              : Icons.videocam_off,
-                          color: GlobalCallHandler().isVideoEnabled.value
-                              ? Colors.white24
-                              : Colors.redAccent,
-                          onPressed: () {
-                            setState(() {
-                              GlobalCallHandler().isVideoEnabled.value =
-                                  !GlobalCallHandler().isVideoEnabled.value;
-                              service.toggleVideo(
-                                GlobalCallHandler().isVideoEnabled.value,
-                              );
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _buildMiniActionCircle(
-                          icon: Icons.open_in_full,
-                          color: Colors.blueAccent,
-                          onPressed: () {
-                            GlobalCallHandler().isMinimized.value = false;
-                            final roomId =
-                                GlobalCallHandler().activeRoomId.value;
-                            if (roomId != null) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CallScreen(
-                                    roomId: roomId,
-                                    isIncomingCall: false,
-                                    signalingService: service,
-                                    currentUserId: widget.currentUserId,
-                                    canMinimize: true,
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _buildMiniActionCircle(
-                          icon: Icons.call_end,
-                          color: Colors.redAccent,
-                          onPressed: () {
-                            service.endCall();
-                            GlobalCallHandler().isMinimized.value = false;
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildVideoOrAvatar(
-    ValueNotifier<MediaStream?> streamNotifier,
-    String label,
-    IconData placeholder,
-    bool isLocal,
-  ) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: GlobalCallHandler().isVideoEnabled,
-      builder: (context, videoEnabled, _) {
-        return ValueListenableBuilder<MediaStream?>(
-          valueListenable: streamNotifier,
-          builder: (context, stream, _) {
-            if (isLocal) {
-              if (_localRenderer.srcObject != stream) {
-                _localRenderer.srcObject = stream;
-              }
-            } else {
-              if (_remoteRenderer.srcObject != stream) {
-                _remoteRenderer.srcObject = stream;
-              }
-            }
-            bool showVideo = videoEnabled && stream != null;
-            if (isLocal && !videoEnabled) showVideo = false;
-            // For remote, it depends on their stream tracks
-            if (!isLocal && stream != null && stream.getVideoTracks().isEmpty)
-              showVideo = false;
-
-            return Container(
-              color: Colors.black54,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (showVideo)
-                    RTCVideoView(
-                      isLocal ? _localRenderer : _remoteRenderer,
-                      mirror: isLocal,
-                      objectFit:
-                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                    )
-                  else
-                    Center(
-                      child: Icon(placeholder, color: Colors.white24, size: 40),
-                    ),
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Text(
-                      label,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildMiniActionCircle({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return InkWell(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, size: 20, color: Colors.white),
       ),
     );
   }

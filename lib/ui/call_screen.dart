@@ -546,17 +546,18 @@ class _CallScreenState extends State<CallScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Remote Video (Background)
-          // We show the renderer only if we have a stream AND we have video tracks in it
-          if (_remoteRenderer.srcObject != null &&
-              _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty)
-            Positioned.fill(
-              child: RTCVideoView(
-                _remoteRenderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-              ),
-            )
-          else
+          // Remote video/audio background. keep the renderer in
+          // the widget tree at all times so that audio is routed correctly
+          // even on audio‑only calls.  A placeholder is painted on top when
+          // there's no video track.
+          Positioned.fill(
+            child: RTCVideoView(
+              _remoteRenderer,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            ),
+          ),
+          if (_remoteRenderer.srcObject == null ||
+              _remoteRenderer.srcObject!.getVideoTracks().isEmpty)
             _buildAvatarPlaceholder(),
 
           // Local Video (PiP)
