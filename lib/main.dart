@@ -10,6 +10,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'bottom_navbar.dart';
 import 'package:chess_game_manika/services/permission_service.dart';
+import 'package:chess_game_manika/core/utils/logger.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -32,6 +33,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   // 1. Must ensure bindings are ready for plugins
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Logger first
+  AppLogger.init();
 
   // 2. Initialize Firebase early
   await Firebase.initializeApp();

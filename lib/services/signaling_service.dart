@@ -4,6 +4,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
+import 'package:chess_game_manika/core/utils/logger.dart';
 import 'dart:async';
 
 // typedef StreamStateCallback = void Function(MediaStream stream);
@@ -43,7 +44,7 @@ class SignalingService {
   Stream<bool> get connectionStream => _connectionController.stream;
 
   void _log(String message) {
-    debugPrint('SERVICE_LOG: $message');
+    AppLogger.i('SERVICE_LOG: $message');
     onLog?.call(message);
   }
 

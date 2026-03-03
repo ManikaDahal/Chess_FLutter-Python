@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
+import 'package:chess_game_manika/core/utils/logger.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -45,7 +46,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
     _fcmSubscription = NotificationService.fcmEventStream.listen((data) {
       if (!mounted) return;
 
-      debugPrint("[InviteWaiting] FCM event received: $data");
+      AppLogger.d("[InviteWaiting] FCM event received: $data");
 
       int evRoomId = int.tryParse(data['room_id']?.toString() ?? "0") ?? 0;
 

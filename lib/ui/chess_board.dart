@@ -12,6 +12,7 @@ import '../core/utils/global_callhandler.dart';
 import '../services/game_websocket_service.dart';
 import '../services/signaling_service.dart';
 import '../core/utils/const.dart';
+import 'package:chess_game_manika/core/utils/logger.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 
@@ -77,7 +78,7 @@ class _GameBoardState extends State<GameBoard>
 
     // Listen for incoming calls (Invitee side)
     _incomingCallSub = _signalingService.onIncomingCallStream.listen((_) {
-      print("[GAME CALL] Incoming call received. Auto-accepting...");
+      AppLogger.i("[GAME CALL] Incoming call received. Auto-accepting...");
       _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
       _isCallInitialized = true;
       setState(() {});
@@ -105,18 +106,18 @@ class _GameBoardState extends State<GameBoard>
 
           if (widget.amIWhite) {
             // White (inviter) starts the call immediately after connection is ready
-            print(
+            AppLogger.i(
               "[GAME CALL] ✅ Connected. Auto-starting call as Inviter (White).",
             );
             _signalingService.startCall(isVideo: _isLocalVideoEnabled);
           } else {
             // Black (invitee) waits for incoming call from White and auto-accepts
-            print(
+            AppLogger.i(
               "[GAME CALL] ✅ Connected. Waiting for incoming call as Invitee (Black).",
             );
             _signalingService.onIncomingCallStream.listen((_) {
               if (mounted && _isCallInitialized) {
-                print(
+                AppLogger.i(
                   "[GAME CALL] 📞 Incoming call detected! Auto-accepting as Black...",
                 );
                 _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
@@ -126,7 +127,7 @@ class _GameBoardState extends State<GameBoard>
           setState(() {});
         })
         .catchError((e) {
-          print("[GAME CALL] ❌ Connection failed: $e");
+          AppLogger.e("[GAME CALL] ❌ Connection failed: $e");
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -229,7 +230,7 @@ class _GameBoardState extends State<GameBoard>
       GlobalCallHandler().opponentId.value = widget.opponentId;
       GlobalCallHandler().amIWhite.value = widget.amIWhite;
 
-      print(
+      AppLogger.i(
         "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
       );
 
@@ -244,17 +245,17 @@ class _GameBoardState extends State<GameBoard>
             : int.tryParse(rawRoomId?.toString() ?? "");
 
         if (moveRoomId != null && moveRoomId != widget.roomId) {
-          print("Ignoring move from another room: $moveRoomId");
+          AppLogger.w("Ignoring move from another room: $moveRoomId");
           return;
         }
 
         if (data['type'] == 'move') {
-          print("RECEIVE MOVE [Room ${widget.roomId}]: $data");
+          AppLogger.d("RECEIVE MOVE [Room ${widget.roomId}]: $data");
           final bool isMyMove =
               data['sender_id']?.toString() == widget.currentUserId.toString();
 
           if (isMyMove && !_isSyncing) {
-            print("Ignoring echo of my own move.");
+            AppLogger.d("Ignoring echo of my own move.");
             return;
           }
 
@@ -271,7 +272,7 @@ class _GameBoardState extends State<GameBoard>
             );
           }
         } else if (data['type'] == 'history') {
-          print(
+          AppLogger.i(
             "RECEIVE HISTORY [Room ${widget.roomId}]: ${data['history'].length} moves",
           );
           setState(() {
@@ -284,7 +285,9 @@ class _GameBoardState extends State<GameBoard>
             _isSyncing = false;
           });
         } else if (data['type'] == 'user_left') {
-          print("OPPONENT LEFT [Room ${widget.roomId}]: ${data['user_id']}");
+          AppLogger.w(
+            "OPPONENT LEFT [Room ${widget.roomId}]: ${data['user_id']}",
+          );
           if (data['user_id']?.toString() != widget.currentUserId.toString()) {
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -296,7 +299,7 @@ class _GameBoardState extends State<GameBoard>
             );
           }
         } else if (data['type'] == 'reset') {
-          print("RECEIVE RESET [Room ${widget.roomId}]");
+          AppLogger.i("RECEIVE RESET [Room ${widget.roomId}]");
           setState(() => _initializeBoard());
         }
       });
@@ -416,7 +419,7 @@ class _GameBoardState extends State<GameBoard>
     int? tC = int.tryParse(data['to_col']?.toString() ?? "");
 
     if (fR == null || fC == null || tR == null || tC == null) {
-      print("Error parsing remote move data: $data");
+      AppLogger.e("Error parsing remote move data: $data");
       return;
     }
 
@@ -500,7 +503,7 @@ class _GameBoardState extends State<GameBoard>
         // healthy – if not we will reconnect and flush later.
         if (widget.isMultiplayer) {
           if (_gameService.isConnected) {
-            print(
+            AppLogger.d(
               "SEND MOVE [Room ${widget.roomId}]: (${selectedRow},${selectedCol}) -> ($row,$col)",
             );
             _gameService.sendMove(
@@ -514,7 +517,7 @@ class _GameBoardState extends State<GameBoard>
           } else {
             // start a reconnect attempt; move will be resent when the history
             // message arrives from the server (see _isSyncing flag handling).
-            print("Socket offline, will resend move later");
+            AppLogger.w("Socket offline, will resend move later");
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text("Not connected – trying to reconnect."),
