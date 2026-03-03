@@ -94,10 +94,10 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('FCM: Got a foreground message. Data: ${message.data}');
 
-      // Update status to delivered
-      final String? messageId = message.data['id'];
-      if (messageId != null && messageId.isNotEmpty) {
-        ApiService().updateNotificationStatus(messageId, 'delivered');
+      // Update status to delivered - prefer FCM messageId for tracking
+      final String? trackingId = message.messageId ?? message.data['id'];
+      if (trackingId != null && trackingId.isNotEmpty) {
+        ApiService().updateNotificationStatus(trackingId, 'delivered');
       }
 
       // Forward to ChatProvider for unified processing (deduplication, unread counts, alerts)
@@ -108,10 +108,10 @@ class NotificationService {
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       print('FCM: Notification clicked!');
 
-      // Update status to opened
-      final String? messageId = message.data['id'];
-      if (messageId != null && messageId.isNotEmpty) {
-        ApiService().updateNotificationStatus(messageId, 'opened');
+      // Update status to opened - prefer FCM messageId for tracking
+      final String? trackingId = message.messageId ?? message.data['id'];
+      if (trackingId != null && trackingId.isNotEmpty) {
+        ApiService().updateNotificationStatus(trackingId, 'opened');
       }
 
       _handleFcmPayload(message.data);
@@ -125,10 +125,10 @@ class NotificationService {
           'FCM: App opened from terminated state via notification. Delaying navigation.',
         );
 
-        // Update status to opened
-        final String? messageId = message.data['id'];
-        if (messageId != null && messageId.isNotEmpty) {
-          ApiService().updateNotificationStatus(messageId, 'opened');
+        // Update status to opened - prefer FCM messageId for tracking
+        final String? trackingId = message.messageId ?? message.data['id'];
+        if (trackingId != null && trackingId.isNotEmpty) {
+          ApiService().updateNotificationStatus(trackingId, 'opened');
         }
       }
     });
@@ -289,13 +289,17 @@ class NotificationService {
   /// Register FCM Token with backend
   static Future<void> registerToken() async {
     try {
+      print("FCM [DEBUG]: Requesting token from Firebase...");
       String? token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
-        print("FCM Token: $token");
+        print("FCM [DEBUG]: Token generated: $token");
+        print("FCM [DEBUG]: Sending token to backend (ApiService)...");
         await ApiService().registerFcmToken(token);
+      } else {
+        print("FCM [DEBUG]: FAILED to get FCM token (token is null)");
       }
     } catch (e) {
-      print("Error registering FCM token: $e");
+      print("FCM [DEBUG]: Error during registerToken: $e");
     }
   }
 
