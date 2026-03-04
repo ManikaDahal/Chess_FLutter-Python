@@ -5,6 +5,8 @@ import 'package:chess_game_manika/services/invite_services.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/api_services.dart';
+import 'package:chess_game_manika/services/signaling_service.dart';
+import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -258,28 +260,81 @@ class NotificationService {
             ),
             ElevatedButton(
               onPressed: () async {
-                Navigator.pop(context);
+                Navigator.pop(context); // Close invite dialog
+
+                // Show progress dialog
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const AlertDialog(
+                    content: Row(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(width: 20),
+                        Text("Connecting to call..."),
+                      ],
+                    ),
+                  ),
+                );
+
                 final int? acceptedRoomId = await InviteService().acceptInvites(
                   inviteId,
                 );
-                if (acceptedRoomId != null) {
-                  final SharedPreferences prefs =
-                      await SharedPreferences.getInstance();
-                  final int currentUserId = prefs.getInt('userId') ?? 0;
 
-                  // Navigator navigate to Chess Board
-                  navigatorKey?.currentState?.push(
-                    MaterialPageRoute(
-                      builder: (_) => GameBoard(
-                        roomId: acceptedRoomId,
-                        currentUserId: currentUserId,
-                        isMultiplayer: true,
-                        amIWhite: false, // Receiver is always Black
-                        opponentId: senderId,
-                        showLeaveButton: true,
+                if (acceptedRoomId != null) {
+                  final String callRoomId = "game_call_$acceptedRoomId";
+                  final SignalingService sigService = SignalingService();
+
+                  try {
+                    // Connect to signaling
+                    await sigService.connect(Constants.wsBaseUrl, callRoomId);
+
+                    // Wait for incoming call (as Invitee/Black)
+                    // We expect White to call immediately
+                    bool callEstablished = false;
+                    int handshakeRetries = 0;
+
+                    final sub = sigService.onIncomingCallStream.listen((_) {
+                      sigService.acceptCall(isVideo: false);
+                    });
+
+                    // Poll for remote stream
+                    while (!callEstablished && handshakeRetries < 20) {
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      if (sigService.remoteStreamNotifier.value != null) {
+                        callEstablished = true;
+                      }
+                      handshakeRetries++;
+                    }
+                    sub.cancel();
+
+                    if (context.mounted)
+                      Navigator.pop(context); // Close progress dialog
+
+                    final SharedPreferences prefs =
+                        await SharedPreferences.getInstance();
+                    final int currentUserId = prefs.getInt('userId') ?? 0;
+
+                    // Navigator navigate to Chess Board
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => GameBoard(
+                          roomId: acceptedRoomId,
+                          currentUserId: currentUserId,
+                          isMultiplayer: true,
+                          amIWhite: false, // Receiver is always Black
+                          opponentId: senderId,
+                          showLeaveButton: true,
+                          signalingService: sigService,
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } catch (e) {
+                    if (context.mounted) Navigator.pop(context);
+                    debugPrint("[NOTIF SERVICE] Signaling error: $e");
+                  }
+                } else {
+                  if (context.mounted) Navigator.pop(context);
                 }
               },
               child: const Text("Accept"),

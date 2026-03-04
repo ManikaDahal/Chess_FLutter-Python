@@ -21,7 +21,9 @@ class GameBoard extends StatefulWidget {
   final bool isMultiplayer;
   final bool amIWhite;
   final int? opponentId;
-  final bool showLeaveButton; // New parameter
+  final bool showLeaveButton;
+  final SignalingService? signalingService; // Optional external service
+
   const GameBoard({
     super.key,
     required this.currentUserId,
@@ -29,7 +31,8 @@ class GameBoard extends StatefulWidget {
     this.isMultiplayer = false,
     this.amIWhite = true,
     this.opponentId,
-    this.showLeaveButton = false, // Default to false
+    this.showLeaveButton = false,
+    this.signalingService,
   });
 
   @override
@@ -70,17 +73,29 @@ class _GameBoardState extends State<GameBoard>
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
-  // Auto call setup instead of manual
   void _setupEmbeddedCall() {
     final String callRoomId = "game_call_${widget.roomId}";
-    _signalingService = SignalingService();
+
+    // Reuse external service if provided, otherwise create new one
+    if (widget.signalingService != null) {
+      print("[GAME CALL] Using externally provided SignalingService.");
+      _signalingService = widget.signalingService!;
+      _isCallInitialized = true;
+      // Sync initial state from the service's notifiers
+      _isRemoteAudioMuted = _signalingService.isRemoteMuted.value;
+      _isRemoteVideoEnabled = _signalingService.isRemoteVideoEnabled.value;
+    } else {
+      _signalingService = SignalingService();
+    }
 
     // Listen for incoming calls (Invitee side)
     _incomingCallSub = _signalingService.onIncomingCallStream.listen((_) {
-      print("[GAME CALL] Incoming call received. Auto-accepting...");
-      _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
-      _isCallInitialized = true;
-      setState(() {});
+      if (!_isCallInitialized) {
+        print("[GAME CALL] Incoming call received. Auto-accepting...");
+        _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
+        _isCallInitialized = true;
+        setState(() {});
+      }
     });
 
     // Listen for remote mute state changes
@@ -95,6 +110,12 @@ class _GameBoardState extends State<GameBoard>
         });
       }
     });
+
+    // If already connected/in call (external case), just return
+    if (widget.signalingService != null && _signalingService.isConnected) {
+      print("[GAME CALL] Signaling already connected.");
+      return;
+    }
 
     // Connect to signaling - this now waits for the websocket to actually be ready
     _signalingService
@@ -114,14 +135,7 @@ class _GameBoardState extends State<GameBoard>
             print(
               "[GAME CALL] ✅ Connected. Waiting for incoming call as Invitee (Black).",
             );
-            _signalingService.onIncomingCallStream.listen((_) {
-              if (mounted && _isCallInitialized) {
-                print(
-                  "[GAME CALL] 📞 Incoming call detected! Auto-accepting as Black...",
-                );
-                _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
-              }
-            });
+            // Redundant sub removed, handled by _incomingCallSub above
           }
           setState(() {});
         })
@@ -321,8 +335,10 @@ class _GameBoardState extends State<GameBoard>
     _gameSubscription?.cancel();
     _incomingCallSub?.cancel();
     _customMessageSub?.cancel();
-    _signalingService.endCall(); // End call when leaving game
-    _signalingService.disconnect();
+    if (widget.signalingService == null) {
+      _signalingService.endCall(); // Only end if we own the service
+      _signalingService.disconnect();
+    }
 
     _localRenderer.dispose();
     _remoteRenderer.dispose();
@@ -822,11 +838,8 @@ class _GameBoardState extends State<GameBoard>
                   ),
                   const SizedBox(width: 8),
                   StreamBuilder<bool>(
-                    stream: GlobalCallHandler()
-                        .userSignalingService
-                        ?.connectionStream,
-                    initialData:
-                        GlobalCallHandler().userSignalingService?.isConnected,
+                    stream: _signalingService.connectionStream,
+                    initialData: _signalingService.isConnected,
                     builder: (context, snapshot) =>
                         _buildStatusDot(snapshot.data ?? false, Colors.blue),
                   ),
@@ -1059,6 +1072,29 @@ class _GameBoardState extends State<GameBoard>
               top: 4,
               right: 4,
               child: Icon(Icons.mic_off, color: Colors.redAccent, size: 14),
+            ),
+          if (!isLocal && _isOpponentLocallySilenced)
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.volume_off, color: Colors.redAccent, size: 12),
+                    SizedBox(width: 2),
+                    Text(
+                      "Silenced",
+                      style: TextStyle(color: Colors.redAccent, fontSize: 8),
+                    ),
+                  ],
+                ),
+              ),
             ),
         ],
       ),

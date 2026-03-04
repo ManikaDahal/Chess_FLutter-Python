@@ -24,12 +24,15 @@ class SignalingService {
       ValueNotifier<MediaStream?>(null);
   final ValueNotifier<MediaStream?> localStreamNotifier =
       ValueNotifier<MediaStream?>(null);
+  final ValueNotifier<bool> isRemoteMuted = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> isRemoteVideoEnabled = ValueNotifier<bool>(false);
 
   bool _isCaller = false;
   String? _wsUrl;
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
   bool _isReconnecting = false;
+  bool _isConnecting = false;
   final List<RTCIceCandidate> _remoteCandidatesBuffer = [];
 
   // Deprecated: Use localStreamNotifier and remoteStreamNotifier instead
@@ -130,179 +133,204 @@ class SignalingService {
   Timer? _handshakeTimeout;
 
   Future<void> connect(String wsUrl, String roomId) async {
+    if (_isConnecting) {
+      _log('⚠️ Connection attempt already in progress for room: $roomId');
+      return;
+    }
+
+    _isConnecting = true;
     _wsUrl = wsUrl;
     _currentRoomId = roomId;
+
+    // Reset completer for new connection attempt
+    if (!_readyCompleter.isCompleted) {
+      _readyCompleter.completeError('Aborted by new connection attempt');
+    }
     _readyCompleter = Completer<void>();
 
-    if (_isConnected && !_isReconnecting) {
-      if (_currentRoomId == roomId) {
-        _log('Already connected to room: $roomId');
-        return;
-      } else if (hasActiveCall) {
-        _log(
-          '⚠️ Cannot switch room while call is active (Current: $_currentRoomId, Target: $roomId)',
-        );
-        return;
-      }
-      _log('🔄 Switching room from $_currentRoomId to $roomId');
-    }
-
-    // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
-    final cleanWsUrl = wsUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
-    final url = '$cleanWsUrl/ws/call/$roomId/';
-
-    _log('🌐 Connecting to Signaling: $url (Room: $roomId)');
-
-    // inner helper that actually does one attempt and may throw
-    Future<void> _attempt(Uri uri) async {
-      await _ensurePeerConnection();
-
-      // sanitize fragments or extra characters that might have crept in
-      if (uri.fragment.isNotEmpty) {
-        uri = uri.replace(fragment: '');
-      }
-
-      // Fix: Use proper default ports if not explicitly set
-      if (uri.port == 0) {
-        final port = uri.scheme == 'wss' ? 443 : 80;
-        uri = uri.replace(port: port);
-      }
-
-      _log(
-        '📍 URI Components: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}',
-      );
-
-      // diagnostics probe as before
-      try {
-        final probeScheme = (uri.scheme == 'wss')
-            ? 'https'
-            : (uri.scheme == 'ws' ? 'http' : uri.scheme);
-        final probeUri = uri.replace(scheme: probeScheme);
-        _log('🔎 Probing HTTP endpoint: $probeUri');
-        final resp = await http
-            .get(probeUri)
-            .timeout(const Duration(seconds: 8));
-        _log('🔎 Probe response: ${resp.statusCode}');
-        _log('🔎 Probe headers: ${resp.headers}');
-        final hasUpgrade =
-            resp.headers['upgrade']?.toLowerCase() == 'websocket';
-        if (!hasUpgrade) {
-          final msg =
-              'Server lacks websocket support on this path ('
-              'status ${resp.statusCode})';
-          _log('⚠️ $msg');
-          throw Exception(msg);
-        }
-      } catch (e) {
-        _log('⚠️ Probe failed: $e');
-        rethrow;
-      }
-
-      _channel = WebSocketChannel.connect(uri);
-    }
-
     try {
-      try {
-        await _attempt(Uri.parse(url));
-      } catch (e) {
-        _log(
-          '🔁 First attempt failed (${e.runtimeType}): $e – attempting fallback scheme',
-        );
-        // try flipping wss<->ws, https<->http just in case
-        Uri fallback = Uri.parse(url);
-        if (fallback.scheme == 'wss') {
-          fallback = fallback.replace(scheme: 'ws');
-        } else if (fallback.scheme == 'ws') {
-          fallback = fallback.replace(scheme: 'wss');
+      if (_isConnected && !_isReconnecting) {
+        if (_currentRoomId == roomId) {
+          _log('Already connected to room: $roomId');
+          _isConnecting = false;
+          return;
+        } else if (hasActiveCall) {
+          _log(
+            '⚠️ Cannot switch room while call is active (Current: $_currentRoomId, Target: $roomId)',
+          );
+          _isConnecting = false;
+          return;
         }
+        _log('🔄 Switching room from $_currentRoomId to $roomId');
+      }
+
+      // 🧹 Cleanup previous channel before reconnecting to avoid multiple active streams
+      if (_channel != null) {
+        _log('🧹 Cleaning up previous WebSocket channel');
         try {
-          await _attempt(fallback);
-        } catch (e2) {
-          _log('❌ Both connection attempts failed (${e2.runtimeType}): $e2');
-          // Update status immediately so UI can show error
-          _isConnected = false;
-          _connectionController.add(false);
-          if (!_readyCompleter.isCompleted) {
-            _readyCompleter.completeError('Connection failed: $e2');
+          await _channel!.sink.close();
+        } catch (e) {
+          _log('⚠️ Error closing old channel: $e');
+        }
+        _channel = null;
+      }
+
+      // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
+      final cleanWsUrl = wsUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
+      final url = '$cleanWsUrl/ws/call/$roomId/';
+
+      _log('🌐 Connecting to Signaling: $url (Room: $roomId)');
+
+      // inner helper that actually does one attempt and may throw
+      Future<void> _attempt(Uri uri) async {
+        await _ensurePeerConnection();
+
+        // sanitize fragments or extra characters that might have crept in
+        if (uri.fragment.isNotEmpty) {
+          uri = uri.replace(fragment: '');
+        }
+
+        // Fix: Use proper default ports if not explicitly set
+        if (uri.port == 0) {
+          final port = uri.scheme == 'wss' ? 443 : 80;
+          uri = uri.replace(port: port);
+        }
+
+        _log(
+          '📍 URI Components: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}',
+        );
+
+        // diagnostics probe as before
+        try {
+          final probeScheme = (uri.scheme == 'wss')
+              ? 'https'
+              : (uri.scheme == 'ws' ? 'http' : uri.scheme);
+          final probeUri = uri.replace(scheme: probeScheme);
+          _log('🔎 Probing HTTP endpoint: $probeUri');
+          final resp = await http
+              .get(probeUri)
+              .timeout(const Duration(seconds: 8));
+          _log('🔎 Probe response: ${resp.statusCode}');
+          _log('🔎 Probe headers: ${resp.headers}');
+          final hasUpgrade =
+              resp.headers['upgrade']?.toLowerCase() == 'websocket';
+          if (!hasUpgrade) {
+            final msg =
+                'Server lacks websocket support on this path ('
+                'status ${resp.statusCode})';
+            _log('⚠️ $msg');
+            throw Exception(msg);
           }
-          return; // Stop here if we don't have a channel
+        } catch (e) {
+          _log('⚠️ Probe failed: $e');
+          rethrow;
         }
+
+        _channel = WebSocketChannel.connect(uri);
       }
 
-      if (_channel == null) {
-        _log('❌ WebSocket channel is null after all attempts');
-        if (!_readyCompleter.isCompleted) {
-          _readyCompleter.completeError('Channel is null');
+      try {
+        try {
+          await _attempt(Uri.parse(url));
+        } catch (e) {
+          _log(
+            '🔁 First attempt failed (${e.runtimeType}): $e – attempting fallback scheme',
+          );
+          // try flipping wss<->ws, https<->http just in case
+          Uri fallback = Uri.parse(url);
+          if (fallback.scheme == 'wss') {
+            fallback = fallback.replace(scheme: 'ws');
+          } else if (fallback.scheme == 'ws') {
+            fallback = fallback.replace(scheme: 'wss');
+          }
+          try {
+            await _attempt(fallback);
+          } catch (e2) {
+            _log('❌ Both connection attempts failed (${e2.runtimeType}): $e2');
+            // swallow error so caller does not see exception
+            // connection state remains false; reconnect timer will retry
+          }
         }
-        return;
-      }
-      _handshakeTimeout?.cancel();
-      _handshakeTimeout = Timer(const Duration(seconds: 10), () {
-        _log('⏱️ WebSocket handshake timeout - no response from server');
-        _channel?.sink.close();
-        _handleDisconnect();
-        if (!_readyCompleter.isCompleted) {
-          _readyCompleter.completeError('Handshake timeout');
+
+        _handshakeTimeout?.cancel();
+        _handshakeTimeout = Timer(const Duration(seconds: 10), () {
+          _log('⏱️ WebSocket handshake timeout - no response from server');
+          _channel?.sink.close();
+          _handleDisconnect();
+          if (!_readyCompleter.isCompleted) {
+            _readyCompleter.completeError('Handshake timeout');
+          }
+        });
+
+        if (_channel == null) {
+          throw Exception('WebSocket channel could not be established');
         }
-      });
 
-      bool firstMessageReceived = false;
-      _channel!.stream.listen(
-        (message) {
-          _handshakeTimeout?.cancel();
+        bool firstMessageReceived = false;
+        _channel!.stream.listen(
+          (message) {
+            _handshakeTimeout?.cancel();
 
-          // On first message, mark as truly connected
-          if (!firstMessageReceived) {
-            firstMessageReceived = true;
-            _isConnected = true;
-            _connectionController.add(true);
-            _startHeartbeat();
-            _log('✅ WebSocket Connected to $roomId');
-            // Signal that connection is ready
+            // On first message, mark as truly connected
+            if (!firstMessageReceived) {
+              firstMessageReceived = true;
+              _isConnected = true;
+              _connectionController.add(true);
+              _startHeartbeat();
+              _log('✅ WebSocket Connected to $roomId');
+            }
+
+            // Signal that connection is ready as soon as listener is attached
+            // (Moved out of firstMessageReceived to avoid waiting for a message that may not come)
             if (!_readyCompleter.isCompleted) {
               _readyCompleter.complete();
             }
-          }
 
-          _isReconnecting = false;
-          _handleMessage(message);
-        },
-        onError: (error) {
-          _handshakeTimeout?.cancel();
-          _isConnected = false;
-          _log('❌ WebSocket Error: $error');
-          _handleDisconnect();
-          if (!_readyCompleter.isCompleted) {
-            _readyCompleter.completeError(error);
-          }
-        },
-        onDone: () {
-          _handshakeTimeout?.cancel();
-          _isConnected = false;
-          _log('📡 WebSocket Closed');
-          _connectionController.add(false);
-          _handleDisconnect();
-          if (!_readyCompleter.isCompleted) {
-            _readyCompleter.completeError('WebSocket closed');
-          }
-        },
-      );
+            _isReconnecting = false;
+            _handleMessage(message);
+          },
+          onError: (error) {
+            _handshakeTimeout?.cancel();
+            _isConnected = false;
+            _log('❌ WebSocket Error: $error');
+            _handleDisconnect();
+            if (!_readyCompleter.isCompleted) {
+              _readyCompleter.completeError(error);
+            }
+          },
+          onDone: () {
+            _handshakeTimeout?.cancel();
+            _isConnected = false;
+            _log('📡 WebSocket Closed');
+            _connectionController.add(false);
+            _handleDisconnect();
+            if (!_readyCompleter.isCompleted) {
+              _readyCompleter.completeError('WebSocket closed');
+            }
+          },
+        );
 
-      // NOW actually wait for the connection to be ready before returning
-      await _readyCompleter.future.timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          _log('❌ Connection ready timeout after 15 seconds');
-          throw Exception(
-            'WebSocket connection failed to establish within 15 seconds',
-          );
-        },
-      );
-    } catch (e) {
-      _handshakeTimeout?.cancel();
-      _log('❌ Connection Error during setup: $e');
-      _handleDisconnect();
-      // swallow error to avoid unhandled exceptions at call sites
+        // NOW actually wait for the connection to be ready before returning
+        await _readyCompleter.future.timeout(
+          const Duration(seconds: 15),
+          onTimeout: () {
+            _log('❌ Connection ready timeout after 15 seconds');
+            if (!_readyCompleter.isCompleted) {
+              _readyCompleter.completeError('Timeout');
+            }
+            throw Exception(
+              'WebSocket connection failed to establish within 15 seconds',
+            );
+          },
+        );
+      } catch (e) {
+        _handshakeTimeout?.cancel();
+        _log('❌ Connection Error during setup: $e');
+        _handleDisconnect();
+        // swallow error to avoid unhandled exceptions at call sites
+      }
+    } finally {
+      _isConnecting = false;
     }
   }
 
@@ -312,10 +340,10 @@ class SignalingService {
     _stopHeartbeat();
     _reconnectTimer?.cancel();
 
-    if (_currentRoomId != null && _wsUrl != null) {
+    if (_currentRoomId != null) {
       _isReconnecting = true;
       _reconnectTimer = Timer(const Duration(seconds: 3), () {
-        if (_currentRoomId != null && _wsUrl != null && !_isConnected) {
+        if (_currentRoomId != null && !_isConnected) {
           connect(_wsUrl!, _currentRoomId!);
         }
       });
@@ -430,7 +458,15 @@ class SignalingService {
       await _handleCandidate(data['candidate']);
     } else if (type == 'custom_message') {
       _log('📶 Custom message received: ${data['data']}');
-      _customMessageController.add(Map<String, dynamic>.from(data['data']));
+      final Map<String, dynamic> customData = Map<String, dynamic>.from(
+        data['data'],
+      );
+      if (customData['action'] == 'toggle_mute') {
+        isRemoteMuted.value = customData['isMuted'] ?? false;
+      } else if (customData['action'] == 'toggle_video') {
+        isRemoteVideoEnabled.value = customData['isVideoEnabled'] ?? false;
+      }
+      _customMessageController.add(customData);
     }
   }
 

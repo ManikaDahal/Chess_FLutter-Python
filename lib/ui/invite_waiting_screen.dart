@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
+import 'package:chess_game_manika/services/signaling_service.dart';
+import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,6 +27,9 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
   StreamSubscription? _fcmSubscription;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  final SignalingService _signalingService = SignalingService();
+  bool _isConnectingCall = false;
+  String _statusMessage = "Waiting for opponent to accept...";
 
   @override
   void initState() {
@@ -50,7 +55,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
       int evRoomId = int.tryParse(data['room_id']?.toString() ?? "0") ?? 0;
 
       if (evRoomId == widget.roomId && data['type'] == 'invite_accepted') {
-        _enterGameBoard();
+        _handleInviteAccepted();
       } else if (evRoomId == widget.roomId &&
           data['type'] == 'invite_declined') {
         if (Navigator.canPop(context)) Navigator.pop(context);
@@ -58,16 +63,57 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
     });
   }
 
+  void _handleInviteAccepted() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isConnectingCall = true;
+      _statusMessage = "Establishing call connection...";
+    });
+
+    final String callRoomId = "game_call_${widget.roomId}";
+
+    try {
+      // 1. Connect to signaling
+      await _signalingService.connect(Constants.wsBaseUrl, callRoomId);
+
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = "Starting call...";
+      });
+
+      // 2. Start the call as the Inviter
+      _signalingService.startCall(isVideo: false); // Default to audio
+
+      // 3. Wait for the remote stream to be available (full connection)
+      // We'll use a timer/timeout just in case
+      int retryCount = 0;
+      Timer.periodic(const Duration(milliseconds: 500), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        if (_signalingService.remoteStreamNotifier.value != null ||
+            retryCount > 10) {
+          // Navigating after 5 seconds even if no stream, to avoid soft-lock
+          timer.cancel();
+          _enterGameBoard();
+        }
+        retryCount++;
+      });
+    } catch (e) {
+      debugPrint("[InviteWaiting] Error during signaling setup: $e");
+      _enterGameBoard(); // Fallback: enter anyway if signaling fails
+    }
+  }
+
   Future<void> _enterGameBoard() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final int currentUserId = prefs.getInt('userId') ?? 0;
 
     if (mounted && Navigator.canPop(context)) {
-      Navigator.pop(context);
-    }
-
-    if (mounted && Navigator.canPop(context)) {
-      Navigator.pop(context);
+      Navigator.pop(context); // Pop correctly once
     }
 
     if (NotificationService.navigatorKey?.currentState != null) {
@@ -80,6 +126,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
             amIWhite: true,
             opponentId: widget.targetUserId,
             showLeaveButton: true,
+            signalingService: _signalingService,
           ),
         ),
       );
@@ -137,7 +184,9 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
             ),
             const SizedBox(height: 40),
             Text(
-              "Waiting for Opponent",
+              _isConnectingCall
+                  ? "Invitation Accepted!"
+                  : "Waiting for Opponent",
               style: TextStyle(
                 color: Colors.white.withOpacity(0.9),
                 fontSize: 24,
@@ -147,7 +196,9 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              "Waiting for ${widget.targetUserName} to accept...",
+              _isConnectingCall
+                  ? _statusMessage
+                  : "Waiting for ${widget.targetUserName} to accept...",
               style: TextStyle(
                 color: Colors.white.withOpacity(0.6),
                 fontSize: 16,
