@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/invite_services.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
@@ -6,13 +6,59 @@ import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class NotificationService {
-  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+class NotificationController {
+  /// Use this method to detect when a new notification or a schedule is created
+  @pragma("vm:entry-point")
+  static Future<void> onNotificationCreatedMethod(
+    ReceivedNotification receivedNotification,
+  ) async {}
 
+  /// Use this method to detect every time that a new notification is displayed
+  @pragma("vm:entry-point")
+  static Future<void> onNotificationDisplayedMethod(
+    ReceivedNotification receivedNotification,
+  ) async {}
+
+  /// Use this method to detect if the user dismissed a notification
+  @pragma("vm:entry-point")
+  static Future<void> onDismissActionReceivedMethod(
+    ReceivedAction receivedAction,
+  ) async {
+    final payload = receivedAction.payload;
+    if (payload != null) {
+      final String? trackingId = payload['trackingId'] ?? payload['id'];
+      if (trackingId != null && trackingId.isNotEmpty) {
+        print(
+          "FCM [AwesomeNotification]: Swiped away. Reporting 'closed' for ID: $trackingId",
+        );
+        ApiService().updateNotificationStatus(trackingId, 'closed');
+      }
+    }
+  }
+
+  /// Use this method to detect when the user taps on a notification or action button
+  @pragma("vm:entry-point")
+  static Future<void> onActionReceivedMethod(
+    ReceivedAction receivedAction,
+  ) async {
+    final payload = receivedAction.payload;
+    if (payload != null) {
+      final String? trackingId = payload['trackingId'] ?? payload['id'];
+      if (trackingId != null && trackingId.isNotEmpty) {
+        print(
+          "FCM [AwesomeNotification]: Notification Tapped. Reporting 'opened' for ID: $trackingId",
+        );
+        ApiService().updateNotificationStatus(trackingId, 'opened');
+      }
+
+      NotificationService._handleFcmPayload(Map<String, dynamic>.from(payload));
+    }
+  }
+}
+
+class NotificationService {
   /// Keep a navigator key to allow navigation from anywhere
   static GlobalKey<NavigatorState>? navigatorKey;
   static bool _isLocalInit = false;
@@ -20,58 +66,47 @@ class NotificationService {
   static Future<void> _initLocal() async {
     if (_isLocalInit) return;
 
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
+    await AwesomeNotifications().initialize(
+      null, // default icon
+      [
+        NotificationChannel(
+          channelKey: 'chat_channel',
+          channelName: 'Chat Messages',
+          channelDescription: 'Receive new chat messages',
+          defaultColor: const Color(0xFF9D50BB),
+          ledColor: Colors.white,
+          importance: NotificationImportance.Max,
+          channelShowBadge: true,
+          onlyAlertOnce: true,
+          playSound: true,
+          criticalAlerts: true,
+        ),
+        NotificationChannel(
+          channelKey: 'invitation_channel',
+          channelName: 'Game Invitations',
+          channelDescription: 'Receive chess game invitations',
+          defaultColor: const Color(0xFF9D50BB),
+          ledColor: Colors.white,
+          importance: NotificationImportance.Max,
+          channelShowBadge: true,
+          onlyAlertOnce: true,
+          playSound: true,
+          criticalAlerts: true,
+        ),
+      ],
+      debug: true,
     );
 
-    await _notificationsPlugin.initialize(
-      settings: initSettings,
-      onDidReceiveNotificationResponse: (details) {
-        if (details.payload != null) {
-          try {
-            final payload = jsonDecode(details.payload!);
-            final payloadMap = Map<String, dynamic>.from(payload);
-
-            // Extract trackingId and update backend status to "opened"
-            final String? trackingId =
-                payloadMap['trackingId']?.toString() ??
-                payloadMap['id']?.toString();
-            if (trackingId != null && trackingId.isNotEmpty) {
-              print(
-                "FCM [LocalNotification]: Marking status as opened for ID: $trackingId",
-              );
-              ApiService().updateNotificationStatus(trackingId, 'opened');
-            }
-
-            _handleFcmPayload(payloadMap);
-          } catch (e) {
-            print("Error parsing notification payload: $e");
-          }
-        }
-      },
+    // Set up listeners
+    await AwesomeNotifications().setListeners(
+      onActionReceivedMethod: NotificationController.onActionReceivedMethod,
+      onNotificationCreatedMethod:
+          NotificationController.onNotificationCreatedMethod,
+      onNotificationDisplayedMethod:
+          NotificationController.onNotificationDisplayedMethod,
+      onDismissActionReceivedMethod:
+          NotificationController.onDismissActionReceivedMethod,
     );
-
-    // Create the notification channel explicitly for Android 8.0+
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'chat_channel', // id
-      'Chat Messages', // title
-      description: 'Receive new chat messages', // description
-      importance: Importance.max,
-    );
-
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        _notificationsPlugin
-            .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin
-            >();
-
-    if (androidImplementation != null) {
-      await androidImplementation.createNotificationChannel(channel);
-      print("FCM: Notification Channel 'chat_channel' created.");
-    }
 
     _isLocalInit = true;
   }
@@ -80,21 +115,17 @@ class NotificationService {
     navigatorKey = navKey;
     await _initLocal();
 
-    // Explicitly request permission for Android 13+
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        _notificationsPlugin
-            .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin
-            >();
-
-    if (androidImplementation != null) {
-      await androidImplementation.requestNotificationsPermission();
-    }
+    // Request permissions for AwesomeNotifications
+    await AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
+      if (!isAllowed) {
+        AwesomeNotifications().requestPermissionToSendNotifications();
+      }
+    });
 
     // FCM Setup
     FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-    // Request permissions for iOS/Android 13+
+    // Request permissions for Firebase
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -102,6 +133,14 @@ class NotificationService {
     );
 
     print('FCM: User granted permission: ${settings.authorizationStatus}');
+
+    // Check if permission was denied to report 'blocked' status
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      print(
+        'FCM: Notification permission blocked by user. Reporting to backend.',
+      );
+      ApiService().updateNotificationStatus('permission_blocked', 'blocked');
+    }
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
@@ -137,7 +176,6 @@ class NotificationService {
     });
 
     // Handle notification click when app is terminated
-    // We only LOG here, handle navigation in checkForInitialMessage
     messaging.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
         print(
@@ -271,37 +309,28 @@ class NotificationService {
     );
   }
 
-  /// Show local notification
+  /// Show local notification using AwesomeNotifications
   static Future<void> showNotification({
     required String title,
     required String body,
     required Map<String, dynamic> payload,
   }) async {
     await _initLocal();
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          "chat_channel",
-          "Chat Messages",
-          channelDescription: "Receive new chat messages",
-          importance: Importance.max,
-          priority: Priority.high,
-          ticker: 'ticker',
-          showWhen: true,
-        );
+    final String channelKey = payload['type'] == 'chess_invite'
+        ? 'invitation_channel'
+        : 'chat_channel';
 
-    const NotificationDetails platformDetails = NotificationDetails(
-      android: androidDetails,
-    );
-
-    // Use a unique ID or hash of room_id to avoid overwriting
     int id = int.tryParse(payload['room_id']?.toString() ?? '0') ?? 0;
 
-    await _notificationsPlugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: platformDetails,
-      payload: jsonEncode(payload),
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: id,
+        channelKey: channelKey,
+        title: title,
+        body: body,
+        payload: payload.map((key, value) => MapEntry(key, value.toString())),
+        notificationLayout: NotificationLayout.Default,
+      ),
     );
   }
 

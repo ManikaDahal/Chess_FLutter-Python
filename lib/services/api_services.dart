@@ -125,26 +125,40 @@ class ApiService {
   }
 
   Future<void> updateNotificationStatus(String messageId, String status) async {
-    // Note: This goes to the Render server because it's part of the 'call' app there
     final String renderUrl = Constants.wsBaseUrl.replaceFirst(
       "wss://",
       "https://",
     );
+    final String url = '$renderUrl/api/notifications/update-status/';
     final token = await _storage.getAccessToken();
-    final response = await http.post(
-      Uri.parse('$renderUrl/api/notifications/update-status/'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({"message_id": messageId, "status": status}),
+
+    final body = jsonEncode({"message_id": messageId, "status": status});
+    print(
+      "FCM [ApiService]: Sending status update. URL: $url, Status: $status, ID: $messageId",
     );
 
-    if (response.statusCode == 200) {
-      print("FCM: Notification status updated to $status");
-    } else {
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        print(
+          "FCM [ApiService]: SUCCESS. Status updated to $status for $messageId. Response: ${response.body}",
+        );
+      } else {
+        print(
+          "FCM [ApiService] ERROR: Failed update (Status: ${response.statusCode}). Body: ${response.body}",
+        );
+      }
+    } catch (e) {
       print(
-        "FCM ERROR: Failed to update notification status: ${response.body}",
+        "FCM [ApiService] CRITICAL: Network error during status update: $e",
       );
     }
   }
