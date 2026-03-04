@@ -42,6 +42,15 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      print("BottomNavBar: App resumed, checking notification permissions...");
+      NotificationService.checkAndReportPermission();
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();

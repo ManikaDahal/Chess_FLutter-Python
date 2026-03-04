@@ -126,30 +126,32 @@ class NotificationService {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
 
     // Request permissions for Firebase
-    NotificationSettings settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
 
-    print('FCM: User granted permission: ${settings.authorizationStatus}');
-
-    // Check if permission was denied to report 'blocked' status
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      print(
-        'FCM: Notification permission blocked by user. Reporting to backend.',
-      );
-      ApiService().updateNotificationStatus('permission_blocked', 'blocked');
-    }
+    // Initial check and report
+    await checkAndReportPermission();
 
     // Handle foreground messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+
+    // Handle foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       print('FCM: Got a foreground message. Data: ${message.data}');
 
-      // Update status to delivered - prefer FCM messageId for tracking
+      // Update status - prefer FCM messageId for tracking
       final String? trackingId = message.messageId ?? message.data['id'];
       if (trackingId != null && trackingId.isNotEmpty) {
-        ApiService().updateNotificationStatus(trackingId, 'delivered');
+        // PROACTIVE CHECK: Determine if we should report 'delivered' or 'blocked'
+        NotificationSettings settings = await FirebaseMessaging.instance
+            .getNotificationSettings();
+
+        if (settings.authorizationStatus == AuthorizationStatus.denied) {
+          print(
+            "FCM [onMessage]: Permissions blocked. Reporting 'blocked' for ID: $trackingId",
+          );
+          ApiService().updateNotificationStatus(trackingId, 'blocked');
+        } else {
+          ApiService().updateNotificationStatus(trackingId, 'delivered');
+        }
       }
 
       // Forward to ChatProvider for unified processing (deduplication, unread counts, alerts)
@@ -191,8 +193,32 @@ class NotificationService {
     });
   }
 
+  /// Checks if notification permissions are denied and reports 'blocked' to backend
+  static Future<void> checkAndReportPermission() async {
+    try {
+      NotificationSettings settings = await FirebaseMessaging.instance
+          .getNotificationSettings();
+
+      print(
+        'FCM: Current authorization status: ${settings.authorizationStatus}',
+      );
+
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        print(
+          'FCM: Notification permission blocked by user. Reporting to backend.',
+        );
+        ApiService().updateNotificationStatus('permission_blocked', 'blocked');
+      }
+    } catch (e) {
+      print('FCM: Error checking notification permissions: $e');
+    }
+  }
+
   /// This should be called once the main UI is built to handle terminated state navigation
   static Future<void> checkForInitialMessage() async {
+    // Also check permissions when app starts/resumes
+    await checkAndReportPermission();
+
     RemoteMessage? initialMessage = await FirebaseMessaging.instance
         .getInitialMessage();
 
