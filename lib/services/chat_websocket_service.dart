@@ -49,9 +49,13 @@ class ChatWebsocketService {
 
     try {
       _connectionStateController.add(ConnectionState.connecting);
-      final uri = Uri.parse(url);
+      var uri = Uri.parse(url);
+      // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
+      if (uri.port == 0) {
+        uri = uri.replace(port: uri.scheme == 'wss' ? 443 : 80);
+      }
       print(
-        "ChatWebsocketService: URI: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}",
+        "ChatWebsocketService: URI: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}",
       );
 
       final channel = WebSocketChannel.connect(uri);

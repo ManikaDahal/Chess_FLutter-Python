@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:badges/badges.dart' as badges;
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:flutter/foundation.dart';
@@ -14,6 +16,7 @@ import '../services/signaling_service.dart';
 import '../core/utils/const.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
+import '../services/recording_service.dart';
 
 class GameBoard extends StatefulWidget {
   final int roomId;
@@ -61,17 +64,22 @@ class _GameBoardState extends State<GameBoard>
   late SignalingService _signalingService;
   StreamSubscription? _incomingCallSub;
   StreamSubscription? _customMessageSub;
-  bool _isCallInitialized = false;
+  StreamSubscription? _peerJoinedSub;
+  bool _isCallStarted = false;
+  Timer? _handshakePulseTimer;
+  String _callStatus = "Initializing...";
 
   // Call Controls State
   bool _isLocalAudioMuted = false;
-  bool _isLocalVideoEnabled = false; // Start with Audio only by default
+  bool _isLocalVideoEnabled =
+      true; // CHANGED: Enable video by default for better UX
   bool _isRemoteAudioMuted = false;
   bool _isRemoteVideoEnabled = false;
   bool _isOpponentLocallySilenced = false;
 
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  final RecordingService _recordingService = RecordingService();
 
   void _setupEmbeddedCall() {
     final String callRoomId = "game_call_${widget.roomId}";
@@ -80,7 +88,6 @@ class _GameBoardState extends State<GameBoard>
     if (widget.signalingService != null) {
       print("[GAME CALL] Using externally provided SignalingService.");
       _signalingService = widget.signalingService!;
-      _isCallInitialized = true;
       // Sync initial state from the service's notifiers
       _isRemoteAudioMuted = _signalingService.isRemoteMuted.value;
       _isRemoteVideoEnabled = _signalingService.isRemoteVideoEnabled.value;
@@ -90,11 +97,13 @@ class _GameBoardState extends State<GameBoard>
 
     // Listen for incoming calls (Invitee side)
     _incomingCallSub = _signalingService.onIncomingCallStream.listen((_) {
-      if (!_isCallInitialized) {
+      if (!_isCallStarted) {
         print("[GAME CALL] Incoming call received. Auto-accepting...");
         _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
-        _isCallInitialized = true;
-        setState(() {});
+        _isCallStarted = true;
+        setState(() {
+          _callStatus = "Call Connected";
+        });
       }
     });
 
@@ -108,40 +117,130 @@ class _GameBoardState extends State<GameBoard>
         setState(() {
           _isRemoteVideoEnabled = data['isVideoEnabled'];
         });
+      } else if (data['action'] == 'room_ready') {
+        print("[GAME CALL] 🏢 Peer signaled room_ready!");
+        if (widget.amIWhite &&
+            !_isCallStarted &&
+            _signalingService.isConnected) {
+          print("[GAME CALL] 🚀 Peer is ready! Starting call...");
+          _isCallStarted = true;
+          _signalingService.startCall(isVideo: _isLocalVideoEnabled);
+          setState(() {
+            _callStatus = "Starting call...";
+          });
+        }
       }
     });
 
-    // If already connected/in call (external case), just return
+    _signalingService.prepareMedia(isVideo: _isLocalVideoEnabled);
+
+    // Listen for peer join notifications (to start call as inviter)
+    _peerJoinedSub = _signalingService.onPeerJoinedStream.listen((_) {
+      if (widget.amIWhite && !_isCallStarted && _signalingService.isConnected) {
+        print("[GAME CALL] 📶 Other peer joined! Starting call...");
+        _isCallStarted = true;
+        _signalingService.startCall(isVideo: _isLocalVideoEnabled);
+        setState(() {
+          _callStatus = "Starting call...";
+        });
+      }
+    });
+
+    _signalingService.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
+    _onRemoteStreamChanged(); // Manually trigger once to capture initial state if already connected
+    _connectToSignaling(callRoomId);
+  }
+
+  void _onRemoteStreamChanged() {
+    if (mounted && _signalingService.remoteStreamNotifier.value != null) {
+      setState(() {
+        _callStatus = "Connected";
+      });
+      _startCallRecording();
+    }
+  }
+
+  void _startCallRecording() async {
+    if (_recordingService.hasShownRecordingPopup) return;
+    _recordingService.hasShownRecordingPopup = true;
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: Colors.black87,
+          title: const Row(
+            children: [
+              Icon(Icons.fiber_manual_record, color: Colors.red),
+              SizedBox(width: 10),
+              Text("Recording Started", style: TextStyle(color: Colors.white)),
+            ],
+          ),
+          content: const Text(
+            "Your voice and video is being recorded for security and quality purposes.",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final size = MediaQuery.of(context).size;
+                final roomId = "game_${widget.roomId}";
+
+                Navigator.pop(dialogContext);
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Preparing recording... (Please grant microphone & screen casting permission if asked)",
+                      ),
+                      backgroundColor: Colors.blueAccent,
+                      duration: Duration(seconds: 4),
+                    ),
+                  );
+                }
+
+                Future.delayed(const Duration(milliseconds: 3000), () async {
+                  await _recordingService.startRecording(
+                    roomId,
+                    width: size.width.toInt(),
+                    height: size.height.toInt(),
+                  );
+                });
+              },
+              child: const Text(
+                "OK",
+                style: TextStyle(color: Colors.blueAccent),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _connectToSignaling(String callRoomId) {
+    // If already connected/in call (external case), just trigger handshake
     if (widget.signalingService != null && _signalingService.isConnected) {
-      print("[GAME CALL] Signaling already connected.");
+      print("[GAME CALL] Signaling already connected. Starting handshake...");
+      _startHandshakeSequence();
       return;
     }
 
     // Connect to signaling - this now waits for the websocket to actually be ready
     _signalingService
         .connect(Constants.wsBaseUrl, callRoomId)
-        .then((_) {
-          if (!mounted || _isCallInitialized) return;
-          _isCallInitialized = true;
-
-          if (widget.amIWhite) {
-            // White (inviter) starts the call immediately after connection is ready
-            print(
-              "[GAME CALL] ✅ Connected. Auto-starting call as Inviter (White).",
-            );
-            _signalingService.startCall(isVideo: _isLocalVideoEnabled);
-          } else {
-            // Black (invitee) waits for incoming call from White and auto-accepts
-            print(
-              "[GAME CALL] ✅ Connected. Waiting for incoming call as Invitee (Black).",
-            );
-            // Redundant sub removed, handled by _incomingCallSub above
-          }
-          setState(() {});
+        .then((_) async {
+          if (!mounted) return;
+          _startHandshakeSequence();
         })
         .catchError((e) {
           print("[GAME CALL] ❌ Connection failed: $e");
           if (mounted) {
+            setState(() {
+              _callStatus = "Connection Error";
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text("Call connection error: $e"),
@@ -150,6 +249,45 @@ class _GameBoardState extends State<GameBoard>
             );
           }
         });
+  }
+
+  void _startHandshakeSequence() {
+    if (!mounted) return;
+
+    // NEW: Ensure Pulse timer starts even if already initialized (for reconnects/edge cases)
+    _handshakePulseTimer?.cancel();
+    _handshakePulseTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (mounted && !_isCallStarted && _signalingService.isConnected) {
+        print("[GAME CALL] 💓 Sending periodic room_ready pulse...");
+        _signalingService.sendCustomMessage({'action': 'room_ready'});
+        setState(() {
+          _callStatus = "Waiting for peer...";
+        });
+      } else if (_isCallStarted || !mounted || !_signalingService.isConnected) {
+        timer.cancel();
+      }
+    });
+
+    // Initial immediate signal
+    print("[GAME CALL] 🚀 Sending initial room_ready signal...");
+    _signalingService.sendCustomMessage({'action': 'room_ready'});
+
+    // Update initial status
+    setState(() {
+      _callStatus = widget.amIWhite
+          ? "Handshake started..."
+          : "Waiting for offer...";
+    });
+
+    // If an offer is already pending (race condition), accept it immediately
+    if (!widget.amIWhite && _signalingService.pendingMediaType != null) {
+      print("[GAME CALL] Pending offer found. Accepting immediately.");
+      _isCallStarted = true;
+      _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
+      setState(() {
+        _callStatus = "Call Connected";
+      });
+    }
   }
 
   void _toggleLocalAudio() {
@@ -217,8 +355,13 @@ class _GameBoardState extends State<GameBoard>
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context); // close dialog
-              Navigator.pop(context); // exit GameBoard
+              _recordingService.stopRecording();
+              // Explicitly navigate back to the main bottom nav screen
+              // This ensures that any intermediate loaders (like InviteWaitingScreen) are cleared
+              RouteGenerator.navigateToPageWithoutStack(
+                context,
+                Routes.bottomNavBarRoute,
+              );
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text("Leave", style: TextStyle(color: Colors.white)),
@@ -332,9 +475,15 @@ class _GameBoardState extends State<GameBoard>
 
   @override
   void dispose() {
+    _recordingService.stopRecording();
+    _signalingService.remoteStreamNotifier.removeListener(
+      _onRemoteStreamChanged,
+    );
     _gameSubscription?.cancel();
     _incomingCallSub?.cancel();
     _customMessageSub?.cancel();
+    _peerJoinedSub?.cancel();
+    _handshakePulseTimer?.cancel();
     if (widget.signalingService == null) {
       _signalingService.endCall(); // Only end if we own the service
       _signalingService.disconnect();
@@ -810,123 +959,155 @@ class _GameBoardState extends State<GameBoard>
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: AppBar(
-        leadingWidth: 40,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          children: [
-            Text(
-              _isSyncing
-                  ? "Syncing..."
-                  : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            if (widget.isMultiplayer)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  StreamBuilder<bool>(
-                    stream: _gameService.connectionStream,
-                    initialData: _gameService.isConnected,
-                    builder: (context, snapshot) =>
-                        _buildStatusDot(snapshot.data ?? false),
-                  ),
-                  const SizedBox(width: 8),
-                  StreamBuilder<bool>(
-                    stream: _signalingService.connectionStream,
-                    initialData: _signalingService.isConnected,
-                    builder: (context, snapshot) =>
-                        _buildStatusDot(snapshot.data ?? false, Colors.blue),
-                  ),
-                  const SizedBox(width: 8),
-                  StreamBuilder<bool>(
-                    stream: GlobalCallHandler()
-                        .generalSignalingService
-                        ?.connectionStream,
-                    initialData: GlobalCallHandler()
-                        .generalSignalingService
-                        ?.isConnected,
-                    builder: (context, snapshot) =>
-                        _buildStatusDot(snapshot.data ?? false, Colors.teal),
-                  ),
-                ],
+    final bool isPractice = !widget.isMultiplayer;
+
+    return PopScope(
+      canPop:
+          isPractice, // Allow pop only in practice mode (it's in a tab anyway)
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (!isPractice) {
+          _showLeaveDialog();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: isPractice ? Colors.white : backgroundColor,
+        appBar: AppBar(
+          leadingWidth: isPractice ? 0 : 40,
+          leading: isPractice
+              ? const SizedBox.shrink()
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _showLeaveDialog,
+                ),
+          title: Column(
+            children: [
+              Text(
+                _isSyncing
+                    ? "Syncing..."
+                    : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-          ],
-        ),
-        centerTitle: true,
-        actions: [
-          if (widget.isMultiplayer && !_gameService.isConnected)
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.amber),
-              tooltip: "Retry Connection",
-              onPressed: () {
-                _gameService.connect(widget.roomId);
+              if (widget.isMultiplayer)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    StreamBuilder<bool>(
+                      stream: _gameService.connectionStream,
+                      initialData: _gameService.isConnected,
+                      builder: (context, snapshot) =>
+                          _buildStatusDot(snapshot.data ?? false),
+                    ),
+                    const SizedBox(width: 8),
+                    StreamBuilder<bool>(
+                      stream: _signalingService.connectionStream,
+                      initialData: _signalingService.isConnected,
+                      builder: (context, snapshot) =>
+                          _buildStatusDot(snapshot.data ?? false, Colors.blue),
+                    ),
+                    const SizedBox(width: 8),
+                    StreamBuilder<bool>(
+                      stream: GlobalCallHandler()
+                          .generalSignalingService
+                          ?.connectionStream,
+                      initialData: GlobalCallHandler()
+                          .generalSignalingService
+                          ?.isConnected,
+                      builder: (context, snapshot) =>
+                          _buildStatusDot(snapshot.data ?? false, Colors.teal),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          centerTitle: true,
+          actions: [
+            if (widget.isMultiplayer && !_gameService.isConnected)
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.amber),
+                tooltip: "Retry Connection",
+                onPressed: () {
+                  _gameService.connect(widget.roomId);
+                },
+              ),
+            if (widget.showLeaveButton)
+              IconButton(
+                icon: const Icon(Icons.exit_to_app, color: Colors.red),
+                onPressed: _showLeaveDialog,
+              ),
+            Consumer<ChatProvider>(
+              builder: (_, provider, __) {
+                return badges.Badge(
+                  badgeContent: Text(
+                    provider.getUnreadCount(widget.roomId).toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  showBadge: provider.getUnreadCount(widget.roomId) > 0,
+                  position: badges.BadgePosition.topEnd(top: 0, end: 3),
+                  child: IconButton(
+                    icon: const Icon(Icons.chat),
+                    tooltip: "Messenger",
+                    onPressed: () {
+                      provider.resetUnreadCount(widget.roomId);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatPage(
+                            roomId: widget.roomId,
+                            currentUserId: widget.currentUserId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                );
               },
             ),
-          if (widget.showLeaveButton)
-            IconButton(
-              icon: const Icon(Icons.exit_to_app, color: Colors.red),
-              onPressed: _showLeaveDialog,
-            ),
-          Consumer<ChatProvider>(
-            builder: (_, provider, __) {
-              return badges.Badge(
-                badgeContent: Text(
-                  provider.getUnreadCount(widget.roomId).toString(),
-                  style: const TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                showBadge: provider.getUnreadCount(widget.roomId) > 0,
-                position: badges.BadgePosition.topEnd(top: 0, end: 3),
-                child: IconButton(
-                  icon: const Icon(Icons.chat),
-                  tooltip: "Messenger",
-                  onPressed: () {
-                    provider.resetUnreadCount(widget.roomId);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatPage(
-                          roomId: widget.roomId,
-                          currentUserId: widget.currentUserId,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (widget.isMultiplayer)
-              Expanded(
-                flex: 2, // Slightly more space for the video area if needed
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: _buildCallFrame(),
-                ),
-              ),
-            Expanded(
-              flex: 3, // More space for the chess board
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 1.0,
+          ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              if (widget.isMultiplayer)
+                Expanded(
+                  flex: 2, // Slightly more space for the video area if needed
                   child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: _buildChessBoard(),
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _buildCallFrame(),
                   ),
                 ),
-              ),
-            ),
-          ],
+              // Board Section
+              isPractice
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 20),
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 1.0,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: _buildChessBoard(),
+                          ),
+                        ),
+                      ),
+                    )
+                  : Expanded(
+                      flex: 3, // More space for the chess board
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 1.0,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: _buildChessBoard(),
+                          ),
+                        ),
+                      ),
+                    ),
+              if (isPractice) const Expanded(child: SizedBox.shrink()),
+            ],
+          ),
         ),
       ),
     );
@@ -1054,8 +1235,23 @@ class _GameBoardState extends State<GameBoard>
                     const SizedBox(height: 4),
                     Text(
                       label,
-                      style: TextStyle(color: Colors.white24, fontSize: 10),
+                      style: const TextStyle(
+                        color: Colors.white24,
+                        fontSize: 10,
+                      ),
                     ),
+                    if (!isLocal && stream == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          _callStatus,
+                          style: const TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               );

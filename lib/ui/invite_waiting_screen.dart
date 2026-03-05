@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/signaling_service.dart';
-import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -68,69 +67,36 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
 
     setState(() {
       _isConnectingCall = true;
-      _statusMessage = "Establishing call connection...";
+      _statusMessage = "Advancing to game board...";
     });
 
-    final String callRoomId = "game_call_${widget.roomId}";
-
-    try {
-      // 1. Connect to signaling
-      await _signalingService.connect(Constants.wsBaseUrl, callRoomId);
-
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = "Starting call...";
-      });
-
-      // 2. Start the call as the Inviter
-      _signalingService.startCall(isVideo: false); // Default to audio
-
-      // 3. Wait for the remote stream to be available (full connection)
-      // We'll use a timer/timeout just in case
-      int retryCount = 0;
-      Timer.periodic(const Duration(milliseconds: 500), (timer) {
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
-
-        if (_signalingService.remoteStreamNotifier.value != null ||
-            retryCount > 10) {
-          // Navigating after 5 seconds even if no stream, to avoid soft-lock
-          timer.cancel();
-          _enterGameBoard();
-        }
-        retryCount++;
-      });
-    } catch (e) {
-      debugPrint("[InviteWaiting] Error during signaling setup: $e");
-      _enterGameBoard(); // Fallback: enter anyway if signaling fails
-    }
+    // We navigate immediately. The GameBoard will handle initializing signaling
+    // in its own initState, which is more robust as it owns the cycle.
+    _enterGameBoard();
   }
 
   Future<void> _enterGameBoard() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final int currentUserId = prefs.getInt('userId') ?? 0;
 
-    if (mounted && Navigator.canPop(context)) {
-      Navigator.pop(context); // Pop correctly once
-    }
+    if (!mounted) return;
 
-    if (NotificationService.navigatorKey?.currentState != null) {
-      NotificationService.navigatorKey!.currentState!.push(
-        MaterialPageRoute(
-          builder: (_) => GameBoard(
-            roomId: widget.roomId,
-            currentUserId: currentUserId,
-            isMultiplayer: true,
-            amIWhite: true,
-            opponentId: widget.targetUserId,
-            showLeaveButton: true,
-            signalingService: _signalingService,
-          ),
+    // Use pushReplacement to ENSURE the waiting screen (the loader) is gone
+    // and replaced by the game board in the navigation stack.
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GameBoard(
+          roomId: widget.roomId,
+          currentUserId: currentUserId,
+          isMultiplayer: true,
+          amIWhite: true,
+          opponentId: widget.targetUserId,
+          showLeaveButton: true,
+          signalingService: _signalingService,
         ),
-      );
-    }
+      ),
+    );
   }
 
   @override

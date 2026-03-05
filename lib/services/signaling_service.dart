@@ -17,7 +17,7 @@ class SignalingService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
-  late Completer<void> _readyCompleter;
+  Completer<void>? _readyCompleter;
 
   // ValueNotifiers to allow multiple listeners (e.g. CallScreen and Overlay)
   final ValueNotifier<MediaStream?> remoteStreamNotifier =
@@ -64,6 +64,9 @@ class SignalingService {
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get onCustomMessageStream =>
       _customMessageController.stream;
+
+  final _peerJoinedController = StreamController<void>.broadcast();
+  Stream<void> get onPeerJoinedStream => _peerJoinedController.stream;
 
   // Deprecated: Use streams instead
   @Deprecated('Use onIncomingCallStream')
@@ -143,8 +146,8 @@ class SignalingService {
     _currentRoomId = roomId;
 
     // Reset completer for new connection attempt
-    if (!_readyCompleter.isCompleted) {
-      _readyCompleter.completeError('Aborted by new connection attempt');
+    if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+      _readyCompleter!.completeError('Aborted by new connection attempt');
     }
     _readyCompleter = Completer<void>();
 
@@ -177,7 +180,8 @@ class SignalingService {
 
       // STRICT SANITIZATION: Remove any stray characters like '#' or trailing slashes
       final cleanWsUrl = wsUrl.trim().replaceAll(RegExp(r'[#/]+$'), '');
-      final url = '$cleanWsUrl/ws/call/$roomId/';
+      // REMOVE TRAILING SLASH: consistency with working Game service
+      final url = '$cleanWsUrl/ws/call/$roomId';
 
       _log('🌐 Connecting to Signaling: $url (Room: $roomId)');
 
@@ -205,25 +209,21 @@ class SignalingService {
           final probeScheme = (uri.scheme == 'wss')
               ? 'https'
               : (uri.scheme == 'ws' ? 'http' : uri.scheme);
-          final probeUri = uri.replace(scheme: probeScheme);
-          _log('🔎 Probing HTTP endpoint: $probeUri');
+          // WAKE UP: Hit the root URL (/) instead of the WebSocket path to wake up the server
+          // hitting /ws/call/... via GET often returns 404 even if the server is awake
+          final probeUri = uri.replace(scheme: probeScheme, path: '/');
+          _log('🔎 Probing server root to wake up: $probeUri');
           final resp = await http
               .get(probeUri)
-              .timeout(const Duration(seconds: 8));
+              .timeout(
+                const Duration(seconds: 45),
+              ); // Increased to handle Render wake-up
           _log('🔎 Probe response: ${resp.statusCode}');
-          _log('🔎 Probe headers: ${resp.headers}');
-          final hasUpgrade =
-              resp.headers['upgrade']?.toLowerCase() == 'websocket';
-          if (!hasUpgrade) {
-            final msg =
-                'Server lacks websocket support on this path ('
-                'status ${resp.statusCode})';
-            _log('⚠️ $msg');
-            throw Exception(msg);
-          }
+
+          // If we got ANY response (even 404 for root), the server is definitely awake.
+          // Most Django apps return 200, 301, or 404 for root.
         } catch (e) {
-          _log('⚠️ Probe failed: $e');
-          rethrow;
+          _log('⚠️ Probe failed (server might still be sleeping): $e');
         }
 
         _channel = WebSocketChannel.connect(uri);
@@ -253,12 +253,13 @@ class SignalingService {
         }
 
         _handshakeTimeout?.cancel();
-        _handshakeTimeout = Timer(const Duration(seconds: 10), () {
+        // INCREASED TIMEOUT: 30s to handle Render wake-up and slow upgrades
+        _handshakeTimeout = Timer(const Duration(seconds: 30), () {
           _log('⏱️ WebSocket handshake timeout - no response from server');
           _channel?.sink.close();
           _handleDisconnect();
-          if (!_readyCompleter.isCompleted) {
-            _readyCompleter.completeError('Handshake timeout');
+          if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+            _readyCompleter!.completeError('Handshake timeout');
           }
         });
 
@@ -271,19 +272,17 @@ class SignalingService {
           (message) {
             _handshakeTimeout?.cancel();
 
-            // On first message, mark as truly connected
+            // On first message (e.g. connection_established), mark as truly connected and complete the future
             if (!firstMessageReceived) {
               firstMessageReceived = true;
               _isConnected = true;
               _connectionController.add(true);
               _startHeartbeat();
-              _log('✅ WebSocket Connected to $roomId');
-            }
+              _log('✅ WebSocket Connected to $roomId (Handshake confirmed)');
 
-            // Signal that connection is ready as soon as listener is attached
-            // (Moved out of firstMessageReceived to avoid waiting for a message that may not come)
-            if (!_readyCompleter.isCompleted) {
-              _readyCompleter.complete();
+              if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+                _readyCompleter!.complete();
+              }
             }
 
             _isReconnecting = false;
@@ -294,8 +293,8 @@ class SignalingService {
             _isConnected = false;
             _log('❌ WebSocket Error: $error');
             _handleDisconnect();
-            if (!_readyCompleter.isCompleted) {
-              _readyCompleter.completeError(error);
+            if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+              _readyCompleter!.completeError(error);
             }
           },
           onDone: () {
@@ -304,19 +303,19 @@ class SignalingService {
             _log('📡 WebSocket Closed');
             _connectionController.add(false);
             _handleDisconnect();
-            if (!_readyCompleter.isCompleted) {
-              _readyCompleter.completeError('WebSocket closed');
+            if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+              _readyCompleter!.completeError('WebSocket closed');
             }
           },
         );
 
         // NOW actually wait for the connection to be ready before returning
-        await _readyCompleter.future.timeout(
-          const Duration(seconds: 15),
+        await _readyCompleter!.future.timeout(
+          const Duration(seconds: 60), // Increased to handle Render wake-up
           onTimeout: () {
-            _log('❌ Connection ready timeout after 15 seconds');
-            if (!_readyCompleter.isCompleted) {
-              _readyCompleter.completeError('Timeout');
+            _log('❌ Connection ready timeout after 60 seconds');
+            if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+              _readyCompleter!.completeError('Timeout');
             }
             throw Exception(
               'WebSocket connection failed to establish within 15 seconds',
@@ -350,12 +349,32 @@ class SignalingService {
     }
   }
 
+  DateTime? _lastMessageTime;
+
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
+    _lastMessageTime = DateTime.now();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
-      if (_isConnected && _channel != null) {
-        _log('💓 Sending Heartbeat');
+      if (!_isConnected || _channel == null) return;
+
+      // Check for zombie connection (no message for 60s)
+      final now = DateTime.now();
+      if (_lastMessageTime != null &&
+          now.difference(_lastMessageTime!).inSeconds > 60) {
+        _log(
+          '⚠️ Zombie connection detected (no pong for 60s). Reconnecting...',
+        );
+        _channel?.sink.close();
+        _handleDisconnect();
+        return;
+      }
+
+      _log('💓 Sending Heartbeat');
+      try {
         _channel!.sink.add(jsonEncode({'type': 'ping'}));
+      } catch (e) {
+        _log('❌ Heartbeat send failed: $e');
+        _handleDisconnect();
       }
     });
   }
@@ -432,8 +451,27 @@ class SignalingService {
   }
 
   void _handleMessage(dynamic message) async {
+    _lastMessageTime = DateTime.now();
     final data = jsonDecode(message);
     final type = data['type'];
+
+    if (type == 'pong') {
+      _log('💓 Pong received');
+      return;
+    }
+
+    if (type == 'connection_established') {
+      _log('✅ Server connection handshake verified');
+      return;
+    }
+
+    if (type == 'peer_joined') {
+      if (_inCallSession) {
+        _log('📶 Peer joined notification received');
+      }
+      _peerJoinedController.add(null);
+      return;
+    }
 
     // Ignore self messages
     if (data['sender'] == _channel?.hashCode.toString()) return;
@@ -475,6 +513,12 @@ class SignalingService {
 
   String? get pendingMediaType => _pendingMediaType;
 
+  Future<void> prepareMedia({bool isVideo = true}) async {
+    _log('🏗️ Preparing media (video: $isVideo)');
+    await _ensurePeerConnection();
+    await _setupLocalStream(isVideo: isVideo);
+  }
+
   Future<void> acceptCall({bool isVideo = true}) async {
     if (_pendingOffer == null) {
       _log('No pending offer to accept');
@@ -489,7 +533,17 @@ class SignalingService {
   }
 
   Future<void> _setupLocalStream({bool isVideo = true}) async {
-    if (_localStream != null) return;
+    // If we already have a stream, check if it satisfies the video requirement
+    if (_localStream != null) {
+      bool hasVideo = _localStream!.getVideoTracks().isNotEmpty;
+      if (!isVideo || hasVideo) {
+        _log('♻️ Using existing local stream (Video: $hasVideo)');
+        return;
+      }
+      _log('🔄 Existing stream lacks video; re-acquiring...');
+      await _localStream!.dispose();
+      _localStream = null;
+    }
 
     var micStatus = await Permission.microphone.status;
     if (!micStatus.isGranted) {
