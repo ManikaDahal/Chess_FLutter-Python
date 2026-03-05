@@ -444,6 +444,8 @@ class _GameBoardState extends State<GameBoard>
           ElevatedButton(
             onPressed: () {
               _recordingService.stopRecording();
+              // STOP CALL BEFORE LEAVING
+              _signalingService.endCall();
               // Explicitly navigate back to the main bottom nav screen
               // This ensures that any intermediate loaders (like InviteWaitingScreen) are cleared
               RouteGenerator.navigateToPageWithoutStack(
@@ -539,6 +541,8 @@ class _GameBoardState extends State<GameBoard>
                 duration: Duration(seconds: 3),
               ),
             );
+            // STOP CALL ON OPPONENT DISCONNECT
+            _signalingService.endCall(sendSignal: false);
           }
         } else if (data['type'] == 'reset') {
           print("RECEIVE RESET [Room ${widget.roomId}]");
@@ -548,6 +552,7 @@ class _GameBoardState extends State<GameBoard>
 
       // Initialize ChatProvider for the game room
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         Provider.of<ChatProvider>(
           context,
           listen: false,
@@ -592,6 +597,11 @@ class _GameBoardState extends State<GameBoard>
     if (widget.signalingService == null) {
       _signalingService.endCall(); // Only end if we own the service
       _signalingService.disconnect();
+    } else {
+      // Even if we don't own it, if we're in a call session, we should end it when leaving the board
+      if (_signalingService.inCallSession) {
+        _signalingService.endCall(sendSignal: true);
+      }
     }
 
     _localRenderer.dispose();

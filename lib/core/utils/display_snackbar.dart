@@ -2,13 +2,16 @@ import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:flutter/material.dart';
 
 class DisplaySnackbar {
-  static void show(BuildContext context, String message,
-      {Color backgroundColor =  primaryColor,
-      Color textColor = Colors.white,
-      Duration duration = const Duration(seconds: 3),
-      IconData? icon,
-      bool isError=false
-      , bool isSuccess=false}) {
+  static void show(
+    BuildContext context,
+    String message, {
+    Color backgroundColor = primaryColor,
+    Color textColor = Colors.white,
+    Duration duration = const Duration(seconds: 3),
+    IconData? icon,
+    bool isError = false,
+    bool isSuccess = false,
+  }) {
     final snackBar = SnackBar(
       content: Row(
         children: [
@@ -22,12 +25,14 @@ class DisplaySnackbar {
           ),
         ],
       ),
-      backgroundColor:isError?Colors.red:isSuccess?Colors.green: backgroundColor,
+      backgroundColor: isError
+          ? Colors.red
+          : isSuccess
+          ? Colors.green
+          : backgroundColor,
       duration: duration,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
     );
 
