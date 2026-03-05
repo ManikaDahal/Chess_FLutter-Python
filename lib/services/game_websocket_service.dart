@@ -38,6 +38,8 @@ class GameWebsocketService {
       );
       disconnect();
       // Small pause to allow socket cleanup
+
+      
       await Future.delayed(const Duration(milliseconds: 200));
     }
 

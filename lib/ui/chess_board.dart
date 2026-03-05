@@ -65,8 +65,11 @@ class _GameBoardState extends State<GameBoard>
   StreamSubscription? _incomingCallSub;
   StreamSubscription? _customMessageSub;
   StreamSubscription? _peerJoinedSub;
+  StreamSubscription? _onHangupSub;
+  StreamSubscription? _onCallAcceptedSub;
   bool _isCallStarted = false;
   Timer? _handshakePulseTimer;
+  Timer? _callTimeoutTimer;
   String _callStatus = "Initializing...";
 
   // Call Controls State
@@ -119,50 +122,119 @@ class _GameBoardState extends State<GameBoard>
         });
       } else if (data['action'] == 'room_ready') {
         print("[GAME CALL] 🏢 Peer signaled room_ready!");
-        if (widget.amIWhite &&
-            !_isCallStarted &&
-            _signalingService.isConnected) {
-          print("[GAME CALL] 🚀 Peer is ready! Starting call...");
-          _isCallStarted = true;
-          _signalingService.startCall(isVideo: _isLocalVideoEnabled);
-          setState(() {
-            _callStatus = "Starting call...";
-          });
+        if (widget.amIWhite && !_isCallStarted) {
+          _startCallConnection();
         }
       }
     });
 
-    _signalingService.prepareMedia(isVideo: _isLocalVideoEnabled);
-
     // Listen for peer join notifications (to start call as inviter)
     _peerJoinedSub = _signalingService.onPeerJoinedStream.listen((_) {
-      if (widget.amIWhite && !_isCallStarted && _signalingService.isConnected) {
-        print("[GAME CALL] 📶 Other peer joined! Starting call...");
-        _isCallStarted = true;
-        _signalingService.startCall(isVideo: _isLocalVideoEnabled);
-        setState(() {
-          _callStatus = "Starting call...";
-        });
+      print(
+        "[GAME CALL] 👥 Peer joined! isWhite: ${widget.amIWhite}, _isCallStarted: $_isCallStarted",
+      );
+      if (widget.amIWhite && !_isCallStarted) {
+        _startCallConnection();
       }
     });
 
+    // Listen for hangups (to clean up UI when call ends)
+    _onHangupSub = _signalingService.onHangupStream.listen((_) {
+      print("[GAME CALL] 🛑 Peer hung up. Cleaning up...");
+      setState(() {
+        _isCallStarted = false;
+        _callStatus = "Disconnected";
+        _isRemoteVideoEnabled = false;
+      });
+      _stopCallTimers();
+      _signalingService.endCall(sendSignal: false);
+    });
+
+    _signalingService.localStreamNotifier.addListener(_onLocalStreamChanged);
     _signalingService.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
-    _onRemoteStreamChanged(); // Manually trigger once to capture initial state if already connected
+    _signalingService.remoteMediaTypeNotifier.addListener(
+      _onRemoteMediaTypeChanged,
+    );
+
+    _signalingService.onLog = (msg) => print("[SIGNALING] $msg");
+
+    _onRemoteStreamChanged();
+    _onLocalStreamChanged();
+    _onRemoteMediaTypeChanged();
     _connectToSignaling(callRoomId);
   }
 
+  void _startCallConnection() {
+    print("[GAME CALL] 🚀 Triggering call start...");
+    _isCallStarted = true;
+    _signalingService.startCall(isVideo: _isLocalVideoEnabled);
+    setState(() {
+      _callStatus = "Starting call...";
+    });
+
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted && _callStatus == "Starting call...") {
+        print("[GAME CALL] ⚠️ Call connection timeout. Resetting...");
+        setState(() {
+          _isCallStarted = false;
+          _callStatus = "Waiting for peer...";
+        });
+        _signalingService.endCall(sendSignal: false);
+      }
+    });
+    // Listen for call acceptance (inviter side)
+    _onCallAcceptedSub = _signalingService.onCallAcceptedStream.listen((_) {
+      print("[GAME CALL] ✅ Call accepted by peer! Establishing media...");
+      setState(() {
+        _callStatus = "Establishing media...";
+      });
+    });
+  }
+
+  void _onRemoteMediaTypeChanged() {
+    final mediaType = _signalingService.remoteMediaTypeNotifier.value;
+    if (mounted && mediaType != null) {
+      print("[GAME CALL] 🏢 Remote media type detected: $mediaType");
+      setState(() {
+        _isRemoteVideoEnabled = (mediaType == 'video');
+      });
+    }
+  }
+
+  void _onLocalStreamChanged() {
+    final localStream = _signalingService.localStreamNotifier.value;
+    if (mounted) {
+      if (_localRenderer.srcObject?.id != localStream?.id) {
+        setState(() {
+          _localRenderer.srcObject = localStream;
+        });
+      }
+    }
+  }
+
   void _onRemoteStreamChanged() {
-    if (mounted && _signalingService.remoteStreamNotifier.value != null) {
+    final remoteStream = _signalingService.remoteStreamNotifier.value;
+    if (mounted && remoteStream != null) {
+      if (_remoteRenderer.srcObject?.id != remoteStream.id) {
+        _remoteRenderer.srcObject = remoteStream;
+      }
       setState(() {
         _callStatus = "Connected";
+        // If the stream HAS video tracks, assume it should be visible initially
+        if (remoteStream.getVideoTracks().isNotEmpty) {
+          _isRemoteVideoEnabled = true;
+        }
       });
       _startCallRecording();
     }
   }
 
+  bool _recordingDialogShown = false;
+
   void _startCallRecording() async {
-    if (_recordingService.hasShownRecordingPopup) return;
-    _recordingService.hasShownRecordingPopup = true;
+    if (_recordingDialogShown) return;
+    _recordingDialogShown = true;
 
     if (mounted) {
       showDialog(
@@ -256,14 +328,30 @@ class _GameBoardState extends State<GameBoard>
 
     // NEW: Ensure Pulse timer starts even if already initialized (for reconnects/edge cases)
     _handshakePulseTimer?.cancel();
-    _handshakePulseTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (mounted && !_isCallStarted && _signalingService.isConnected) {
-        print("[GAME CALL] 💓 Sending periodic room_ready pulse...");
-        _signalingService.sendCustomMessage({'action': 'room_ready'});
-        setState(() {
-          _callStatus = "Waiting for peer...";
-        });
-      } else if (_isCallStarted || !mounted || !_signalingService.isConnected) {
+    _handshakePulseTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (!_isCallStarted) {
+        if (_signalingService.isConnected) {
+          print("[GAME CALL] 💓 Sending periodic room_ready pulse...");
+          _signalingService.sendCustomMessage({'action': 'room_ready'});
+          if (_callStatus != "Waiting for peer...") {
+            setState(() {
+              _callStatus = "Waiting for peer...";
+            });
+          }
+        } else {
+          // If not connected to WS yet, show different status
+          if (_callStatus != "Connecting to signaling...") {
+            setState(() {
+              _callStatus = "Connecting to signaling...";
+            });
+          }
+        }
+      } else {
         timer.cancel();
       }
     });
@@ -473,6 +561,13 @@ class _GameBoardState extends State<GameBoard>
     await _remoteRenderer.initialize();
   }
 
+  void _stopCallTimers() {
+    _handshakePulseTimer?.cancel();
+    _callTimeoutTimer?.cancel();
+    _handshakePulseTimer = null;
+    _callTimeoutTimer = null;
+  }
+
   @override
   void dispose() {
     _recordingService.stopRecording();
@@ -483,7 +578,17 @@ class _GameBoardState extends State<GameBoard>
     _incomingCallSub?.cancel();
     _customMessageSub?.cancel();
     _peerJoinedSub?.cancel();
-    _handshakePulseTimer?.cancel();
+    _onHangupSub?.cancel();
+    _onCallAcceptedSub?.cancel();
+    _signalingService.onLog = null;
+    _stopCallTimers();
+    _signalingService.localStreamNotifier.removeListener(_onLocalStreamChanged);
+    _signalingService.remoteStreamNotifier.removeListener(
+      _onRemoteStreamChanged,
+    );
+    _signalingService.remoteMediaTypeNotifier.removeListener(
+      _onRemoteMediaTypeChanged,
+    );
     if (widget.signalingService == null) {
       _signalingService.endCall(); // Only end if we own the service
       _signalingService.disconnect();
@@ -1071,7 +1176,10 @@ class _GameBoardState extends State<GameBoard>
         body: SafeArea(
           child: Column(
             children: [
-              if (widget.isMultiplayer)
+              if (widget.isMultiplayer &&
+                  (_isCallStarted ||
+                      _callStatus == "Waiting for peer..." ||
+                      _callStatus == "Handshake started..."))
                 Expanded(
                   flex: 2, // Slightly more space for the video area if needed
                   child: Padding(
@@ -1212,7 +1320,6 @@ class _GameBoardState extends State<GameBoard>
               if (stream != null &&
                   stream.getVideoTracks().isNotEmpty &&
                   isEnabled) {
-                renderer.srcObject = stream;
                 return RTCVideoView(
                   renderer,
                   mirror: isLocal,
@@ -1234,7 +1341,7 @@ class _GameBoardState extends State<GameBoard>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      label,
+                      label + (isEnabled ? "" : " (Camera Off)"),
                       style: const TextStyle(
                         color: Colors.white24,
                         fontSize: 10,
@@ -1265,9 +1372,16 @@ class _GameBoardState extends State<GameBoard>
             ),
           if (!isLocal && _isRemoteAudioMuted)
             Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(Icons.mic_off, color: Colors.redAccent, size: 14),
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.mic_off, color: Colors.redAccent, size: 16),
+              ),
             ),
           if (!isLocal && _isOpponentLocallySilenced)
             Positioned(

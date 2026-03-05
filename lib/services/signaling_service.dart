@@ -26,6 +26,9 @@ class SignalingService {
       ValueNotifier<MediaStream?>(null);
   final ValueNotifier<bool> isRemoteMuted = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isRemoteVideoEnabled = ValueNotifier<bool>(false);
+  final ValueNotifier<String?> remoteMediaTypeNotifier = ValueNotifier<String?>(
+    null,
+  );
 
   bool _isCaller = false;
   String? _wsUrl;
@@ -35,7 +38,8 @@ class SignalingService {
   bool _isConnecting = false;
   final List<RTCIceCandidate> _remoteCandidatesBuffer = [];
 
-  // Deprecated: Use localStreamNotifier and remoteStreamNotifier instead
+  Completer<void>? _pcCompleter;
+  Completer<void>? _streamCompleter;
   // StreamStateCallback? onLocalStream;
   // StreamStateCallback? onRemoteStream;
   Function(RTCSignalingState)? onSignalingStateChange;
@@ -386,68 +390,94 @@ class SignalingService {
 
   Future<void> _ensurePeerConnection() async {
     if (_peerConnection != null) return;
-    _log('🏗️ Creating new PeerConnection');
-    _peerConnection = await createPeerConnection(_configuration);
+    if (_pcCompleter != null) return _pcCompleter!.future;
 
-    _peerConnection!.onSignalingState = (state) {
-      onSignalingStateChange?.call(state);
-    };
+    _pcCompleter = Completer<void>();
+    try {
+      _log('🏗️ Creating new PeerConnection');
+      _peerConnection = await createPeerConnection(_configuration);
 
-    _peerConnection!.onConnectionState = (state) {
-      _log('Connection State: ${state.name}');
-      onConnectionStateChange?.call(state);
-    };
+      _peerConnection!.onSignalingState = (state) {
+        onSignalingStateChange?.call(state);
+      };
 
-    _peerConnection!.onIceConnectionState = (state) {
-      _log('🧊 ICE Connection State: ${state.name}');
-      if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
-        _startIceRestartTimer();
-      } else if (state ==
-              RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        _stopIceRestartTimer();
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        _log('❌ ICE Connection Failed - attempting restart...');
-        _stopIceRestartTimer();
-        if (_isCaller) _triggerIceRestart();
-      }
-    };
+      _peerConnection!.onConnectionState = (state) {
+        _log('Connection State: ${state.name}');
+        onConnectionStateChange?.call(state);
+      };
 
-    _peerConnection!.onIceGatheringState = (state) {
-      _log('📡 ICE Gathering State: ${state.name}');
-    };
+      _peerConnection!.onIceConnectionState = (state) {
+        _log('🧊 ICE Connection State: ${state.name}');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
+          _startIceRestartTimer();
+        } else if (state ==
+                RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          _stopIceRestartTimer();
+        } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+          _log('❌ ICE Connection Failed - attempting restart...');
+          _stopIceRestartTimer();
+          if (_isCaller) _triggerIceRestart();
+        }
+      };
 
-    _peerConnection!.onIceCandidate = (candidate) {
-      if (candidate.candidate != null) {
-        String type = "unknown";
-        if (candidate.candidate!.contains("typ host")) type = "HOST (Local)";
-        if (candidate.candidate!.contains("typ srflx"))
-          type = "SRFLX (Public IP)";
-        if (candidate.candidate!.contains("typ relay"))
-          type = "RELAY (TURN Server)";
+      _peerConnection!.onIceGatheringState = (state) {
+        _log('📡 ICE Gathering State: ${state.name}');
+      };
 
-        _log('🧊 Local ICE Candidate: $type');
-        _sendSignal({
-          'type': 'new_ice_candidate',
-          'candidate': {
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-          },
-        });
-      }
-    };
+      _peerConnection!.onIceCandidate = (candidate) {
+        if (candidate.candidate != null) {
+          String type = "unknown";
+          if (candidate.candidate!.contains("typ host")) type = "HOST (Local)";
+          if (candidate.candidate!.contains("typ srflx")) {
+            type = "SRFLX (Public IP)";
+          }
+          if (candidate.candidate!.contains("typ relay")) {
+            type = "RELAY (TURN Server)";
+          }
 
-    _peerConnection!.onTrack = (event) {
-      _log(
-        '🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}',
-      );
-      if (event.streams.isNotEmpty) {
-        _remoteStream = event.streams[0];
-        remoteStreamNotifier.value = _remoteStream;
-        // onRemoteStream?.call(_remoteStream!);
-      }
-    };
+          _log('🧊 Local ICE Candidate: $type');
+          _sendSignal({
+            'type': 'new_ice_candidate',
+            'candidate': {
+              'candidate': candidate.candidate,
+              'sdpMid': candidate.sdpMid,
+              'sdpMLineIndex': candidate.sdpMLineIndex,
+            },
+          });
+        }
+      };
+
+      _peerConnection!.onAddStream = (MediaStream stream) {
+        _log('🚞 onAddStream: ${stream.id}');
+        if (_remoteStream == null || _remoteStream!.id != stream.id) {
+          _remoteStream = stream;
+          remoteStreamNotifier.value = null; // force update
+          remoteStreamNotifier.value = stream;
+        }
+      };
+
+      _peerConnection!.onTrack = (event) {
+        _log(
+          '🚞 onTrack: Kind=${event.track.kind}, Streams=${event.streams.length}',
+        );
+        if (event.streams.isNotEmpty) {
+          final stream = event.streams[0];
+          if (_remoteStream == null || _remoteStream!.id != stream.id) {
+            _remoteStream = stream;
+            remoteStreamNotifier.value = null; // force update
+            remoteStreamNotifier.value = _remoteStream;
+          }
+        } else {
+          _log('🚞 onTrack: Streams empty. Expecting onAddStream...');
+        }
+      };
+      _pcCompleter!.complete();
+    } catch (e) {
+      _pcCompleter!.completeError(e);
+      _pcCompleter = null;
+      rethrow;
+    }
   }
 
   void _handleMessage(dynamic message) async {
@@ -473,20 +503,30 @@ class SignalingService {
       return;
     }
 
-    // Ignore self messages
-    if (data['sender'] == _channel?.hashCode.toString()) return;
-
     _log('RX: $type');
 
     if (type == 'call_offer') {
+      _log('📶 Incoming call offer received (InSession: $_inCallSession)');
       _pendingOffer = data['offer'];
       _pendingMediaType = data['mediaType'] ?? 'video';
-      _incomingCallController.add(null);
-      onIncomingCall?.call(); // Still call deprecated if set
+      remoteMediaTypeNotifier.value = _pendingMediaType;
+      if (_inCallSession) {
+        await _handleOffer(
+          _pendingOffer!,
+          isVideo: _localStream?.getVideoTracks().isNotEmpty ?? true,
+        );
+      } else {
+        _incomingCallController.add(null);
+        onIncomingCall?.call(); // Still call deprecated if set
+      }
     } else if (type == 'call_answer') {
       _log('📶 Call accepted signal received');
       _callAcceptedController.add(null);
       onCallAccepted?.call(); // Still call deprecated if set
+      final mediaType = data['mediaType'] as String?;
+      if (mediaType != null) {
+        remoteMediaTypeNotifier.value = mediaType;
+      }
       await _handleAnswer(data['answer']);
     } else if (type == 'call_hangup') {
       _log('📶 Peer hung up signal received');
@@ -527,103 +567,125 @@ class SignalingService {
 
     await _ensurePeerConnection();
     await _setupLocalStream(isVideo: isVideo);
-    _inCallSession = true;
-    await _handleOffer(_pendingOffer!);
-    _pendingOffer = null;
+    if (_pendingOffer != null) {
+      _inCallSession = true;
+      await _handleOffer(_pendingOffer!, isVideo: isVideo);
+      _pendingOffer = null;
+    }
   }
 
   Future<void> _setupLocalStream({bool isVideo = true}) async {
-    // If we already have a stream, check if it satisfies the video requirement
-    if (_localStream != null) {
-      bool hasVideo = _localStream!.getVideoTracks().isNotEmpty;
-      if (!isVideo || hasVideo) {
-        _log('♻️ Using existing local stream (Video: $hasVideo)');
-        return;
-      }
-      _log('🔄 Existing stream lacks video; re-acquiring...');
-      await _localStream!.dispose();
-      _localStream = null;
-    }
+    if (_streamCompleter != null) return _streamCompleter!.future;
+    _streamCompleter = Completer<void>();
 
-    var micStatus = await Permission.microphone.status;
-    if (!micStatus.isGranted) {
-      micStatus = await Permission.microphone.request();
+    try {
+      // If we already have a stream, check if it satisfies the video requirement
+      if (_localStream != null) {
+        bool hasVideo = _localStream!.getVideoTracks().isNotEmpty;
+        if (!isVideo || hasVideo) {
+          _log('♻️ Using existing local stream (Video: $hasVideo)');
+          _streamCompleter!.complete();
+          return;
+        }
+        _log('🔄 Existing stream lacks video; re-acquiring...');
+        await _localStream!.dispose();
+        _localStream = null;
+      }
+
+      var micStatus = await Permission.microphone.status;
       if (!micStatus.isGranted) {
-        _log('Microphone permission denied');
-        throw Exception('Microphone permission is required for calls.');
-      }
-    }
-
-    if (isVideo) {
-      var camStatus = await Permission.camera.status;
-      if (!camStatus.isGranted) {
-        camStatus = await Permission.camera.request();
-        if (!camStatus.isGranted) {
-          _log('⚠️ Camera permission denied');
+        micStatus = await Permission.microphone.request();
+        if (!micStatus.isGranted) {
+          _log('Microphone permission denied');
+          throw Exception('Microphone permission is required for calls.');
         }
       }
-    }
 
-    final mediaConstraints = {
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-      },
-      'video': isVideo
-          ? {
-              'facingMode': 'user',
-              'width': '640',
-              'height': '480',
-              'frameRate': '30',
-            }
-          : false,
-    };
-
-    int attempts = 0;
-    while (attempts < 2) {
-      try {
-        _localStream = await navigator.mediaDevices.getUserMedia(
-          mediaConstraints,
-        );
-        localStreamNotifier.value = _localStream;
-        _log('✅ Got Local Stream: ${_localStream!.id}');
-        // onLocalStream?.call(_localStream!); // Deprecated
-
-        _localStream!.getTracks().forEach((track) {
-          _peerConnection!.addTrack(track, _localStream!);
-        });
-
-        final transceivers = await _peerConnection!.getTransceivers();
-        for (var t in transceivers) {
-          final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
-          if (kind == 'audio' || kind == 'video') {
-            await t.setDirection(TransceiverDirection.SendRecv);
+      if (isVideo) {
+        var camStatus = await Permission.camera.status;
+        if (!camStatus.isGranted) {
+          camStatus = await Permission.camera.request();
+          if (!camStatus.isGranted) {
+            _log('⚠️ Camera permission denied');
           }
         }
-        return;
-      } catch (e) {
-        attempts++;
-        _log('❌ getUserMedia Trial $attempts Failed: $e');
-        if (attempts >= 2) {
-          throw Exception(
-            'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.',
+      }
+
+      final mediaConstraints = {
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': isVideo
+            ? {
+                'facingMode': 'user',
+                'width': '640',
+                'height': '480',
+                'frameRate': '30',
+              }
+            : false,
+      };
+
+      int attempts = 0;
+      while (attempts < 2) {
+        try {
+          _localStream = await navigator.mediaDevices.getUserMedia(
+            mediaConstraints,
           );
+          localStreamNotifier.value = _localStream;
+          _log('✅ Got Local Stream: ${_localStream!.id}');
+          // onLocalStream?.call(_localStream!); // Deprecated
+
+          _localStream!.getTracks().forEach((track) {
+            // Deduplicate: check if track doesn't exist already
+            _peerConnection!.addTrack(track, _localStream!);
+          });
+
+          final transceivers = await _peerConnection!.getTransceivers();
+          for (var t in transceivers) {
+            final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
+            if (kind == 'audio' || kind == 'video') {
+              await t.setDirection(TransceiverDirection.SendRecv);
+            }
+          }
+          _streamCompleter!.complete();
+          return;
+        } catch (e) {
+          attempts++;
+          _log('❌ getUserMedia Trial $attempts Failed: $e');
+          if (attempts >= 2) {
+            throw Exception(
+              'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.',
+            );
+          }
         }
       }
+    } catch (e) {
+      _streamCompleter!.completeError(e);
+      _streamCompleter = null;
+      rethrow;
+    } finally {
+      _streamCompleter = null; // Reset for toggling video later if needed
     }
   }
 
-  Future<void> _handleOffer(Map<String, dynamic> offerData) async {
+  Future<void> _handleOffer(
+    Map<String, dynamic> offerData, {
+    bool isVideo = true,
+  }) async {
     await _ensurePeerConnection();
-    _log('📨 Handling Offer: ${offerData['type']}');
+    _log('📨 Handling Offer: ${offerData['type']} (Video: $isVideo)');
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(offerData['sdp'], offerData['type']),
     );
     _isRemoteDescriptionSet = true;
 
     final constraints = {
-      'mandatory': {'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true},
+      'mandatory': {
+        'OfferToReceiveAudio': true,
+        'OfferToReceiveVideo': isVideo,
+      },
       'optional': [],
     };
     final answer = await _peerConnection!.createAnswer(constraints);
@@ -632,6 +694,7 @@ class SignalingService {
     _sendSignal({
       'type': 'call_answer',
       'answer': {'type': answer.type, 'sdp': answer.sdp},
+      'mediaType': isVideo ? 'video' : 'audio',
     });
     _drainRemoteCandidates();
   }
@@ -711,10 +774,6 @@ class SignalingService {
 
   void _sendSignal(Map<String, dynamic> data) {
     if (_channel != null) {
-      // Add sender hash if not present to avoid reflecting self-messages
-      if (!data.containsKey('sender')) {
-        data['sender'] = _channel?.hashCode.toString();
-      }
       _log('TX: ${data['type']}');
       _channel!.sink.add(jsonEncode(data));
     } else {
@@ -752,6 +811,10 @@ class SignalingService {
         final videoTrack = videoStream.getVideoTracks()[0];
         await _localStream!.addTrack(videoTrack);
         _peerConnection!.addTrack(videoTrack, _localStream!);
+
+        // TRIGGER REBUILD
+        localStreamNotifier.value = null;
+        localStreamNotifier.value = _localStream;
 
         final offer = await _peerConnection!.createOffer();
         await _peerConnection!.setLocalDescription(offer);
