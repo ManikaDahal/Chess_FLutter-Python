@@ -27,7 +27,8 @@ class _UserListState extends State<UserList> {
   @override
   void initState() {
     super.initState();
-    _usersFuture = _apiService.getUsers();
+    // Delay the API call slightly to allow the UI navigation transition to finish smoothly
+    _usersFuture = Future.microtask(() => _apiService.getUsers());
   }
 
   void _startChat(int targetUserId) async {
@@ -113,9 +114,16 @@ class _UserListState extends State<UserList> {
             MaterialPageRoute(
               builder: (_) => InviteWaitingScreen(
                 targetUserId: targetUserId,
-                targetUserName: targetUserName, // Need to pass username
+                targetUserName: targetUserName,
                 roomId: roomId,
               ),
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Unable to establish game room. Please try again."),
+              backgroundColor: Colors.orange,
             ),
           );
         }
@@ -129,6 +137,11 @@ class _UserListState extends State<UserList> {
       }
     } catch (e) {
       print("Error starting chess game: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {

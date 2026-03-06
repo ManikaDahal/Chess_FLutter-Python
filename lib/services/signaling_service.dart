@@ -103,13 +103,7 @@ class SignalingService {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:3478'},
       {'urls': 'stun:stun2.l.google.com:19302'},
-      {'urls': 'stun:stun2.l.google.com:3478'},
-      {'urls': 'stun:stun3.l.google.com:19302'},
-      {'urls': 'stun:stun3.l.google.com:3478'},
-      {'urls': 'stun:stun4.l.google.com:19302'},
-      {'urls': 'stun:stun4.l.google.com:3478'},
       {'urls': 'stun:stun.services.mozilla.com'},
       {
         'urls': [
@@ -280,7 +274,9 @@ class SignalingService {
             if (!firstMessageReceived) {
               firstMessageReceived = true;
               _isConnected = true;
-              _connectionController.add(true);
+              if (!_connectionController.isClosed) {
+                _connectionController.add(true);
+              }
               _startHeartbeat();
               _log('✅ WebSocket Connected to $roomId (Handshake confirmed)');
 
@@ -305,7 +301,9 @@ class SignalingService {
             _handshakeTimeout?.cancel();
             _isConnected = false;
             _log('📡 WebSocket Closed');
-            _connectionController.add(false);
+            if (!_connectionController.isClosed) {
+              _connectionController.add(false);
+            }
             _handleDisconnect();
             if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
               _readyCompleter!.completeError('WebSocket closed');
@@ -450,11 +448,10 @@ class SignalingService {
 
       _peerConnection!.onAddStream = (MediaStream stream) {
         _log('🚞 onAddStream: ${stream.id}');
-        if (_remoteStream == null || _remoteStream!.id != stream.id) {
-          _remoteStream = stream;
-          remoteStreamNotifier.value = null; // force update
-          remoteStreamNotifier.value = stream;
-        }
+        // Always assign and update the notifier so UI components refresh
+        _remoteStream = stream;
+        remoteStreamNotifier.value = null; // force update
+        remoteStreamNotifier.value = stream;
       };
 
       _peerConnection!.onTrack = (event) {
@@ -463,11 +460,11 @@ class SignalingService {
         );
         if (event.streams.isNotEmpty) {
           final stream = event.streams[0];
-          if (_remoteStream == null || _remoteStream!.id != stream.id) {
-            _remoteStream = stream;
-            remoteStreamNotifier.value = null; // force update
-            remoteStreamNotifier.value = _remoteStream;
-          }
+          // Always assign and update the notifier so UI components refresh, especially
+          // when a new video track is added to the same existing stream ID.
+          _remoteStream = stream;
+          remoteStreamNotifier.value = null; // force update
+          remoteStreamNotifier.value = _remoteStream;
         } else {
           _log('🚞 onTrack: Streams empty. Expecting onAddStream...');
         }
@@ -499,7 +496,9 @@ class SignalingService {
       if (_inCallSession) {
         _log('📶 Peer joined notification received');
       }
-      _peerJoinedController.add(null);
+      if (!_peerJoinedController.isClosed) {
+        _peerJoinedController.add(null);
+      }
       return;
     }
 
@@ -516,12 +515,16 @@ class SignalingService {
           isVideo: _localStream?.getVideoTracks().isNotEmpty ?? true,
         );
       } else {
-        _incomingCallController.add(null);
+        if (!_incomingCallController.isClosed) {
+          _incomingCallController.add(null);
+        }
         onIncomingCall?.call(); // Still call deprecated if set
       }
     } else if (type == 'call_answer') {
       _log('📶 Call accepted signal received');
-      _callAcceptedController.add(null);
+      if (!_callAcceptedController.isClosed) {
+        _callAcceptedController.add(null);
+      }
       onCallAccepted?.call(); // Still call deprecated if set
       final mediaType = data['mediaType'] as String?;
       if (mediaType != null) {
@@ -530,7 +533,9 @@ class SignalingService {
       await _handleAnswer(data['answer']);
     } else if (type == 'call_hangup') {
       _log('📶 Peer hung up signal received');
-      _hangupController.add(null);
+      if (!_hangupController.isClosed) {
+        _hangupController.add(null);
+      }
       onHangup?.call(); // Still call deprecated if set
     } else if (type == 'new_ice_candidate') {
       await _handleCandidate(data['candidate']);
@@ -544,7 +549,9 @@ class SignalingService {
       } else if (customData['action'] == 'toggle_video') {
         isRemoteVideoEnabled.value = customData['isVideoEnabled'] ?? false;
       }
-      _customMessageController.add(customData);
+      if (!_customMessageController.isClosed) {
+        _customMessageController.add(customData);
+      }
     }
   }
 
@@ -684,7 +691,7 @@ class SignalingService {
     final constraints = {
       'mandatory': {
         'OfferToReceiveAudio': true,
-        'OfferToReceiveVideo': isVideo,
+        'OfferToReceiveVideo': true, // Always negotiate video channel
       },
       'optional': [],
     };
@@ -757,7 +764,7 @@ class SignalingService {
     final constraints = {
       'mandatory': {
         'OfferToReceiveAudio': true,
-        'OfferToReceiveVideo': isVideo,
+        'OfferToReceiveVideo': true, // Always negotiate video channel
       },
       'optional': [],
     };
@@ -773,11 +780,17 @@ class SignalingService {
   }
 
   void _sendSignal(Map<String, dynamic> data) {
-    if (_channel != null) {
-      _log('TX: ${data['type']}');
-      _channel!.sink.add(jsonEncode(data));
+    if (_channel != null && _isConnected) {
+      try {
+        _log('TX: ${data['type']}');
+        _channel!.sink.add(jsonEncode(data));
+      } catch (e) {
+        _log('Error sending signal (channel might be closed): $e');
+      }
     } else {
-      _log('Error: Channel is null, cannot send ${data['type']}');
+      _log(
+        'Error: Channel is null or disconnected, cannot send ${data['type']}',
+      );
     }
   }
 

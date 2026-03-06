@@ -21,7 +21,12 @@ class VideoService {
     };
   }
 
-  Future<List<GameVideo>> getVideos() async {
+  List<GameVideo>? _cachedVideos;
+
+  Future<List<GameVideo>> getVideos({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedVideos != null) {
+      return _cachedVideos!;
+    }
     try {
       final headers = await _headers();
       final response = await http.get(
@@ -31,7 +36,8 @@ class VideoService {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
-        return data.map((json) => GameVideo.fromJson(json)).toList();
+        _cachedVideos = data.map((json) => GameVideo.fromJson(json)).toList();
+        return _cachedVideos!;
       } else {
         throw Exception('Failed to load videos: ${response.statusCode}');
       }

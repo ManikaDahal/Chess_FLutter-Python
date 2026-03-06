@@ -59,6 +59,8 @@ class _GameBoardState extends State<GameBoard>
 
   final GameWebsocketService _gameService = GameWebsocketService();
   StreamSubscription? _gameSubscription;
+  StreamSubscription? _gameConnSub;
+  StreamSubscription? _signalingConnSub;
 
   // Embedded Call Variables
   late SignalingService _signalingService;
@@ -73,12 +75,12 @@ class _GameBoardState extends State<GameBoard>
   String _callStatus = "Initializing...";
 
   // Call Controls State
-  bool _isLocalAudioMuted = false;
-  bool _isLocalVideoEnabled =
-      true; // CHANGED: Enable video by default for better UX
+  bool _isLocalAudioMuted = false; // Microphone ON by default
+  bool _isLocalVideoEnabled = false; // Camera OFF by default
   bool _isRemoteAudioMuted = false;
   bool _isRemoteVideoEnabled = false;
   bool _isOpponentLocallySilenced = false;
+  bool _amISilencedByOpponent = false; // New: signaled by peer
 
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
@@ -119,6 +121,10 @@ class _GameBoardState extends State<GameBoard>
       } else if (data['action'] == 'toggle_video') {
         setState(() {
           _isRemoteVideoEnabled = data['isVideoEnabled'];
+        });
+      } else if (data['action'] == 'local_silence_toggle') {
+        setState(() {
+          _amISilencedByOpponent = data['isSilenced'];
         });
       } else if (data['action'] == 'room_ready') {
         print("[GAME CALL] 🏢 Peer signaled room_ready!");
@@ -394,67 +400,82 @@ class _GameBoardState extends State<GameBoard>
       _isLocalVideoEnabled = !_isLocalVideoEnabled;
     });
     _signalingService.toggleVideo(_isLocalVideoEnabled);
+    _onLocalStreamChanged(); // Force the renderer to pick up the enabled/disabled stream state
     _signalingService.sendCustomMessage({
       'action': 'toggle_video',
       'isVideoEnabled': _isLocalVideoEnabled,
     });
-
-    // Send state to peer so they know we turned video on
   }
 
   void _toggleRemoteAudioLocalOverride() {
-    // This allows muting the opponent LOCALLY so we don't hear them, regardless of their own mute state
+    setState(() {
+      _isOpponentLocallySilenced = !_isOpponentLocallySilenced;
+    });
+
+    // Mute/Unmute the remote audio tracks locally so the opponent cannot be heard.
     final remoteStream = _signalingService.remoteStreamNotifier.value;
     if (remoteStream != null) {
-      bool currentlyEnabled =
-          remoteStream.getAudioTracks().isNotEmpty &&
-          remoteStream.getAudioTracks().first.enabled;
-      remoteStream.getAudioTracks().forEach((track) {
-        track.enabled = !currentlyEnabled;
-      });
-
-      setState(() {
-        _isOpponentLocallySilenced = currentlyEnabled;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            currentlyEnabled
-                ? "Opponent silenced locally"
-                : "Opponent unsilenced locally",
-          ),
-          duration: const Duration(seconds: 1),
-        ),
-      );
+      for (var track in remoteStream.getAudioTracks()) {
+        track.enabled = !_isOpponentLocallySilenced;
+      }
     }
+
+    // Notify peer so they see the "Silenced" indicator
+    _signalingService.sendCustomMessage({
+      'action': 'local_silence_toggle',
+      'isSilenced': _isOpponentLocallySilenced,
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _isOpponentLocallySilenced
+              ? "Opponent silenced locally"
+              : "Opponent unsilenced locally",
+        ),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   void _showLeaveDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Leave Game?"),
-        content: const Text("Are you sure you want to leave this room?"),
+        backgroundColor: backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text(
+          "Resign Game?",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          "Are you sure you want to leave? If you leave now, your opponent will win the game.",
+          style: TextStyle(color: Colors.white70),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: const Text("Keep Playing"),
           ),
           ElevatedButton(
             onPressed: () {
               _recordingService.stopRecording();
-              // STOP CALL BEFORE LEAVING
               _signalingService.endCall();
-              // Explicitly navigate back to the main bottom nav screen
-              // This ensures that any intermediate loaders (like InviteWaitingScreen) are cleared
               RouteGenerator.navigateToPageWithoutStack(
                 context,
                 Routes.bottomNavBarRoute,
               );
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Leave", style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              "Leave (Resign)",
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -481,6 +502,49 @@ class _GameBoardState extends State<GameBoard>
       );
 
       _setupEmbeddedCall(); // Initialize the embedded call
+
+      // Transient Notifications for Connection States
+      _gameConnSub = _gameService.connectionStream.listen((connected) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              connected ? "Game Server Connected" : "Game Server Disconnected",
+            ),
+            backgroundColor: connected ? Colors.green : Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      });
+
+      _signalingConnSub = _signalingService.connectionStream.listen((
+        connected,
+      ) {
+        if (!mounted) return;
+        // Only show if we are actually in a multiplayer game context
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              connected
+                  ? "Signaling Service Connected"
+                  : "Signaling Service Offline",
+            ),
+            backgroundColor: connected ? Colors.blue : Colors.orange,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      });
+
+      // Special Listener for Opponent Leaving (Resignation)
+      _onHangupSub = _signalingService.onHangupStream.listen((_) {
+        if (!mounted) return;
+        _showGameOverDialog(
+          "Congratulations! Your opponent has resigned. You win!",
+          isVictory: true,
+        );
+      });
 
       _gameService.connect(widget.roomId);
       _gameSubscription = _gameService.stream.listen((data) {
@@ -580,6 +644,8 @@ class _GameBoardState extends State<GameBoard>
       _onRemoteStreamChanged,
     );
     _gameSubscription?.cancel();
+    _gameConnSub?.cancel();
+    _signalingConnSub?.cancel();
     _incomingCallSub?.cancel();
     _customMessageSub?.cancel();
     _peerJoinedSub?.cancel();
@@ -936,22 +1002,66 @@ class _GameBoardState extends State<GameBoard>
     return true;
   }
 
-  void _showGameOverDialog(String message) {
+  void _showGameOverDialog(String message, {bool isVictory = false}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text("Game Over"),
-        content: Text(message),
+        backgroundColor: backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(
+          isVictory ? "CONGRATULATIONS!" : "Game Over",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isVictory ? Colors.yellowAccent : Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isVictory)
+              const Icon(Icons.emoji_events, color: Colors.yellow, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              _recordingService.stopRecording();
+              _signalingService.endCall();
+              RouteGenerator.navigateToPageWithoutStack(
+                context,
+                Routes.bottomNavBarRoute,
+              );
+            },
+            child: const Text("Home", style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               setState(() {
                 _initializeBoard();
               });
             },
-            child: const Text("Play Again"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isVictory ? Colors.green : Colors.blue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              "Play Again",
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -1087,144 +1197,106 @@ class _GameBoardState extends State<GameBoard>
       },
       child: Scaffold(
         backgroundColor: isPractice ? Colors.white : backgroundColor,
-        appBar: AppBar(
-          leadingWidth: isPractice ? 0 : 40,
-          leading: isPractice
-              ? const SizedBox.shrink()
-              : IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _showLeaveDialog,
-                ),
-          title: Column(
-            children: [
-              Text(
-                _isSyncing
-                    ? "Syncing..."
-                    : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              if (widget.isMultiplayer)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    StreamBuilder<bool>(
-                      stream: _gameService.connectionStream,
-                      initialData: _gameService.isConnected,
-                      builder: (context, snapshot) =>
-                          _buildStatusDot(snapshot.data ?? false),
-                    ),
-                    const SizedBox(width: 8),
-                    StreamBuilder<bool>(
-                      stream: _signalingService.connectionStream,
-                      initialData: _signalingService.isConnected,
-                      builder: (context, snapshot) =>
-                          _buildStatusDot(snapshot.data ?? false, Colors.blue),
-                    ),
-                    const SizedBox(width: 8),
-                    StreamBuilder<bool>(
-                      stream: GlobalCallHandler()
-                          .generalSignalingService
-                          ?.connectionStream,
-                      initialData: GlobalCallHandler()
-                          .generalSignalingService
-                          ?.isConnected,
-                      builder: (context, snapshot) =>
-                          _buildStatusDot(snapshot.data ?? false, Colors.teal),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          centerTitle: true,
-          actions: [
-            if (widget.isMultiplayer && !_gameService.isConnected)
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.amber),
-                tooltip: "Retry Connection",
-                onPressed: () {
-                  _gameService.connect(widget.roomId);
-                },
-              ),
-            if (widget.showLeaveButton)
-              IconButton(
-                icon: const Icon(Icons.exit_to_app, color: Colors.red),
-                onPressed: _showLeaveDialog,
-              ),
-            Consumer<ChatProvider>(
-              builder: (_, provider, __) {
-                return badges.Badge(
-                  badgeContent: Text(
-                    provider.getUnreadCount(widget.roomId).toString(),
-                    style: const TextStyle(color: Colors.white, fontSize: 10),
+        appBar: isPractice
+            ? AppBar(
+                title: Text(
+                  _isSyncing
+                      ? "Syncing..."
+                      : "${whiteTurn ? "White" : "Black"}'s Turn ${checkStatus ? "(!)" : ""}",
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  showBadge: provider.getUnreadCount(widget.roomId) > 0,
-                  position: badges.BadgePosition.topEnd(top: 0, end: 3),
-                  child: IconButton(
-                    icon: const Icon(Icons.chat),
-                    tooltip: "Messenger",
-                    onPressed: () {
-                      provider.resetUnreadCount(widget.roomId);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChatPage(
-                            roomId: widget.roomId,
-                            currentUserId: widget.currentUserId,
+                ),
+                centerTitle: true,
+                actions: [
+                  Consumer<ChatProvider>(
+                    builder: (_, provider, __) {
+                      return badges.Badge(
+                        badgeContent: Text(
+                          provider.getUnreadCount(widget.roomId).toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
                           ),
+                        ),
+                        showBadge: provider.getUnreadCount(widget.roomId) > 0,
+                        position: badges.BadgePosition.topEnd(top: 0, end: 3),
+                        child: IconButton(
+                          icon: const Icon(Icons.chat),
+                          tooltip: "Messenger",
+                          onPressed: () {
+                            provider.resetUnreadCount(widget.roomId);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatPage(
+                                  roomId: widget.roomId,
+                                  currentUserId: widget.currentUserId,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       );
                     },
                   ),
-                );
-              },
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              if (widget.isMultiplayer &&
-                  (_isCallStarted ||
-                      _callStatus == "Waiting for peer..." ||
-                      _callStatus == "Handshake started..."))
-                Expanded(
-                  flex: 2, // Slightly more space for the video area if needed
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: _buildCallFrame(),
+                ],
+              )
+            : null,
+        body: Container(
+          decoration: isPractice
+              ? null
+              : const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
                   ),
                 ),
-              // Board Section
-              isPractice
-                  ? Padding(
-                      padding: const EdgeInsets.only(top: 20),
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: 1.0,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: _buildChessBoard(),
-                          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                if (widget.isMultiplayer) ...[_buildControlHeader()],
+
+                if (widget.isMultiplayer && _isCallStarted)
+                  Expanded(
+                    flex:
+                        3, // Increased from 2 to 3 to make call container bigger
+                    child: _buildCallFrame(),
+                  ),
+
+                // Board Section
+                Expanded(
+                  flex: 7,
+                  child: Align(
+                    alignment: isPractice
+                        ? Alignment.center
+                        : Alignment.bottomCenter,
+                    child: AspectRatio(
+                      aspectRatio: 1.0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 20,
+                              spreadRadius: 5,
+                            ),
+                          ],
                         ),
-                      ),
-                    )
-                  : Expanded(
-                      flex: 3, // More space for the chess board
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: 1.0,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: _buildChessBoard(),
-                          ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _buildChessBoard(),
                         ),
                       ),
                     ),
-              if (isPractice) const Expanded(child: SizedBox.shrink()),
-            ],
+                  ),
+                ),
+                if (isPractice) const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -1234,21 +1306,20 @@ class _GameBoardState extends State<GameBoard>
   // Helper widget to build the embedded call frame
   Widget _buildCallFrame() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.8),
+        color: Colors.black.withOpacity(0.4),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white12, width: 1),
+        border: Border.all(color: Colors.white10, width: 1),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
               child: Row(
                 children: [
-                  // Local User Video
                   Expanded(
                     child: _buildVideoContainer(
                       notifier: _signalingService.localStreamNotifier,
@@ -1258,8 +1329,7 @@ class _GameBoardState extends State<GameBoard>
                       isLocal: true,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  // Remote User Video
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildVideoContainer(
                       notifier: _signalingService.remoteStreamNotifier,
@@ -1272,25 +1342,26 @@ class _GameBoardState extends State<GameBoard>
               ),
             ),
           ),
-          // Call Controls Strip
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            color: Colors.white.withOpacity(0.05),
+          // Relocated Call Controls (Below video, no overlap)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildCompactIconButton(
                   icon: _isLocalAudioMuted ? Icons.mic_off : Icons.mic,
                   color: _isLocalAudioMuted ? Colors.redAccent : Colors.white,
                   onPressed: _toggleLocalAudio,
                 ),
+                const SizedBox(width: 24),
                 _buildCompactIconButton(
                   icon: _isLocalVideoEnabled
                       ? Icons.videocam
                       : Icons.videocam_off,
-                  color: _isLocalVideoEnabled ? Colors.white : Colors.redAccent,
+                  color: _isLocalVideoEnabled ? Colors.blue : Colors.white70,
                   onPressed: _toggleLocalVideo,
                 ),
+                const SizedBox(width: 24),
                 _buildCompactIconButton(
                   icon: _isOpponentLocallySilenced
                       ? Icons.volume_off
@@ -1301,6 +1372,151 @@ class _GameBoardState extends State<GameBoard>
                   onPressed: _toggleRemoteAudioLocalOverride,
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Back Button
+          GestureDetector(
+            onTap: _showLeaveDialog,
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.arrow_back,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+
+          // Turn Indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: whiteTurn ? Colors.white : Colors.blueGrey,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      if (whiteTurn)
+                        const BoxShadow(
+                          color: Colors.white54,
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  whiteTurn ? "WHITE'S TURN" : "BLACK'S TURN",
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                if (checkStatus) ...[
+                  const SizedBox(width: 10),
+                  const Text(
+                    "CHECK!",
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Message Button
+          Consumer<ChatProvider>(
+            builder: (_, provider, __) {
+              final int unreadCount = provider.getUnreadCount(widget.roomId);
+              return GestureDetector(
+                onTap: () {
+                  provider.resetUnreadCount(widget.roomId);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatPage(
+                        roomId: widget.roomId,
+                        currentUserId: widget.currentUserId,
+                      ),
+                    ),
+                  );
+                },
+                child: badges.Badge(
+                  badgeContent: Text(
+                    unreadCount.toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  showBadge: unreadCount > 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chat_bubble_outline,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeaveWarningBar() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: const [
+          Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
+          SizedBox(width: 8),
+          Text(
+            "If you leave now, your opponent wins!",
+            style: TextStyle(
+              color: Colors.redAccent,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -1406,13 +1622,54 @@ class _GameBoardState extends State<GameBoard>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Icon(Icons.volume_off, color: Colors.redAccent, size: 12),
+                    Icon(Icons.volume_off, color: Colors.blueAccent, size: 12),
                     SizedBox(width: 2),
                     Text(
                       "Silenced",
+                      style: TextStyle(color: Colors.blueAccent, fontSize: 8),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (isLocal && _amISilencedByOpponent)
+            Positioned(
+              bottom: 4,
+              left: 4,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.volume_off, color: Colors.redAccent, size: 12),
+                    SizedBox(width: 2),
+                    Text(
+                      "Opponent Muted You",
                       style: TextStyle(color: Colors.redAccent, fontSize: 8),
                     ),
                   ],
+                ),
+              ),
+            ),
+          // Remote Speaker Icon (Opponent Mute Indication)
+          if (!isLocal && _amISilencedByOpponent)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.volume_off,
+                  color: Colors.redAccent,
+                  size: 16,
                 ),
               ),
             ),
@@ -1435,26 +1692,6 @@ class _GameBoardState extends State<GameBoard>
     );
   }
 
-  Widget _buildStatusDot(bool connected, [Color? activeColor]) {
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        color: connected ? (activeColor ?? Colors.green) : Colors.red,
-        shape: BoxShape.circle,
-        boxShadow: connected
-            ? [
-                BoxShadow(
-                  color: (activeColor ?? Colors.green).withOpacity(0.5),
-                  blurRadius: 4,
-                  spreadRadius: 1,
-                ),
-              ]
-            : null,
-      ),
-    );
-  }
-
   Widget _buildChessBoard() {
     return GridView.builder(
       padding: EdgeInsets.zero,
@@ -1464,7 +1701,16 @@ class _GameBoardState extends State<GameBoard>
         crossAxisCount: 8,
       ),
       itemBuilder: (context, index) {
-        int row = index ~/ 8, col = index % 8;
+        int r = index ~/ 8, c = index % 8;
+
+        // Perspective Flip for Black player
+        final int row = (widget.isMultiplayer && !widget.amIWhite)
+            ? (7 - r)
+            : r;
+        final int col = (widget.isMultiplayer && !widget.amIWhite)
+            ? (7 - c)
+            : c;
+
         return Square(
           isWhiteSquare: isWhiteSquare(index),
           piece: board[row][col],

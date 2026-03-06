@@ -39,7 +39,6 @@ class GameWebsocketService {
       disconnect();
       // Small pause to allow socket cleanup
 
-      
       await Future.delayed(const Duration(milliseconds: 200));
     }
 
@@ -66,11 +65,15 @@ class GameWebsocketService {
 
             if (!_isConnected) {
               _isConnected = true;
-              _connectionController.add(true);
+              if (!_connectionController.isClosed) {
+                _connectionController.add(true);
+              }
               _startHeartbeat(roomId);
             }
 
-            _controller.add(data);
+            if (!_controller.isClosed) {
+              _controller.add(data);
+            }
             print("Game message received [Room $roomId]: $data");
           } catch (e) {
             print(
@@ -79,7 +82,9 @@ class GameWebsocketService {
             // If we got ANY message, the connection is technically alive
             if (!_isConnected) {
               _isConnected = true;
-              _connectionController.add(true);
+              if (!_connectionController.isClosed) {
+                _connectionController.add(true);
+              }
               _startHeartbeat(roomId);
             }
           }
@@ -100,7 +105,9 @@ class GameWebsocketService {
 
       // NO LONGER OPTIMISTIC: Wait for the first message (like 'connection_established')
       // and let the stream listener above handle marking _isConnected = true.
-      _connectionController.add(_isConnected);
+      if (!_connectionController.isClosed) {
+        _connectionController.add(_isConnected);
+      }
     } catch (e) {
       print("Failed to connect Game WebSocket [Room $roomId]: $e");
       _cleanup();
@@ -136,7 +143,9 @@ class GameWebsocketService {
     _currentRoomId = null;
     _channel = null;
     if (wasConnected) {
-      _connectionController.add(false);
+      if (!_connectionController.isClosed) {
+        _connectionController.add(false);
+      }
     }
   }
 

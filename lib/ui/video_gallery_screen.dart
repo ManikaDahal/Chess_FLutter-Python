@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
@@ -26,7 +27,7 @@ class _VideoGalleryScreenState extends State<VideoGalleryScreen> {
 
   Future<void> _refreshVideos() async {
     setState(() {
-      _videosFuture = _videoService.getVideos();
+      _videosFuture = _videoService.getVideos(forceRefresh: true);
     });
     await _videosFuture;
   }
@@ -124,17 +125,26 @@ class _VideoGalleryScreenState extends State<VideoGalleryScreen> {
                             fit: StackFit.expand,
                             children: [
                               video.thumbnailUrl != null
-                                  ? Image.network(
-                                      video.thumbnailUrl!,
+                                  ? CachedNetworkImage(
+                                      imageUrl: video.thumbnailUrl!,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
+                                      placeholder: (context, url) => Container(
                                         color: Colors.grey[300],
-                                        child: const Icon(
-                                          Icons.movie,
-                                          size: 50,
-                                          color: Colors.grey,
+                                        child: const Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
                                         ),
                                       ),
+                                      errorWidget: (context, url, error) =>
+                                          Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(
+                                              Icons.movie,
+                                              size: 50,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
                                     )
                                   : Container(
                                       color: Colors.grey[300],
