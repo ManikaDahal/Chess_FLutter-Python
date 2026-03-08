@@ -204,14 +204,18 @@ class NotificationService extends WidgetsBindingObserver {
       final String? trackingId = message.messageId ?? message.data['id'];
       if (trackingId != null && trackingId.isNotEmpty) {
         // PROACTIVE CHECK: Determine if we should report 'delivered' or 'blocked'
-        NotificationSettings settings = await FirebaseMessaging.instance
-            .getNotificationSettings();
+        final bool isBlockedLocally =
+            category != null &&
+            await NotificationPreferenceService.isCategoryBlockedLocally(
+              category,
+            );
 
-        if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        if (isBlockedLocally) {
           print(
-            "FCM [onMessage]: Permissions blocked. Reporting 'blocked' for ID: $trackingId",
+            "FCM [onMessage]: Category '$category' is blocked locally. Reporting 'blocked' for ID: $trackingId",
           );
           ApiService().updateNotificationStatus(trackingId, 'blocked');
+          return; // Drop if blocked locally
         } else {
           ApiService().updateNotificationStatus(trackingId, 'delivered');
         }
@@ -281,49 +285,81 @@ class NotificationService extends WidgetsBindingObserver {
       }
 
       // 2. Check individual channels and sync to backend
-      final categories = await NotificationPreferenceService.fetchPreferences();
-      final List<dynamic> channels = await (AwesomeNotifications() as dynamic)
-          .listChannels();
+      print("FCM [Sync]: Fetching preferences from backend...");
+      var categories = await NotificationPreferenceService.fetchPreferences();
+      print("FCM [Sync]: Got ${categories.length} preferences from backend.");
+
+      // Ensure we always sync at least 'message' and 'invitation' if missing from backend
+      final mandatoryCategories = ['message', 'invitation'];
+      for (var cat in mandatoryCategories) {
+        if (!categories.any((p) => p.category == cat)) {
+          print(
+            "FCM [Sync]: Category '$cat' missing from backend list. Adding mandatory placeholder.",
+          );
+          categories.add(
+            NotificationCategoryPreference(
+              category: cat,
+              label: cat == 'message' ? 'Chat Message' : 'Game Invitation',
+              isBlocked: false,
+            ),
+          );
+        }
+      }
+
+      print("FCM [Sync]: Checking category permissions individually...");
 
       for (var pref in categories) {
         final String channelKey = pref.category == 'message'
             ? 'chat_channel'
             : '${pref.category}_channel';
 
-        // Check importance of this channel in the current OS state
-        // In awesome_notifications 0.10.x, some methods might be different.
-        // If listChannels is not found, we fallback to isNotificationAllowed()
-        // which check for the main app permission.
+        print(
+          "FCM [Sync]: Checking status for category '${pref.category}' (Key: $channelKey)",
+        );
+
+        print(
+          "FCM [Sync]: Probing permission for category '${pref.category}' (Key: $channelKey)",
+        );
+
         bool shouldBeBlocked = false;
         try {
-          // Attempt to check if specific channel is allowed if the method exists
-          // Otherwise rely on the fact that we can't easily check per-channel status
-          // without a working listChannels/getChannel.
-          final channel = channels.firstWhere(
-            (c) => c.channelKey == channelKey,
-            orElse: () => NotificationChannel(
-              channelKey: 'unknown',
-              channelName: 'Unknown',
-              channelDescription: 'Unknown',
-            ),
-          );
+          // Check if the specific channel has ALERT permission.
+          // Using checkPermissionList (plural) as verified for 0.10.x.
+          final List<dynamic> permissions =
+              await (AwesomeNotifications() as dynamic).checkPermissionList(
+                channelKey: channelKey,
+                permissions: [NotificationPermission.Alert],
+              );
 
-          if (channel.channelKey != 'unknown') {
-            shouldBeBlocked = channel.importance == NotificationImportance.None;
-          }
+          // If the list does NOT contain Alert, it means the channel is effectively blocked or disabled
+          shouldBeBlocked = !permissions.contains(NotificationPermission.Alert);
+
+          print(
+            "FCM [Sync]: Channel $channelKey permissions: $permissions. Blocked (no Alert): $shouldBeBlocked",
+          );
         } catch (e) {
-          print("FCM [Sync]: Could not determine per-channel status: $e");
+          print(
+            "FCM [Sync] ERROR: Could not check permission for $channelKey: $e",
+          );
+          // Fallback to current backend state to avoid accidental toggling on error
           continue;
         }
 
         // Only update if it changed from what the backend thinks
         if (pref.isBlocked != shouldBeBlocked) {
           print(
-            'FCM: Syncing OS block status for ${pref.category}: $shouldBeBlocked',
+            'FCM [Sync]: STATUS MISMATCH for ${pref.category}! Backend: ${pref.isBlocked}, OS: $shouldBeBlocked. UPDATING BACKEND...',
           );
-          await NotificationPreferenceService.updatePreference(
+          final success = await NotificationPreferenceService.updatePreference(
             pref.category,
             shouldBeBlocked,
+          );
+          print(
+            "FCM [Sync]: Backend update for ${pref.category} success: $success",
+          );
+        } else {
+          print(
+            "FCM [Sync]: ${pref.category} already in sync (Blocked: $shouldBeBlocked).",
           );
         }
       }
@@ -474,16 +510,33 @@ class NotificationService extends WidgetsBindingObserver {
 
     int id = int.tryParse(payload['room_id']?.toString() ?? '0') ?? 0;
 
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: id,
-        channelKey: channelKey,
-        title: title,
-        body: body,
-        payload: payload.map((key, value) => MapEntry(key, value.toString())),
-        notificationLayout: NotificationLayout.Default,
-      ),
-    );
+    try {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: id,
+          channelKey: channelKey,
+          title: title,
+          body: body,
+          payload: payload.map((key, value) => MapEntry(key, value.toString())),
+          notificationLayout: NotificationLayout.Default,
+        ),
+      );
+    } catch (e) {
+      if (e.toString().contains('disabled') ||
+          e.toString().contains('INSUFFICIENT_PERMISSIONS')) {
+        print(
+          "FCM [showNotification]: Catching channel disabled error for $channelKey. Reporting 'blocked'...",
+        );
+        final String? trackingId = payload['trackingId'] ?? payload['id'];
+        if (trackingId != null) {
+          ApiService().updateNotificationStatus(trackingId, 'blocked');
+        }
+        // Trigger a background sync to flip the preference if we just found out it's blocked
+        NotificationService.checkAndReportPermission();
+      } else {
+        print("FCM [showNotification]: Error creating notification: $e");
+      }
+    }
   }
 
   /// Register FCM Token with backend

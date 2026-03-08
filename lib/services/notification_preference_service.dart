@@ -156,12 +156,29 @@ class NotificationPreferenceService {
 
   /// Returns true if the given category is locally blocked by checking the OS channel status.
   static Future<bool> isCategoryBlockedLocally(String category) async {
-    // Check if the specific channel is allowed
-    // Note: AwesomeNotifications.isNotificationAllowed() mostly checks global permission.
+    // 1. Check Global Permission
     final bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
     if (!isAllowed) return true;
 
-    // Additional check relies on the sync logic to have updated the backend/local cache.
+    // 2. Map to channel key
+    final String channelKey = category == 'message'
+        ? 'chat_channel'
+        : '${category}_channel';
+
+    try {
+      // 3. Check specific channel status via permissions. Robust for 0.10.x.
+      List<dynamic> permissions = await (AwesomeNotifications() as dynamic)
+          .checkPermission(channelKey: channelKey);
+
+      // If the list does NOT contain Alert, it means the channel is effectively blocked or disabled
+      return !permissions.contains(NotificationPermission.Alert);
+    } catch (e) {
+      print(
+        "[NotifPref] Error checking local channel status for $category: $e",
+      );
+    }
+
+    // Fallback to local cache if we can't determine OS status
     return await isCategoryBlocked(category);
   }
 }

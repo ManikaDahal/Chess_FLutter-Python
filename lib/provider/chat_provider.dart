@@ -242,7 +242,7 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
       final String category = msg.roomId == 1
           ? 'system'
           : 'message'; // Mapping for chat room logic
-      NotificationPreferenceService.isCategoryBlocked(category).then((
+      NotificationPreferenceService.isCategoryBlockedLocally(category).then((
         isBlocked,
       ) {
         if (!isBlocked) {
@@ -250,7 +250,7 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
           notifyListeners();
         } else {
           print(
-            "ChatProvider: Suppressing unread count for blocked category '$category'",
+            "ChatProvider: Suppressing unread count for blocked category '$category' (Live OS status)",
           );
         }
       });
