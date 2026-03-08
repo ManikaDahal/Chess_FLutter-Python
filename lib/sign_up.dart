@@ -11,6 +11,9 @@ import 'package:chess_game_manika/widgets/custom_text.dart';
 import 'package:chess_game_manika/widgets/custom_textformfield.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:chess_game_manika/services/api_services.dart';
 
 class Signup extends StatefulWidget {
   const Signup({super.key});
@@ -24,6 +27,7 @@ class _SignupState extends State<Signup> {
   final TextEditingController _emailAddressController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthServices _authService = AuthServices();
+  final ApiService _apiService = ApiService();
   final _formKey = GlobalKey<FormState>();
   bool loader = false;
   bool visible = false;
@@ -49,6 +53,18 @@ class _SignupState extends State<Signup> {
       });
 
       if (success) {
+        // Fetch real profile to get authentic User ID and username
+        final profile = await _apiService.getProfile();
+        final int userId = profile['id'];
+        final String username =
+            profile['username'] ?? _nameController.text.trim();
+
+        // Save authentic user info in SharedPreferences
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('userId', userId);
+        await prefs.setString('username', username);
+        await prefs.setBool('loggedIn', true);
+
         if (mounted) {
           DisplaySnackbar.show(context, signupSuccessfullStr);
           RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);

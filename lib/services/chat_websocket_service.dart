@@ -161,7 +161,13 @@ class ChatWebsocketService {
     }
   }
 
-  void sendMessage(int roomId, String message, int userId, String senderName) {
+  void sendMessage(
+    int roomId,
+    String message,
+    int userId,
+    String senderName, {
+    String? trackingId,
+  }) {
     final channel = _channels[roomId];
     if (channel == null) {
       print(
@@ -176,6 +182,7 @@ class ChatWebsocketService {
         "user_id": userId,
         "sender_name": senderName,
         "room_id": roomId,
+        if (trackingId != null) "trackingId": trackingId,
       };
       print("ChatWebsocketService: Sending data to room $roomId: $data");
       channel.sink.add(jsonEncode(data));
@@ -196,6 +203,41 @@ class ChatWebsocketService {
       print(
         "ChatWebsocketService: Error requesting history for room $roomId: $e",
       );
+    }
+  }
+
+  void sendStatusUpdate(int roomId, int messageId, String status) {
+    final channel = _channels[roomId];
+    if (channel == null) return;
+    try {
+      final data = {
+        "type": "message_$status", // message_delivered or message_read
+        "message_id": messageId,
+        "room_id": roomId,
+      };
+      print(
+        "ChatWebsocketService: Sending status update to room $roomId: $data",
+      );
+      channel.sink.add(jsonEncode(data));
+    } catch (e) {
+      print("ChatWebsocketService: Error sending status update: $e");
+    }
+  }
+
+  void sendReaction(int roomId, int messageId, String emoji) {
+    final channel = _channels[roomId];
+    if (channel == null) return;
+    try {
+      final data = {
+        "type": "add_reaction",
+        "message_id": messageId,
+        "emoji": emoji,
+        "room_id": roomId,
+      };
+      print("ChatWebsocketService: Sending reaction to room $roomId: $data");
+      channel.sink.add(jsonEncode(data));
+    } catch (e) {
+      print("ChatWebsocketService: Error sending reaction: $e");
     }
   }
 

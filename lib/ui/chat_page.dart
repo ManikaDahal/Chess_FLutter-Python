@@ -66,6 +66,7 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Build the message status icon for sent messages
   Widget _buildStatusIcon(MessageStatus status) {
+    // print("DEBUG [Room ${widget.roomId}]: Building icon for status: $status");
     switch (status) {
       case MessageStatus.sending:
         return const Icon(
@@ -76,20 +77,85 @@ class _ChatPageState extends State<ChatPage> {
       case MessageStatus.sent:
         return const Icon(Icons.done, size: 13, color: Colors.white70);
       case MessageStatus.delivered:
-        return Stack(
-          children: const [
-            Positioned(
-              left: 0,
-              child: Icon(Icons.done, size: 13, color: Colors.lightBlueAccent),
-            ),
-            Positioned(
-              left: 5,
-              child: Icon(Icons.done, size: 13, color: Colors.lightBlueAccent),
-            ),
-            SizedBox(width: 18, height: 13),
-          ],
-        );
+        return const Icon(Icons.done_all, size: 13, color: Colors.white70);
+      case MessageStatus.seen:
+        return const SizedBox.shrink(); // Remove tick per user request
     }
+  }
+
+  /// Show a simple reaction picker on long press
+  void _showReactionPicker(ChatMessage msg) {
+    final emojis = ["❤️", "👍", "🔥", "😂", "😮", "😢"];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: 100,
+        margin: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: emojis
+              .map(
+                (e) => GestureDetector(
+                  onTap: () {
+                    Provider.of<ChatProvider>(
+                      context,
+                      listen: false,
+                    ).toggleReaction(widget.roomId, msg.id ?? 0, e);
+                    Navigator.pop(context);
+                  },
+                  child: Text(e, style: const TextStyle(fontSize: 30)),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  /// Build a small row of reactions for a message
+  Widget _buildReactionRow(List<MessageReaction> reactions, bool isMe) {
+    if (reactions.isEmpty) return const SizedBox.shrink();
+
+    // Group identical emojis
+    final Map<String, int> counts = {};
+    for (var r in reactions) {
+      counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: counts.entries
+            .map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  "${entry.key} ${entry.value > 1 ? entry.value : ''}",
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
   }
 
   @override
@@ -161,6 +227,11 @@ class _ChatPageState extends State<ChatPage> {
                   itemBuilder: (_, index) {
                     final msg = messages[index];
                     final isMe = msg.userId == widget.currentUserId;
+                    if (msg.senderName == "Unknown" || msg.userId <= 0) {
+                      print(
+                        "DEBUG [Room ${widget.roomId}]: Msg ${msg.id} has senderName=${msg.senderName}, userId=${msg.userId}, isMe=$isMe (currentUserId=${widget.currentUserId})",
+                      );
+                    }
                     final timeStr = _formatTime(msg.localTimestamp);
 
                     return Padding(
@@ -185,80 +256,87 @@ class _ChatPageState extends State<ChatPage> {
                                 ),
                               ),
                             ),
-                          Container(
-                            constraints: BoxConstraints(
-                              maxWidth:
-                                  MediaQuery.of(context).size.width * 0.75,
-                            ),
-                            padding: const EdgeInsets.only(
-                              top: 12,
-                              left: 14,
-                              right: 14,
-                              bottom: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: isMe
-                                  ? const LinearGradient(
-                                      colors: [
-                                        Color(0xFF6A11CB),
-                                        Color(0xFF2575FC),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    )
-                                  : null,
-                              color: isMe ? null : Colors.white,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
-                                  blurRadius: 5,
-                                  offset: const Offset(0, 2),
+                          GestureDetector(
+                            onLongPress: () => _showReactionPicker(msg),
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width * 0.75,
+                              ),
+                              padding: const EdgeInsets.only(
+                                top: 12,
+                                left: 14,
+                                right: 14,
+                                bottom: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: isMe
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF6A11CB),
+                                          Color(0xFF2575FC),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : null,
+                                color: isMe ? null : Colors.white,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(20),
+                                  topRight: const Radius.circular(20),
+                                  bottomLeft: Radius.circular(isMe ? 20 : 0),
+                                  bottomRight: Radius.circular(isMe ? 0 : 20),
                                 ),
-                              ],
-                              borderRadius: BorderRadius.only(
-                                topLeft: const Radius.circular(20),
-                                topRight: const Radius.circular(20),
-                                bottomLeft: Radius.circular(isMe ? 20 : 0),
-                                bottomRight: Radius.circular(isMe ? 0 : 20),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: isMe
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    msg.message,
+                                    style: TextStyle(
+                                      color: isMe
+                                          ? Colors.white
+                                          : Colors.black87,
+                                      fontSize: 16,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // ── Timestamp + status row ──
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        timeStr,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isMe
+                                              ? Colors.white60
+                                              : Colors.black38,
+                                        ),
+                                      ),
+                                      if (isMe) ...[
+                                        const SizedBox(width: 5),
+                                        _buildStatusIcon(msg.status),
+                                      ],
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Column(
-                              crossAxisAlignment: isMe
-                                  ? CrossAxisAlignment.end
-                                  : CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  msg.message,
-                                  style: TextStyle(
-                                    color: isMe ? Colors.white : Colors.black87,
-                                    fontSize: 16,
-                                    height: 1.3,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                // ── Timestamp + status row ──
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      timeStr,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isMe
-                                            ? Colors.white60
-                                            : Colors.black38,
-                                      ),
-                                    ),
-                                    if (isMe) ...[
-                                      const SizedBox(width: 5),
-                                      _buildStatusIcon(msg.status),
-                                    ],
-                                  ],
-                                ),
-                              ],
-                            ),
                           ),
+                          _buildReactionRow(msg.reactions, isMe),
                         ],
                       ),
                     );

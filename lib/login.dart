@@ -57,12 +57,17 @@ class _LoginState extends State<Login> {
       });
 
       if (success) {
-        // final int userId = _nameController.text.hashCode;
+        // Fetch real profile to get authentic User ID and username
+        final profile = await api.getProfile();
+        final int userId = profile['id'];
+        final String username =
+            profile['username'] ?? _nameController.text.trim();
 
-        // Save user ID in SharedPreferences
+        // Save authentic user info in SharedPreferences
         final prefs = await SharedPreferences.getInstance();
-        final userId = _nameController.text.hashCode;
         await prefs.setInt('userId', userId);
+        await prefs.setString('username', username);
+
         final int roomId = 1; // Testing room ID
         await prefs.setInt('roomId', roomId);
         await prefs.setBool('loggedIn', true);
