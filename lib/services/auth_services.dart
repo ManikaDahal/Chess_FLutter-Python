@@ -57,38 +57,31 @@ class AuthServices {
   }
 
   //Login
-  // CHANGE: Now throws exceptions with specific error messages
-  Future<bool> login(String username, String password) async {
+  // CHANGE: Now using email and password
+  Future<bool> login(String email, String password) async {
     final response = await http.post(
       // CHANGE: Using apiBaseUrl for REST API (Vercel)
       Uri.parse("${Constants.apiBaseUrl}/api/token/"),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
+      body: jsonEncode({'email': email, 'password': password}),
     );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      // SharedPreferences prefs = await SharedPreferences.getInstance();
-      // await prefs.setString("jwt", data['access']);
       if (data['access'] != null && data['refresh'] != null) {
-        print("Login response : $response");
+        print("Login response successful");
 
         final SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setString("username", username);
+        await prefs.setString(
+          "email",
+          email,
+        ); // Store email instead of username
 
         await _storage.saveAccessToken(data['access']);
         await _storage.saveRefreshToken(data['refresh']);
 
         // Register FCM token
         _registerFCM();
-
-        print("Access token saved: ${data['access']}");
-        String? token = await _storage.getAccessToken();
-        print("Stored token after login: $token");
-        final access = await _storage.getAccessToken();
-        final refresh = await _storage.getRefreshToken();
-        print("Access token read immediately after saving: $access");
-        print("Refresh token read immediately after saving: $refresh");
 
         return true;
       } else {
@@ -105,7 +98,7 @@ class AuthServices {
       }
 
       // Default error message for invalid credentials
-      throw Exception('Invalid username or password');
+      throw Exception('Invalid email or password');
     }
   }
 

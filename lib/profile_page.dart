@@ -52,6 +52,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('loggedIn', false);
     await prefs.remove('userId');
+    await prefs.remove('email');
     await prefs.remove('username');
     await prefs.remove('roomId');
 

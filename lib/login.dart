@@ -5,10 +5,8 @@ import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/core/utils/splin_kit.dart';
 import 'package:chess_game_manika/core/utils/string_utils.dart';
-import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_biometrics.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
-import 'package:chess_game_manika/services/token_storage.dart';
 import 'package:chess_game_manika/widgets/custom_Inkwell.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:chess_game_manika/widgets/custom_text.dart';
@@ -26,19 +24,17 @@ class Login extends StatefulWidget {
 }
 
 class _LoginState extends State<Login> {
-  final ApiService api = ApiService();
   final BiometricAuth _biometricAuth = BiometricAuth();
   final LocalAuthentication auth = LocalAuthentication();
-  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthServices _authService = AuthServices();
-  TokenStorage _storage = TokenStorage();
   bool visible = false;
   bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
   bool loader = false;
 
-  // CHANGE: Added loading state and better error handling
+  // CHANGE: Updated to login with email
   Future<void> login() async {
     // Show loader
     setState(() {
@@ -47,7 +43,7 @@ class _LoginState extends State<Login> {
 
     try {
       final success = await _authService.login(
-        _nameController.text.trim(),
+        _emailController.text.trim(),
         _passwordController.text.trim(),
       );
 
@@ -57,22 +53,15 @@ class _LoginState extends State<Login> {
       });
 
       if (success) {
-        // final int userId = _nameController.text.hashCode;
-
-        // Save user ID in SharedPreferences
+        // Save user ID or Email in SharedPreferences
         final prefs = await SharedPreferences.getInstance();
-        final userId = _nameController.text.hashCode;
+        final email = _emailController.text.trim();
+        // Fallback userId hash if needed by other components
+        final userId = email.hashCode;
+
         await prefs.setInt('userId', userId);
-        final int roomId = 1; // Testing room ID
-        await prefs.setInt('roomId', roomId);
+        await prefs.setString('email', email);
         await prefs.setBool('loggedIn', true);
-
-        // // Initialize GlobalCallHandler for this user
-        // GlobalCallHandler().init();
-
-        final token = await _storage.getAccessToken();
-        final refresh = await _storage.getRefreshToken();
-        print("Tokens after login -> Access: $token, Refresh: $refresh");
 
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -82,12 +71,10 @@ class _LoginState extends State<Login> {
             );
           });
           DisplaySnackbar.show(context, loginSuccessfullStr);
-          //RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
         }
       } else {
         if (mounted) {
-          // CHANGE: Show specific error for invalid credentials
-          DisplaySnackbar.show(context, 'Invalid username or password');
+          DisplaySnackbar.show(context, 'Invalid email or password');
         }
       }
     } catch (e) {
@@ -97,16 +84,11 @@ class _LoginState extends State<Login> {
       });
 
       if (mounted) {
-        // CHANGE: Extract specific error message from exception
-        String errorMessage = 'Invalid username or password';
-
-        // Parse the exception message
+        String errorMessage = 'Invalid email or password';
         String exceptionMsg = e.toString();
         if (exceptionMsg.contains('Exception:')) {
-          // Extract message after "Exception: "
           errorMessage = exceptionMsg.split('Exception: ').last;
         }
-
         DisplaySnackbar.show(context, errorMessage);
       }
     }
@@ -154,16 +136,23 @@ class _LoginState extends State<Login> {
               ),
               SizedBox(height: 20),
               CustomText(
-                data: nameStr,
+                data: emailAddressStr,
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
               ),
               CustomTextformfield(
-                controller: _nameController,
-                hintText: nameStr,
+                controller: _emailController,
+                hintText: emailAddressStr,
+                keyboardType: TextInputType.emailAddress,
                 validator: (p0) {
                   if (p0 == null || p0.isEmpty) {
-                    return validateNameStr;
+                    return validateEmailAddressStr;
+                  }
+                  final emailRegex = RegExp(
+                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                  );
+                  if (!emailRegex.hasMatch(p0)) {
+                    return "Please enter a valid email address";
                   }
                   return null;
                 },

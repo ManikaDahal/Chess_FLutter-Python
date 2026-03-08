@@ -834,6 +834,7 @@ class SignalingService {
         _sendSignal({
           'type': 'call_offer',
           'offer': {'type': offer.type, 'sdp': offer.sdp},
+          'mediaType': 'video',
         });
       } catch (e) {
         _log('Failed to add video track: $e');

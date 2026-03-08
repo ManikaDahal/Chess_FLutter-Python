@@ -19,6 +19,8 @@ class GlobalCallHandler {
   // Accessors to reuse disconnected services for outgoing calls
   SignalingService? get generalSignalingService => _generalSignalingService;
   SignalingService? get userSignalingService => _userSignalingService;
+  set userSignalingService(SignalingService? service) =>
+      _userSignalingService = service;
 
   // Track minimized state
   final ValueNotifier<bool> isMinimized = ValueNotifier<bool>(false);

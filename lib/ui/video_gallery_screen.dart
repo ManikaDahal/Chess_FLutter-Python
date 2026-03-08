@@ -109,7 +109,7 @@ class _VideoGalleryScreenState extends State<VideoGalleryScreen> {
                         builder: (_) => VideoPlayerScreen(video: video),
                       ),
                     );
-                    _refreshVideos(); // Refresh gallery after returning
+                    // REMOVED: _refreshVideos(); // Avoid redundant re-fetch
                   },
                   child: Card(
                     elevation: 4,

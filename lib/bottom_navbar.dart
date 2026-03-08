@@ -50,26 +50,39 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
 
   Future<void> _initUser() async {
     try {
-      //  Fetch profile
+      print("BottomNavBar: Starting parallel initialization...");
+      final startTime = DateTime.now();
+
+      // 1. Fetch profile first to get the essential userId
       final profile = await ApiService().getProfile();
       final int? userId = profile['id'];
       final int roomId = profile['current_room_id'] ?? 1;
 
       if (userId == null) throw Exception("User ID not found");
 
-      //  Initialize ChatProvider once
-      if (mounted) {
-        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-        // Ensure we start with NO active room so notifications work
-        chatProvider.clearActiveRoom();
-        chatProvider.init(roomId, userId, setAsActive: false);
-      }
+      // 2. Run independent initializations in parallel
+      await Future.wait([
+        // Initialize ChatProvider
+        Future.microtask(() {
+          if (mounted) {
+            final chatProvider = Provider.of<ChatProvider>(
+              context,
+              listen: false,
+            );
+            chatProvider.clearActiveRoom();
+            chatProvider.init(roomId, userId, setAsActive: false);
+          }
+        }),
+        // Connect user-specific signaling
+        GlobalCallHandler().connectForUser(userId),
+        // Register FCM token
+        NotificationService.registerToken(),
+      ]);
 
-      //  Connect user-specific signaling
-      await GlobalCallHandler().connectForUser(userId);
-
-      //  Register FCM token for notifications
-      await NotificationService.registerToken();
+      final endTime = DateTime.now();
+      print(
+        "BottomNavBar: Initialization completed in ${endTime.difference(startTime).inMilliseconds}ms",
+      );
 
       if (!mounted) return;
 
@@ -82,15 +95,15 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
           GameBoard(
             currentUserId: _currentUserId!,
             roomId: _currentRoomId!,
-            isMultiplayer: false, // Practice mode on main board
+            isMultiplayer: false,
             showLeaveButton: false,
           ),
           UserList(currentUserId: _currentUserId!),
-          const VideoGalleryScreen(), // New Video Gallery Tab
+          const VideoGalleryScreen(),
           ChatPage(
             roomId: _currentRoomId!,
             currentUserId: _currentUserId!,
-            showBackButton: false, // Hide back button in Tab View
+            showBackButton: false,
           ),
           const ProfilePage(),
         ];
