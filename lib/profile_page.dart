@@ -1,3 +1,4 @@
+import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/display_snackbar.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
@@ -8,6 +9,7 @@ import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
+import 'package:chess_game_manika/services/notification_preference_service.dart';
 import 'package:chess_game_manika/widgets/custom_elevatedbutton.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -34,7 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
   //Load Profile
   Future<void> _loadProfile() async {
     profileData = await api.getProfile();
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   Future<void> _logout() async {
@@ -145,6 +147,29 @@ class _ProfilePageState extends State<ProfilePage> {
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
                   RouteGenerator.navigateToPage(context, Routes.selfChatRoute);
+                },
+              ),
+            ),
+
+            Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.notifications_active,
+                  color: Colors.orange,
+                ),
+                title: const Text(
+                  "Notification Settings",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text("Manage alerts in your phone settings"),
+                trailing: const Icon(Icons.settings, size: 20),
+                onTap: () {
+                  AwesomeNotifications().showNotificationConfigPage();
                 },
               ),
             ),

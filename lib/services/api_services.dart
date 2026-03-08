@@ -162,4 +162,51 @@ class ApiService {
       );
     }
   }
+
+  /// Fetches the list of notification categories with user's block status.
+  Future<List<Map<String, dynamic>>> getNotificationPreferences() async {
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+    final headers = await _headers();
+    try {
+      final response = await http.get(
+        Uri.parse('$renderUrl/api/notifications/preferences/'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      print('[ApiService] getNotificationPreferences failed: ${response.body}');
+      return [];
+    } catch (e) {
+      print('[ApiService] getNotificationPreferences error: $e');
+      return [];
+    }
+  }
+
+  /// Blocks or unblocks a notification category for the current user.
+  /// [isBlocked] = true → user won't receive this category
+  Future<bool> updateNotificationPreference(
+    String category,
+    bool isBlocked,
+  ) async {
+    final String renderUrl = Constants.wsBaseUrl.replaceFirst(
+      "wss://",
+      "https://",
+    );
+    final headers = await _headers();
+    try {
+      final response = await http.post(
+        Uri.parse('$renderUrl/api/notifications/preferences/update/'),
+        headers: headers,
+        body: jsonEncode({'category': category, 'is_blocked': isBlocked}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('[ApiService] updateNotificationPreference error: $e');
+      return false;
+    }
+  }
 }

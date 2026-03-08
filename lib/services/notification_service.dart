@@ -1,6 +1,7 @@
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/invite_services.dart';
+import 'package:chess_game_manika/services/notification_preference_service.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/api_services.dart';
@@ -58,17 +59,39 @@ class NotificationController {
   }
 }
 
-class NotificationService {
+class NotificationService extends WidgetsBindingObserver {
   /// Keep a navigator key to allow navigation from anywhere
   static GlobalKey<NavigatorState>? navigatorKey;
   static bool _isLocalInit = false;
+  static final NotificationService _instance = NotificationService._internal();
+
+  factory NotificationService() => _instance;
+  NotificationService._internal();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print("FCM [Lifecycle]: App resumed. Triggering permission sync...");
+      checkAndReportPermission();
+    }
+  }
 
   static Future<void> _initLocal() async {
     if (_isLocalInit) return;
 
-    await AwesomeNotifications().initialize(
-      null, // default icon
-      [
+    // Fetch categories from backend to create dynamic channels
+    List<NotificationCategoryPreference> categories = [];
+    try {
+      categories = await NotificationPreferenceService.fetchPreferences();
+    } catch (e) {
+      print("FCM: Could not fetch preferences for initialization: $e");
+    }
+
+    List<NotificationChannel> channels = [];
+
+    if (categories.isEmpty) {
+      // Default fallback channels
+      channels = [
         NotificationChannel(
           channelKey: 'chat_channel',
           channelName: 'Chat Messages',
@@ -93,7 +116,31 @@ class NotificationService {
           playSound: true,
           criticalAlerts: true,
         ),
-      ],
+      ];
+    } else {
+      for (var pref in categories) {
+        channels.add(
+          NotificationChannel(
+            channelKey: pref.category == 'message'
+                ? 'chat_channel'
+                : '${pref.category}_channel',
+            channelName: pref.label,
+            channelDescription: 'Notifications for ${pref.label}',
+            defaultColor: const Color(0xFF9D50BB),
+            ledColor: Colors.white,
+            importance: NotificationImportance.Max,
+            channelShowBadge: true,
+            onlyAlertOnce: true,
+            playSound: true,
+            criticalAlerts: true,
+          ),
+        );
+      }
+    }
+
+    await AwesomeNotifications().initialize(
+      null, // default icon
+      channels,
       debug: true,
     );
 
@@ -115,6 +162,9 @@ class NotificationService {
     navigatorKey = navKey;
     await _initLocal();
 
+    // Register as lifecycle observer
+    WidgetsBinding.instance.addObserver(_instance);
+
     // Request permissions for AwesomeNotifications
     await AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
       if (!isAllowed) {
@@ -131,11 +181,24 @@ class NotificationService {
     // Initial check and report
     await checkAndReportPermission();
 
+    // Pre-load notification category preferences from backend
+    NotificationPreferenceService.fetchPreferences();
+
     // Handle foreground messages
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       print('FCM: Got a foreground message. Data: ${message.data}');
+
+      // Check if this notification's category is blocked by the user
+      final String? category = message.data['category'] as String?;
+      if (category != null &&
+          await NotificationPreferenceService.isCategoryBlocked(category)) {
+        print(
+          'FCM [onMessage]: Category "$category" is blocked by user. Dropping notification.',
+        );
+        return;
+      }
 
       // Update status - prefer FCM messageId for tracking
       final String? trackingId = message.messageId ?? message.data['id'];
@@ -194,8 +257,10 @@ class NotificationService {
   }
 
   /// Checks if notification permissions are denied and reports 'blocked' to backend
+  /// This also ensures the backend is aware of the user's focus on our app's settings.
   static Future<void> checkAndReportPermission() async {
     try {
+      // 1. Check Global Permission (FCM)
       NotificationSettings settings = await FirebaseMessaging.instance
           .getNotificationSettings();
 
@@ -205,9 +270,62 @@ class NotificationService {
 
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
         print(
-          'FCM: Notification permission blocked by user. Reporting to backend.',
+          'FCM: Notification permission blocked by user globally. Reporting to backend.',
         );
         ApiService().updateNotificationStatus('permission_blocked', 'blocked');
+
+        // Block all to be safe if global is off
+        NotificationPreferenceService.updatePreference('message', true);
+        NotificationPreferenceService.updatePreference('invitation', true);
+        return;
+      }
+
+      // 2. Check individual channels and sync to backend
+      final categories = await NotificationPreferenceService.fetchPreferences();
+      final List<dynamic> channels = await (AwesomeNotifications() as dynamic)
+          .listChannels();
+
+      for (var pref in categories) {
+        final String channelKey = pref.category == 'message'
+            ? 'chat_channel'
+            : '${pref.category}_channel';
+
+        // Check importance of this channel in the current OS state
+        // In awesome_notifications 0.10.x, some methods might be different.
+        // If listChannels is not found, we fallback to isNotificationAllowed()
+        // which check for the main app permission.
+        bool shouldBeBlocked = false;
+        try {
+          // Attempt to check if specific channel is allowed if the method exists
+          // Otherwise rely on the fact that we can't easily check per-channel status
+          // without a working listChannels/getChannel.
+          final channel = channels.firstWhere(
+            (c) => c.channelKey == channelKey,
+            orElse: () => NotificationChannel(
+              channelKey: 'unknown',
+              channelName: 'Unknown',
+              channelDescription: 'Unknown',
+            ),
+          );
+
+          if (channel.channelKey != 'unknown') {
+            shouldBeBlocked = channel.importance == NotificationImportance.None;
+          }
+        } catch (e) {
+          print("FCM [Sync]: Could not determine per-channel status: $e");
+          continue;
+        }
+
+        // Only update if it changed from what the backend thinks
+        if (pref.isBlocked != shouldBeBlocked) {
+          print(
+            'FCM: Syncing OS block status for ${pref.category}: $shouldBeBlocked',
+          );
+          await NotificationPreferenceService.updatePreference(
+            pref.category,
+            shouldBeBlocked,
+          );
+        }
       }
     } catch (e) {
       print('FCM: Error checking notification permissions: $e');
@@ -342,9 +460,17 @@ class NotificationService {
     required Map<String, dynamic> payload,
   }) async {
     await _initLocal();
-    final String channelKey = payload['type'] == 'chess_invite'
-        ? 'invitation_channel'
-        : 'chat_channel';
+
+    // Map the category to the correct channel key
+    String? category = payload['category']?.toString();
+    if (category == null) {
+      // Fallback for older payloads
+      category = payload['type'] == 'chess_invite' ? 'invitation' : 'message';
+    }
+
+    final String channelKey = category == 'message'
+        ? 'chat_channel'
+        : '${category}_channel';
 
     int id = int.tryParse(payload['room_id']?.toString() ?? '0') ?? 0;
 

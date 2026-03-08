@@ -1,6 +1,7 @@
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
+import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -53,6 +54,42 @@ class _ChatPageState extends State<ChatPage> {
     final provider = Provider.of<ChatProvider>(context, listen: false);
     provider.clearActiveRoom();
     super.dispose();
+  }
+
+  /// Format a DateTime to a readable time string like "3:41 PM"
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '$hour:$minute $period';
+  }
+
+  /// Build the message status icon for sent messages
+  Widget _buildStatusIcon(MessageStatus status) {
+    switch (status) {
+      case MessageStatus.sending:
+        return const Icon(
+          Icons.access_time_rounded,
+          size: 13,
+          color: Colors.white60,
+        );
+      case MessageStatus.sent:
+        return const Icon(Icons.done, size: 13, color: Colors.white70);
+      case MessageStatus.delivered:
+        return Stack(
+          children: const [
+            Positioned(
+              left: 0,
+              child: Icon(Icons.done, size: 13, color: Colors.lightBlueAccent),
+            ),
+            Positioned(
+              left: 5,
+              child: Icon(Icons.done, size: 13, color: Colors.lightBlueAccent),
+            ),
+            SizedBox(width: 18, height: 13),
+          ],
+        );
+    }
   }
 
   @override
@@ -124,6 +161,8 @@ class _ChatPageState extends State<ChatPage> {
                   itemBuilder: (_, index) {
                     final msg = messages[index];
                     final isMe = msg.userId == widget.currentUserId;
+                    final timeStr = _formatTime(msg.localTimestamp);
+
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
                       child: Column(
@@ -151,9 +190,11 @@ class _ChatPageState extends State<ChatPage> {
                               maxWidth:
                                   MediaQuery.of(context).size.width * 0.75,
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 12,
-                              horizontal: 16,
+                            padding: const EdgeInsets.only(
+                              top: 12,
+                              left: 14,
+                              right: 14,
+                              bottom: 8,
                             ),
                             decoration: BoxDecoration(
                               gradient: isMe
@@ -181,13 +222,41 @@ class _ChatPageState extends State<ChatPage> {
                                 bottomRight: Radius.circular(isMe ? 0 : 20),
                               ),
                             ),
-                            child: Text(
-                              msg.message,
-                              style: TextStyle(
-                                color: isMe ? Colors.white : Colors.black87,
-                                fontSize: 16,
-                                height: 1.3,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: isMe
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  msg.message,
+                                  style: TextStyle(
+                                    color: isMe ? Colors.white : Colors.black87,
+                                    fontSize: 16,
+                                    height: 1.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                // ── Timestamp + status row ──
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      timeStr,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isMe
+                                            ? Colors.white60
+                                            : Colors.black38,
+                                      ),
+                                    ),
+                                    if (isMe) ...[
+                                      const SizedBox(width: 5),
+                                      _buildStatusIcon(msg.status),
+                                    ],
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         ],

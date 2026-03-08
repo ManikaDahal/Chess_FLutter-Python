@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:chess_game_manika/models/chat_model.dart';
 import 'package:chess_game_manika/services/chat_websocket_service.dart';
+import 'package:chess_game_manika/services/notification_preference_service.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -212,16 +213,17 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
-    // 2. Optimistic replacement
+    // 2. Optimistic replacement – upgrade status to `sent` when server confirms
     bool replaced = false;
     if (msg.userId == _currentUserId) {
       for (int i = currentMsgs.length - 1; i >= 0; i--) {
         final m = currentMsgs[i];
         if (m.id == null && m.message == msg.message) {
-          currentMsgs[i] = msg;
+          // Mark as sent (server has stored it)
+          currentMsgs[i] = msg.copyWith(status: MessageStatus.sent);
           replaced = true;
           print(
-            "ChatProvider: Replaced optimistic message with server ID: ${msg.id}",
+            "ChatProvider: Replaced optimistic message with server ID: ${msg.id} (status: sent)",
           );
           break;
         }
@@ -237,10 +239,24 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // 3. Update unread count
     if (msgRoomId != _activeRoomId) {
-      _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
+      final String category = msg.roomId == 1
+          ? 'system'
+          : 'message'; // Mapping for chat room logic
+      NotificationPreferenceService.isCategoryBlocked(category).then((
+        isBlocked,
+      ) {
+        if (!isBlocked) {
+          _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
+          notifyListeners();
+        } else {
+          print(
+            "ChatProvider: Suppressing unread count for blocked category '$category'",
+          );
+        }
+      });
+    } else {
+      notifyListeners();
     }
-
-    notifyListeners();
 
     // 4. Unified Notification Alert
     final bool isVisible = msgRoomId == _activeRoomId;
@@ -292,12 +308,13 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
   void send(int roomId, String message) {
     if (_currentUserId == null) return;
 
-    // Optimistic add to the SPECIFIC room list
+    // Optimistic add – status starts as `sending`
     final optimisticMsg = ChatMessage(
       message: message,
       userId: _currentUserId!,
       roomId: roomId,
       senderName: _currentUserName ?? "Unknown",
+      status: MessageStatus.sending,
     );
 
     _roomMessages[roomId] = List.from(_roomMessages[roomId] ?? [])
