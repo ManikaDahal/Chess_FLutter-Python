@@ -236,15 +236,32 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
 
             msgs[index] = msgs[index].copyWith(reactions: currentReactions);
             notifyListeners();
+
+            // -- NEW: Instant local notification via WebSocket --
+            if (action == "added" &&
+                msgs[index].userId == _currentUserId &&
+                reactionUserId != _currentUserId &&
+                _lifecycleState == AppLifecycleState.resumed) {
+              final String reactorName =
+                  data['sender_name']?.toString() ?? "Someone";
+              // We'll show it regardless of _activeRoomId, because a reaction is often
+              // for an old message you're currently not looking at.
+              NotificationService.showNotification(
+                title: "New Reaction",
+                body: "$reactorName reacted $emoji to your message",
+                payload: {
+                  "room_id": msgRoomId.toString(),
+                  "type": "reaction",
+                  "category": "message",
+                },
+              );
+            }
           }
         }
       } else if (data['type'] == 'reaction') {
-        final int msgRoomId =
-            int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
-        final bool isVisible = msgRoomId == _activeRoomId;
         final bool isForeground = _lifecycleState == AppLifecycleState.resumed;
 
-        if (!isVisible && isForeground) {
+        if (isForeground) {
           NotificationService.showNotification(
             title: data['sender_name'] ?? "Someone",
             body: data['message'] ?? "Reacted to your message",
