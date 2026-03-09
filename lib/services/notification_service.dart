@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:chess_game_manika/provider/chat_provider.dart';
 import 'package:chess_game_manika/services/invite_services.dart';
+import 'package:chess_game_manika/services/signaling_service.dart';
 import 'package:chess_game_manika/ui/chat_page.dart';
 import 'package:chess_game_manika/ui/chess_board.dart';
 import 'package:chess_game_manika/services/api_services.dart';
@@ -287,6 +288,10 @@ class NotificationService {
                       await SharedPreferences.getInstance();
                   final int currentUserId = prefs.getInt('userId') ?? 0;
 
+                  // Create a dedicated SignalingService for this game session
+                  // so it can be shared with the GameBoard
+                  final signalingService = SignalingService();
+
                   // Navigator navigate to Chess Board IMMEDIATELY
                   // GameBoard's internal initState will handle signaling setup
                   navigatorKey?.currentState?.push(
@@ -298,6 +303,7 @@ class NotificationService {
                         amIWhite: false, // Receiver is always Black
                         opponentId: senderId,
                         showLeaveButton: true,
+                        signalingService: signalingService,
                       ),
                     ),
                   );

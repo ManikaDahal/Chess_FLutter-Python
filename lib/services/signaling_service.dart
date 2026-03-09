@@ -213,13 +213,8 @@ class SignalingService {
           _log('🔎 Probing server root to wake up: $probeUri');
           final resp = await http
               .get(probeUri)
-              .timeout(
-                const Duration(seconds: 45),
-              ); // Increased to handle Render wake-up
+              .timeout(const Duration(seconds: 15));
           _log('🔎 Probe response: ${resp.statusCode}');
-
-          // If we got ANY response (even 404 for root), the server is definitely awake.
-          // Most Django apps return 200, 301, or 404 for root.
         } catch (e) {
           _log('⚠️ Probe failed (server might still be sleeping): $e');
         }
@@ -265,26 +260,21 @@ class SignalingService {
           throw Exception('WebSocket channel could not be established');
         }
 
-        bool firstMessageReceived = false;
+        // Optimistically set connected immediately!
+        _isConnected = true;
+        if (!_connectionController.isClosed) {
+          _connectionController.add(true);
+        }
+        _startHeartbeat();
+        _log('✅ WebSocket Connected optimistically to $roomId');
+
+        if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+          _readyCompleter!.complete();
+        }
+
         _channel!.stream.listen(
           (message) {
             _handshakeTimeout?.cancel();
-
-            // On first message (e.g. connection_established), mark as truly connected and complete the future
-            if (!firstMessageReceived) {
-              firstMessageReceived = true;
-              _isConnected = true;
-              if (!_connectionController.isClosed) {
-                _connectionController.add(true);
-              }
-              _startHeartbeat();
-              _log('✅ WebSocket Connected to $roomId (Handshake confirmed)');
-
-              if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
-                _readyCompleter!.complete();
-              }
-            }
-
             _isReconnecting = false;
             _handleMessage(message);
           },

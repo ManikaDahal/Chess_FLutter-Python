@@ -93,9 +93,9 @@ class _UserListState extends State<UserList> {
 
     try {
       final inviteService = InviteService();
-      final bool success = await inviteService.sendInvite(targetUserId);
+      final int? roomId = await inviteService.sendInvite(targetUserId);
 
-      if (success && mounted) {
+      if (roomId != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Invitation sent! Waiting for opponent to accept..."),
@@ -103,30 +103,16 @@ class _UserListState extends State<UserList> {
           ),
         );
 
-        final int? roomId = await _apiService.getOrCreateChatRoom(
-          widget.currentUserId,
-          targetUserId,
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InviteWaitingScreen(
+              targetUserId: targetUserId,
+              targetUserName: targetUserName,
+              roomId: roomId,
+            ),
+          ),
         );
-
-        if (roomId != null && mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InviteWaitingScreen(
-                targetUserId: targetUserId,
-                targetUserName: targetUserName,
-                roomId: roomId,
-              ),
-            ),
-          );
-        } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Unable to establish game room. Please try again."),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

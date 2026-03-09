@@ -63,7 +63,7 @@ class _GameBoardState extends State<GameBoard>
   StreamSubscription? _signalingConnSub;
 
   // Embedded Call Variables
-  late SignalingService _signalingService;
+  SignalingService? _signalingService;
   StreamSubscription? _incomingCallSub;
   StreamSubscription? _customMessageSub;
   StreamSubscription? _peerJoinedSub;
@@ -81,6 +81,8 @@ class _GameBoardState extends State<GameBoard>
   bool _isRemoteVideoEnabled = false;
   bool _isOpponentLocallySilenced = false;
   bool _amISilencedByOpponent = false; // New: signaled by peer
+  bool _isRendererReady =
+      false; // NEW: Guard for RTCVideoRenderer srcObject assignments
 
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
@@ -94,26 +96,20 @@ class _GameBoardState extends State<GameBoard>
       print("[GAME CALL] Using externally provided SignalingService.");
       _signalingService = widget.signalingService!;
       // Sync initial state from the service's notifiers
-      _isRemoteAudioMuted = _signalingService.isRemoteMuted.value;
-      _isRemoteVideoEnabled = _signalingService.isRemoteVideoEnabled.value;
+      _isRemoteAudioMuted = _signalingService!.isRemoteMuted.value;
+      _isRemoteVideoEnabled = _signalingService!.isRemoteVideoEnabled.value;
     } else {
       _signalingService = SignalingService();
     }
 
     // Listen for incoming calls (Invitee side)
-    _incomingCallSub = _signalingService.onIncomingCallStream.listen((_) {
-      if (!_isCallStarted) {
-        print("[GAME CALL] Incoming call received. Auto-accepting...");
-        _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
-        _isCallStarted = true;
-        setState(() {
-          _callStatus = "Call Connected";
-        });
-      }
+    _incomingCallSub = _signalingService!.onIncomingCallStream.listen((_) {
+      if (!mounted) return;
+      _showIncomingCallDialog();
     });
 
     // Listen for remote mute state changes
-    _customMessageSub = _signalingService.onCustomMessageStream.listen((data) {
+    _customMessageSub = _signalingService!.onCustomMessageStream.listen((data) {
       if (data['action'] == 'toggle_mute') {
         setState(() {
           _isRemoteAudioMuted = data['isMuted'];
@@ -135,7 +131,7 @@ class _GameBoardState extends State<GameBoard>
     });
 
     // Listen for peer join notifications (to start call as inviter)
-    _peerJoinedSub = _signalingService.onPeerJoinedStream.listen((_) {
+    _peerJoinedSub = _signalingService!.onPeerJoinedStream.listen((_) {
       print(
         "[GAME CALL] 👥 Peer joined! isWhite: ${widget.amIWhite}, _isCallStarted: $_isCallStarted",
       );
@@ -145,7 +141,7 @@ class _GameBoardState extends State<GameBoard>
     });
 
     // Listen for hangups (to clean up UI when call ends)
-    _onHangupSub = _signalingService.onHangupStream.listen((_) {
+    _onHangupSub = _signalingService!.onHangupStream.listen((_) {
       print("[GAME CALL] 🛑 Peer hung up. Cleaning up...");
       setState(() {
         _isCallStarted = false;
@@ -153,17 +149,18 @@ class _GameBoardState extends State<GameBoard>
         _isRemoteVideoEnabled = false;
       });
       _stopCallTimers();
-      _signalingService.endCall(sendSignal: false);
+      _signalingService!.endCall(sendSignal: false);
     });
 
-    _signalingService.localStreamNotifier.addListener(_onLocalStreamChanged);
-    _signalingService.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
-    _signalingService.remoteMediaTypeNotifier.addListener(
+    _signalingService!.localStreamNotifier.addListener(_onLocalStreamChanged);
+    _signalingService!.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
+    _signalingService!.remoteMediaTypeNotifier.addListener(
       _onRemoteMediaTypeChanged,
     );
 
-    _signalingService.onLog = (msg) => print("[SIGNALING] $msg");
-
+    _signalingService!.onLog = (msg) {
+      // print("[SignalingLog] $msg");
+    };
     _onRemoteStreamChanged();
     _onLocalStreamChanged();
     _onRemoteMediaTypeChanged();
@@ -173,7 +170,7 @@ class _GameBoardState extends State<GameBoard>
   void _startCallConnection() {
     print("[GAME CALL] 🚀 Triggering call start...");
     _isCallStarted = true;
-    _signalingService.startCall(isVideo: _isLocalVideoEnabled);
+    _signalingService!.startCall(isVideo: _isLocalVideoEnabled);
     setState(() {
       _callStatus = "Starting call...";
     });
@@ -186,11 +183,11 @@ class _GameBoardState extends State<GameBoard>
           _isCallStarted = false;
           _callStatus = "Waiting for peer...";
         });
-        _signalingService.endCall(sendSignal: false);
+        _signalingService!.endCall(sendSignal: false);
       }
     });
     // Listen for call acceptance (inviter side)
-    _onCallAcceptedSub = _signalingService.onCallAcceptedStream.listen((_) {
+    _onCallAcceptedSub = _signalingService!.onCallAcceptedStream.listen((_) {
       print("[GAME CALL] ✅ Call accepted by peer! Establishing media...");
       setState(() {
         _callStatus = "Establishing media...";
@@ -199,7 +196,7 @@ class _GameBoardState extends State<GameBoard>
   }
 
   void _onRemoteMediaTypeChanged() {
-    final mediaType = _signalingService.remoteMediaTypeNotifier.value;
+    final mediaType = _signalingService!.remoteMediaTypeNotifier.value;
     if (mounted && mediaType != null) {
       print("[GAME CALL] 🏢 Remote media type detected: $mediaType");
       setState(() {
@@ -209,7 +206,8 @@ class _GameBoardState extends State<GameBoard>
   }
 
   void _onLocalStreamChanged() {
-    final localStream = _signalingService.localStreamNotifier.value;
+    if (!_isRendererReady) return;
+    final localStream = _signalingService!.localStreamNotifier.value;
     if (mounted) {
       // Always re-assign to ensure renderer picks up changes (e.g. tracks added)
       setState(() {
@@ -219,7 +217,8 @@ class _GameBoardState extends State<GameBoard>
   }
 
   void _onRemoteStreamChanged() {
-    final remoteStream = _signalingService.remoteStreamNotifier.value;
+    if (!_isRendererReady) return;
+    final remoteStream = _signalingService!.remoteStreamNotifier.value;
     if (mounted && remoteStream != null) {
       // Always re-assign to ensure renderer picks up changes
       _remoteRenderer.srcObject = remoteStream;
@@ -299,14 +298,14 @@ class _GameBoardState extends State<GameBoard>
 
   void _connectToSignaling(String callRoomId) {
     // If already connected/in call (external case), just trigger handshake
-    if (widget.signalingService != null && _signalingService.isConnected) {
+    if (widget.signalingService != null && _signalingService!.isConnected) {
       print("[GAME CALL] Signaling already connected. Starting handshake...");
       _startHandshakeSequence();
       return;
     }
 
     // Connect to signaling - this now waits for the websocket to actually be ready
-    _signalingService
+    _signalingService!
         .connect(Constants.wsBaseUrl, callRoomId)
         .then((_) async {
           if (!mounted) return;
@@ -342,9 +341,9 @@ class _GameBoardState extends State<GameBoard>
       }
 
       if (!_isCallStarted) {
-        if (_signalingService.isConnected) {
+        if (_signalingService!.isConnected) {
           print("[GAME CALL] 💓 Sending periodic room_ready pulse...");
-          _signalingService.sendCustomMessage({'action': 'room_ready'});
+          _signalingService!.sendCustomMessage({'action': 'room_ready'});
           if (_callStatus != "Waiting for peer...") {
             setState(() {
               _callStatus = "Waiting for peer...";
@@ -365,7 +364,7 @@ class _GameBoardState extends State<GameBoard>
 
     // Initial immediate signal
     print("[GAME CALL] 🚀 Sending initial room_ready signal...");
-    _signalingService.sendCustomMessage({'action': 'room_ready'});
+    _signalingService!.sendCustomMessage({'action': 'room_ready'});
 
     // Update initial status
     setState(() {
@@ -375,10 +374,10 @@ class _GameBoardState extends State<GameBoard>
     });
 
     // If an offer is already pending (race condition), accept it immediately
-    if (!widget.amIWhite && _signalingService.pendingMediaType != null) {
+    if (!widget.amIWhite && _signalingService!.pendingMediaType != null) {
       print("[GAME CALL] Pending offer found. Accepting immediately.");
       _isCallStarted = true;
-      _signalingService.acceptCall(isVideo: _isLocalVideoEnabled);
+      _signalingService!.acceptCall(isVideo: _isLocalVideoEnabled);
       setState(() {
         _callStatus = "Call Connected";
       });
@@ -389,8 +388,8 @@ class _GameBoardState extends State<GameBoard>
     setState(() {
       _isLocalAudioMuted = !_isLocalAudioMuted;
     });
-    _signalingService.toggleMute(_isLocalAudioMuted);
-    _signalingService.sendCustomMessage({
+    _signalingService!.toggleMute(_isLocalAudioMuted);
+    _signalingService!.sendCustomMessage({
       'action': 'toggle_mute',
       'isMuted': _isLocalAudioMuted,
     });
@@ -400,9 +399,9 @@ class _GameBoardState extends State<GameBoard>
     setState(() {
       _isLocalVideoEnabled = !_isLocalVideoEnabled;
     });
-    _signalingService.toggleVideo(_isLocalVideoEnabled);
+    _signalingService!.toggleVideo(_isLocalVideoEnabled);
     _onLocalStreamChanged(); // Force the renderer to pick up the enabled/disabled stream state
-    _signalingService.sendCustomMessage({
+    _signalingService!.sendCustomMessage({
       'action': 'toggle_video',
       'isVideoEnabled': _isLocalVideoEnabled,
     });
@@ -414,7 +413,7 @@ class _GameBoardState extends State<GameBoard>
     });
 
     // Mute/Unmute the remote audio tracks locally so the opponent cannot be heard.
-    final remoteStream = _signalingService.remoteStreamNotifier.value;
+    final remoteStream = _signalingService!.remoteStreamNotifier.value;
     if (remoteStream != null) {
       for (var track in remoteStream.getAudioTracks()) {
         track.enabled = !_isOpponentLocallySilenced;
@@ -422,7 +421,7 @@ class _GameBoardState extends State<GameBoard>
     }
 
     // Notify peer so they see the "Silenced" indicator
-    _signalingService.sendCustomMessage({
+    _signalingService!.sendCustomMessage({
       'action': 'local_silence_toggle',
       'isSilenced': _isOpponentLocallySilenced,
     });
@@ -461,7 +460,7 @@ class _GameBoardState extends State<GameBoard>
           ElevatedButton(
             onPressed: () {
               _recordingService.stopRecording();
-              _signalingService.endCall();
+              _signalingService?.endCall();
               RouteGenerator.navigateToPageWithoutStack(
                 context,
                 Routes.bottomNavBarRoute,
@@ -501,6 +500,8 @@ class _GameBoardState extends State<GameBoard>
       });
 
       if (widget.isMultiplayer) {
+        _setupEmbeddedCall(); // Initialize the embedded call first
+
         // SYNC: Populate GlobalCallHandler with game context for the overlay
         GlobalCallHandler().activeChessRoomId.value = widget.roomId;
         GlobalCallHandler().currentUserId.value = widget.currentUserId;
@@ -512,8 +513,6 @@ class _GameBoardState extends State<GameBoard>
           "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
         );
 
-        _setupEmbeddedCall(); // Initialize the embedded call
-
         _gameConnSub = _gameService.connectionStream.listen((connected) {
           if (!mounted) return;
           _showTransientSnackBar(
@@ -522,7 +521,7 @@ class _GameBoardState extends State<GameBoard>
           );
         });
 
-        _signalingConnSub = _signalingService.connectionStream.listen((
+        _signalingConnSub = _signalingService!.connectionStream.listen((
           connected,
         ) {
           if (!mounted) return;
@@ -534,7 +533,7 @@ class _GameBoardState extends State<GameBoard>
           );
         });
 
-        _onHangupSub = _signalingService.onHangupStream.listen((_) {
+        _onHangupSub = _signalingService!.onHangupStream.listen((_) {
           if (!mounted) return;
           _showGameOverDialog(
             "Congratulations! Your opponent has resigned. You win!",
@@ -570,11 +569,11 @@ class _GameBoardState extends State<GameBoard>
           } else if (data['type'] == 'user_left') {
             if (data['user_id']?.toString() !=
                 widget.currentUserId.toString()) {
-              _showTransientSnackBar(
-                "Opponent left the game",
-                color: Colors.redAccent,
+              _showGameOverDialog(
+                "Congratulations! Your opponent has left the game. You win!",
+                isVictory: true,
               );
-              _signalingService.endCall(sendSignal: false);
+              _signalingService?.endCall(sendSignal: false);
             }
           } else if (data['type'] == 'reset') {
             setState(() => _initializeBoard());
@@ -613,8 +612,20 @@ class _GameBoardState extends State<GameBoard>
   }
 
   Future<void> _initRenderers() async {
-    await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
+    try {
+      await _localRenderer.initialize();
+      await _remoteRenderer.initialize();
+      if (mounted) {
+        setState(() {
+          _isRendererReady = true;
+        });
+        // Now that renderers are ready, sync the streams
+        _onLocalStreamChanged();
+        _onRemoteStreamChanged();
+      }
+    } catch (e) {
+      print("GameBoard: Error during renderer init: $e");
+    }
   }
 
   void _stopCallTimers() {
@@ -624,12 +635,27 @@ class _GameBoardState extends State<GameBoard>
     _callTimeoutTimer = null;
   }
 
+  void _showIncomingCallDialog() {
+    // This dialog is shown when an incoming call is received.
+    // For game calls, we auto-accept, so this dialog is not strictly needed
+    // unless we want to give the user an option to decline.
+    // For now, we'll just auto-accept as per the original logic.
+    print("[GAME CALL] Incoming call received. Auto-accepting...");
+    _signalingService!.acceptCall(isVideo: _isLocalVideoEnabled);
+    _isCallStarted = true;
+    setState(() {
+      _callStatus = "Call Connected";
+    });
+  }
+
   @override
   void dispose() {
     _recordingService.stopRecording();
-    _signalingService.remoteStreamNotifier.removeListener(
-      _onRemoteStreamChanged,
-    );
+    if (_signalingService != null) {
+      _signalingService!.remoteStreamNotifier.removeListener(
+        _onRemoteStreamChanged,
+      );
+    }
     _gameSubscription?.cancel();
     _gameConnSub?.cancel();
     _signalingConnSub?.cancel();
@@ -638,22 +664,29 @@ class _GameBoardState extends State<GameBoard>
     _peerJoinedSub?.cancel();
     _onHangupSub?.cancel();
     _onCallAcceptedSub?.cancel();
-    _signalingService.onLog = null;
+    if (_signalingService != null) {
+      _signalingService!.onLog = null;
+    }
     _stopCallTimers();
-    _signalingService.localStreamNotifier.removeListener(_onLocalStreamChanged);
-    _signalingService.remoteStreamNotifier.removeListener(
-      _onRemoteStreamChanged,
-    );
-    _signalingService.remoteMediaTypeNotifier.removeListener(
-      _onRemoteMediaTypeChanged,
-    );
+    if (_signalingService != null) {
+      _signalingService!.localStreamNotifier.removeListener(
+        _onLocalStreamChanged,
+      );
+      _signalingService!.remoteStreamNotifier.removeListener(
+        _onRemoteStreamChanged,
+      );
+      _signalingService!.remoteMediaTypeNotifier.removeListener(
+        _onRemoteMediaTypeChanged,
+      );
+    }
+
     if (widget.signalingService == null) {
-      _signalingService.endCall(); // Only end if we own the service
-      _signalingService.disconnect();
+      _signalingService?.endCall(); // Only end if we own the service
+      _signalingService?.disconnect();
     } else {
       // Even if we don't own it, if we're in a call session, we should end it when leaving the board
-      if (_signalingService.inCallSession) {
-        _signalingService.endCall(sendSignal: true);
+      if (_signalingService?.inCallSession ?? false) {
+        _signalingService?.endCall(sendSignal: true);
       }
     }
 
@@ -850,7 +883,7 @@ class _GameBoardState extends State<GameBoard>
             print("Socket offline, will resend move later");
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text("Not connected – trying to reconnect."),
+                content: Text("Connecting to game server... Please wait."),
               ),
             );
             _gameService.connect(widget.roomId);
@@ -1024,7 +1057,7 @@ class _GameBoardState extends State<GameBoard>
             onPressed: () {
               Navigator.pop(context); // Close dialog
               _recordingService.stopRecording();
-              _signalingService.endCall();
+              _signalingService?.endCall();
               RouteGenerator.navigateToPageWithoutStack(
                 context,
                 Routes.bottomNavBarRoute,
@@ -1171,7 +1204,7 @@ class _GameBoardState extends State<GameBoard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    
+
     try {
       final bool isPractice = !widget.isMultiplayer;
 
@@ -1184,19 +1217,29 @@ class _GameBoardState extends State<GameBoard>
           }
         },
         child: Scaffold(
-          backgroundColor: const Color(0xFF1A1A2E), // Explicit dark background instead of grey variable
+          backgroundColor: widget.isMultiplayer
+              ? const Color(0xFF212121)
+              : whiteColor,
+          appBar: widget.isMultiplayer
+              ? null
+              : AppBar(
+                  title: const Text("Game Board"),
+                  centerTitle: true,
+                  backgroundColor: backgroundColor,
+                  foregroundColor: whiteColor,
+                  automaticallyImplyLeading: false,
+                ),
           body: SafeArea(
             child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF1A1A2E),
-                    Color(0xFF16213E),
-                  ],
-                ),
-              ),
+              decoration: widget.isMultiplayer
+                  ? const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF303030), Color(0xFF121212)],
+                      ),
+                    )
+                  : const BoxDecoration(color: whiteColor),
               child: Column(
                 children: [
                   if (widget.isMultiplayer) _buildSafeHeader(),
@@ -1205,7 +1248,10 @@ class _GameBoardState extends State<GameBoard>
                   Expanded(
                     flex: 4,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       child: Center(
                         child: AspectRatio(
                           aspectRatio: 1.0,
@@ -1216,12 +1262,11 @@ class _GameBoardState extends State<GameBoard>
                   ),
 
                   // Call Frame
-                  if (widget.isMultiplayer && _isCallStarted)
-                    Expanded(
-                      flex: 3,
-                      child: _buildCallFrame(),
-                    ),
-                  
+                  if (widget.isMultiplayer &&
+                      _isCallStarted &&
+                      _signalingService != null)
+                    Expanded(flex: 3, child: _buildCallFrame()),
+
                   // Bottom spacing for non-call multiplayer
                   if (widget.isMultiplayer && !_isCallStarted)
                     const Spacer(flex: 2),
@@ -1233,11 +1278,7 @@ class _GameBoardState extends State<GameBoard>
       );
     } catch (e) {
       // Handle any top-level build errors
-      return Scaffold(
-        body: Center(
-          child: Text("An error occurred: $e"),
-        ),
-      );
+      return Scaffold(body: Center(child: Text("An error occurred: $e")));
     }
   }
 
@@ -1257,7 +1298,7 @@ class _GameBoardState extends State<GameBoard>
           children: [
             Expanded(
               child: _buildVideoContainer(
-                notifier: _signalingService.localStreamNotifier,
+                notifier: _signalingService!.localStreamNotifier,
                 renderer: _localRenderer,
                 isEnabled: _isLocalVideoEnabled,
                 label: "You",
@@ -1267,7 +1308,7 @@ class _GameBoardState extends State<GameBoard>
             const SizedBox(width: 8),
             Expanded(
               child: _buildVideoContainer(
-                notifier: _signalingService.remoteStreamNotifier,
+                notifier: _signalingService!.remoteStreamNotifier,
                 renderer: _remoteRenderer,
                 isEnabled: _isRemoteVideoEnabled,
                 label: widget.opponentId?.toString() ?? "Opponent",

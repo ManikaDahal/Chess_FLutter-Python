@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 class InviteService {
   final TokenStorage _storage = TokenStorage();
 
-  Future<bool> sendInvite(int toUserId) async {
+  Future<int?> sendInvite(int toUserId) async {
     final token = await _storage.getAccessToken();
     final String renderUrl = Constants.wsBaseUrl.replaceFirst(
       "wss://",
@@ -22,7 +22,10 @@ class InviteService {
       body: jsonEncode({"to_user": toUserId}),
     );
     print("SendInvite status: ${res.statusCode} body: ${res.body}");
-    return res.statusCode == 201;
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body)['room_id'];
+    }
+    return null;
   }
 
   Future<List<Map<String, dynamic>>> getPendingInvites() async {

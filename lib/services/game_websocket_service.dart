@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:http/http.dart' as http;
 import '../core/utils/const.dart';
 
 class GameWebsocketService {
@@ -51,6 +52,15 @@ class GameWebsocketService {
     _reconnectTimer?.cancel();
 
     try {
+      // Wake up the server before connecting
+      try {
+        final rootUrl = url.split("/ws/")[0].replaceFirst("ws", "http");
+        print("GameWebsocketService: Probing $rootUrl to wake up server...");
+        await http.get(Uri.parse(rootUrl)).timeout(const Duration(seconds: 10));
+      } catch (e) {
+        print("GameWebsocketService: Probe failed (non-fatal): $e");
+      }
+
       var uri = Uri.parse(url);
       // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
       if (uri.port == 0) {
@@ -58,11 +68,21 @@ class GameWebsocketService {
       }
       _channel = WebSocketChannel.connect(uri);
 
+      // Optimisticaly set connected as soon as we start listening
+      // This allows the UI to attempt sending moves without waiting for a heartbeat
+      _isConnected = true;
+      if (!_connectionController.isClosed) {
+        _connectionController.add(true);
+      }
+      _startHeartbeat(roomId);
+
       _channel!.stream.listen(
         (message) {
+          _lastMessageTime = DateTime.timestamp();
           try {
             final data = jsonDecode(message);
 
+            // If we receive ANY valid JSON, we are definitely connected
             if (!_isConnected) {
               _isConnected = true;
               if (!_connectionController.isClosed) {
@@ -79,14 +99,6 @@ class GameWebsocketService {
             print(
               "Error decoding Game WebSocket message: $e\nMessage: $message",
             );
-            // If we got ANY message, the connection is technically alive
-            if (!_isConnected) {
-              _isConnected = true;
-              if (!_connectionController.isClosed) {
-                _connectionController.add(true);
-              }
-              _startHeartbeat(roomId);
-            }
           }
         },
         onDone: () {
@@ -102,12 +114,6 @@ class GameWebsocketService {
           _scheduleReconnect(roomId);
         },
       );
-
-      // NO LONGER OPTIMISTIC: Wait for the first message (like 'connection_established')
-      // and let the stream listener above handle marking _isConnected = true.
-      if (!_connectionController.isClosed) {
-        _connectionController.add(_isConnected);
-      }
     } catch (e) {
       print("Failed to connect Game WebSocket [Room $roomId]: $e");
       _cleanup();
@@ -125,10 +131,24 @@ class GameWebsocketService {
     });
   }
 
+  DateTime? _lastMessageTime;
+
   void _startHeartbeat(int roomId) {
     _pingTimer?.cancel();
+    _lastMessageTime = DateTime.timestamp();
     _pingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       if (_isConnected && _channel != null) {
+        final now = DateTime.timestamp();
+        if (_lastMessageTime != null &&
+            now.difference(_lastMessageTime!).inSeconds > 60) {
+          print(
+            "GameWebsocketService [Room $roomId]: Zombie connection detected. Reconnecting...",
+          );
+          _channel?.sink.close();
+          _cleanup();
+          _scheduleReconnect(roomId);
+          return;
+        }
         _channel!.sink.add(jsonEncode({"type": "ping", "room_id": roomId}));
       } else {
         timer.cancel();

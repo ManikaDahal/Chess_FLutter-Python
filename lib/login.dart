@@ -5,6 +5,7 @@ import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/core/utils/splin_kit.dart';
 import 'package:chess_game_manika/core/utils/string_utils.dart';
+import 'package:chess_game_manika/services/api_services.dart';
 import 'package:chess_game_manika/services/auth_biometrics.dart';
 import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:chess_game_manika/widgets/custom_Inkwell.dart';
@@ -53,15 +54,22 @@ class _LoginState extends State<Login> {
       });
 
       if (success) {
-        // Save user ID or Email in SharedPreferences
+        // Save email flag first for quick access
         final prefs = await SharedPreferences.getInstance();
         final email = _emailController.text.trim();
-        // Fallback userId hash if needed by other components
-        final userId = email.hashCode;
-
-        await prefs.setInt('userId', userId);
         await prefs.setString('email', email);
         await prefs.setBool('loggedIn', true);
+
+        // Fetch real user ID from backend profile API
+        try {
+          final profile = await ApiService().getProfile();
+          final int realUserId = profile['id'] ?? 0;
+          await prefs.setInt('userId', realUserId);
+          print("Login: Saved real userId=$realUserId from profile API");
+        } catch (e) {
+          print("Login: WARNING - Could not fetch profile to get userId: $e");
+          // userId will be 0 as fallback — game features will fail
+        }
 
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
