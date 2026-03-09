@@ -238,9 +238,23 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
             notifyListeners();
           }
         }
+      } else if (data['type'] == 'reaction') {
+        final int msgRoomId =
+            int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
+        final bool isVisible = msgRoomId == _activeRoomId;
+        final bool isForeground = _lifecycleState == AppLifecycleState.resumed;
+
+        if (!isVisible && isForeground) {
+          NotificationService.showNotification(
+            title: data['sender_name'] ?? "Someone",
+            body: data['message'] ?? "Reacted to your message",
+            payload: Map<String, dynamic>.from(data),
+          );
+        }
       } else {
         // Only process if it looks like a chat message
-        if (data['type'] == 'chat_message' || data.containsKey('message')) {
+        if (data['type'] == 'chat_message' ||
+            (data['type'] == null && data.containsKey('message'))) {
           final msg = ChatMessage.fromJson(data);
           _processIncomingMessage(
             msg,
@@ -335,10 +349,10 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
       NotificationPreferenceService.isCategoryBlockedLocally(category).then((
         isBlocked,
       ) {
-        if (!isBlocked) {
+        if (!isBlocked && msgRoomId != _activeRoomId) {
           _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
           notifyListeners();
-        } else {
+        } else if (isBlocked) {
           print(
             "ChatProvider: Suppressing unread count for blocked category '$category' (Live OS status)",
           );

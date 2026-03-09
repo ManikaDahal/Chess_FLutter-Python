@@ -71,8 +71,13 @@ class NotificationService extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      print("FCM [Lifecycle]: App resumed. Triggering permission sync...");
-      checkAndReportPermission();
+      print(
+        "FCM [Lifecycle]: App resumed. Triggering permission sync after short delay...",
+      );
+      // Delay 1.5s to allow Android to finalize channel status after returning from Settings
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        checkAndReportPermission();
+      });
     }
   }
 
@@ -323,26 +328,41 @@ class NotificationService extends WidgetsBindingObserver {
 
         bool shouldBeBlocked = false;
         try {
-          // Check if the specific channel has ALERT permission.
+          // Check if the specific channel has ANY permission.
           // Using checkPermissionList (plural) as verified for 0.10.x.
           final List<dynamic> permissions =
               await (AwesomeNotifications() as dynamic).checkPermissionList(
                 channelKey: channelKey,
-                permissions: [NotificationPermission.Alert],
+                permissions: [
+                  NotificationPermission.Alert,
+                  NotificationPermission.Sound,
+                  NotificationPermission.Badge,
+                  NotificationPermission.Vibration,
+                  NotificationPermission.Light,
+                ],
               );
 
-          // If the list does NOT contain Alert, it means the channel is effectively blocked or disabled
-          shouldBeBlocked = !permissions.contains(NotificationPermission.Alert);
+          // If the list is empty, it means the channel is effectively blocked or disabled
+          shouldBeBlocked = permissions.isEmpty;
 
           print(
-            "FCM [Sync]: Channel $channelKey permissions: $permissions. Blocked (no Alert): $shouldBeBlocked",
+            "FCM [Sync]: Channel $channelKey permissions: $permissions. Blocked (empty): $shouldBeBlocked",
           );
         } catch (e) {
           print(
             "FCM [Sync] ERROR: Could not check permission for $channelKey: $e",
           );
-          // Fallback to current backend state to avoid accidental toggling on error
-          continue;
+          // If the backend says blocked and we can't read OS status,
+          // assume unblocked to avoid keeping user locked out.
+          // This prevents a stuck 'blocked' state due to API incompatibility.
+          if (pref.isBlocked) {
+            print(
+              "FCM [Sync]: Backend says blocked but can't verify. Assuming UNBLOCKED for $channelKey to avoid lockout.",
+            );
+            shouldBeBlocked = false;
+          } else {
+            continue; // already unblocked — safe to skip
+          }
         }
 
         // Only update if it changed from what the backend thinks
@@ -351,6 +371,11 @@ class NotificationService extends WidgetsBindingObserver {
             'FCM [Sync]: STATUS MISMATCH for ${pref.category}! Backend: ${pref.isBlocked}, OS: $shouldBeBlocked. UPDATING BACKEND...',
           );
           final success = await NotificationPreferenceService.updatePreference(
+            pref.category,
+            shouldBeBlocked,
+          );
+          // Also update local cache immediately so foreground checks use fresh data
+          await NotificationPreferenceService.updateLocalBlock(
             pref.category,
             shouldBeBlocked,
           );

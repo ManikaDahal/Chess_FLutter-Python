@@ -138,6 +138,10 @@ class NotificationPreferenceService {
     await sp.setStringList(_prefsKey, blocked);
   }
 
+  /// Public wrapper for direct local cache updates (e.g., from notification_service sync).
+  static Future<void> updateLocalBlock(String category, bool isBlocked) =>
+      _setLocalBlock(category, isBlocked);
+
   static Future<List<NotificationCategoryPreference>>
   _loadCachedPreferences() async {
     final sp = await SharedPreferences.getInstance();
@@ -168,10 +172,19 @@ class NotificationPreferenceService {
     try {
       // 3. Check specific channel status via permissions. Robust for 0.10.x.
       List<dynamic> permissions = await (AwesomeNotifications() as dynamic)
-          .checkPermission(channelKey: channelKey);
+          .checkPermissionList(
+            channelKey: channelKey,
+            permissions: [
+              NotificationPermission.Alert,
+              NotificationPermission.Sound,
+              NotificationPermission.Badge,
+              NotificationPermission.Vibration,
+              NotificationPermission.Light,
+            ],
+          );
 
-      // If the list does NOT contain Alert, it means the channel is effectively blocked or disabled
-      return !permissions.contains(NotificationPermission.Alert);
+      // If the list is empty, it means the channel is effectively blocked or disabled
+      return permissions.isEmpty;
     } catch (e) {
       print(
         "[NotifPref] Error checking local channel status for $category: $e",
