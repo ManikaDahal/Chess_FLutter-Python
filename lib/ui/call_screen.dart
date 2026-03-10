@@ -238,14 +238,23 @@ class _CallScreenState extends State<CallScreen>
     final stream = _signalingService.remoteStreamNotifier.value;
     if (mounted && stream != null) {
       debugPrint(
-        'CallScreen: [STATUS_SYNC] Remote stream detected, setting status to Connected',
+        'CallScreen: [STATUS_SYNC] Remote stream detected (${stream.id}), setting status to Connected',
       );
+
       setState(() {
         _status = "Connected";
         _remoteRenderer.srcObject = stream;
       });
+
+      // Redundant assignment for stability
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _remoteRenderer.srcObject != stream) {
+          setState(() => _remoteRenderer.srcObject = stream);
+        }
+      });
+
       _logs.add('📹 Remote renderer set');
-      _startCallRecording(); // Trigger recording as soon as media flows
+      _startCallRecording();
     }
   }
 

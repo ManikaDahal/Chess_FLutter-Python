@@ -14,6 +14,8 @@ import 'package:chess_game_manika/profile_page.dart';
 import 'package:chess_game_manika/services/notification_service.dart';
 import 'package:chess_game_manika/login.dart';
 import 'package:chess_game_manika/ui/video_gallery_screen.dart';
+import 'package:http/http.dart' as http;
+import 'package:chess_game_manika/core/utils/const.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -63,7 +65,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
       // 2. Run independent initializations in parallel
       await Future.wait([
         // Initialize ChatProvider
-        Future.microtask(() {
+        (() async {
           if (mounted) {
             final chatProvider = Provider.of<ChatProvider>(
               context,
@@ -72,11 +74,24 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
             chatProvider.clearActiveRoom();
             chatProvider.init(roomId, userId, setAsActive: false);
           }
-        }),
+        })(),
         // Connect user-specific signaling
         GlobalCallHandler().connectForUser(userId),
         // Register FCM token
         NotificationService.registerToken(),
+        // 3. Wake up Render server (Video/WebSocket service) early
+        (() async {
+          try {
+            print("BottomNavBar: Waking up Render server...");
+            // A simple HEAD or GET request to warm up the instance
+            await http
+                .get(Uri.parse('${Constants.videoBaseUrl}/api/videos/'))
+                .timeout(const Duration(seconds: 5));
+            print("BottomNavBar: Render server responsive.");
+          } catch (e) {
+            print("BottomNavBar: Render wake-up probe non-critical error: $e");
+          }
+        })(),
       ]);
 
       final endTime = DateTime.now();

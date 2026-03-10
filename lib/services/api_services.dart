@@ -1,39 +1,82 @@
 import 'dart:convert';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/services/token_storage.dart';
+import 'package:chess_game_manika/services/auth_services.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
   final TokenStorage _storage = TokenStorage();
 
-  Future<Map<String, String>> _headers() async {
+  /// Authenticated GET with automatic token refresh
+  Future<http.Response> _authenticatedGet(Uri uri) async {
     final token = await _storage.getAccessToken();
-    print('Token before profile call: $token');
-
-    if (token == null) throw Exception('Access token missing');
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
-    };
-  }
-
-  /// PROFILE
-  Future<Map<String, dynamic>> getProfile() async {
-    final token = await _storage.getAccessToken();
-
-    print("Token used for profile: $token");
-
-    final response = await http.get(
-      // CHANGE: Using apiBaseUrl for REST API (Vercel)
-      Uri.parse('${Constants.apiBaseUrl}/api/profile/'),
+    var response = await http.get(
+      uri,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
     );
 
-    print("Profile status: ${response.statusCode}");
-    print("Profile raw body: ${response.body}");
+    if (response.statusCode == 401) {
+      print("ApiService: 401 Unauthorized. Attempting token refresh...");
+      final refreshed = await AuthServices().refreshToken();
+      if (refreshed) {
+        final newToken = await _storage.getAccessToken();
+        print("ApiService: Token refreshed. Retrying request...");
+        response = await http.get(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $newToken',
+          },
+        );
+      }
+    }
+    return response;
+  }
+
+  /// Authenticated POST with automatic token refresh
+  Future<http.Response> _authenticatedPost(
+    Uri uri,
+    Map<String, dynamic> body,
+  ) async {
+    final token = await _storage.getAccessToken();
+    var response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 401) {
+      print(
+        "ApiService: 401 Unauthorized on POST. Attempting token refresh...",
+      );
+      final refreshed = await AuthServices().refreshToken();
+      if (refreshed) {
+        final newToken = await _storage.getAccessToken();
+        print("ApiService: Token refreshed. Retrying POST...");
+        response = await http.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $newToken',
+          },
+          body: jsonEncode(body),
+        );
+      }
+    }
+    return response;
+  }
+
+  /// PROFILE
+  Future<Map<String, dynamic>> getProfile() async {
+    final response = await _authenticatedGet(
+      Uri.parse('${Constants.apiBaseUrl}/api/profile/'),
+    );
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
@@ -43,20 +86,14 @@ class ApiService {
   }
 
   Future<List<dynamic>> getUsers() async {
-    final token = await _storage.getAccessToken();
-    final response = await http.get(
-      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+    final response = await _authenticatedGet(
       Uri.parse('${Constants.apiBaseUrl}/api/users/'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
     );
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception("Failed to fetch users");
+      throw Exception("Failed to fetch users [${response.statusCode}]");
     }
   }
 
@@ -66,13 +103,8 @@ class ApiService {
       "wss://",
       "https://",
     );
-    final token = await _storage.getAccessToken();
-    final response = await http.get(
+    final response = await _authenticatedGet(
       Uri.parse('$renderUrl/api/chat/history/$roomId/'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
     );
 
     if (response.statusCode == 200) {
@@ -88,14 +120,10 @@ class ApiService {
       "wss://",
       "https://",
     );
-    final token = await _storage.getAccessToken();
-    final response = await http.post(
+
+    final response = await _authenticatedPost(
       Uri.parse('$renderUrl/api/chat/get_or_create_room/'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({"user1_id": user1Id, "user2_id": user2Id}),
+      {"user1_id": user1Id, "user2_id": user2Id},
     );
 
     if (response.statusCode == 200) {
@@ -108,11 +136,9 @@ class ApiService {
   }
 
   Future<void> registerFcmToken(String token) async {
-    final headers = await _headers();
-    final response = await http.post(
+    final response = await _authenticatedPost(
       Uri.parse('${Constants.apiBaseUrl}/api/register-fcm-token/'),
-      headers: headers,
-      body: jsonEncode({"token": token}),
+      {"token": token},
     );
 
     if (response.statusCode == 200) {
@@ -125,19 +151,13 @@ class ApiService {
   }
 
   Future<void> updateNotificationStatus(String messageId, String status) async {
-    // Note: This goes to the Render server because it's part of the 'call' app there
     final String renderUrl = Constants.wsBaseUrl.replaceFirst(
       "wss://",
       "https://",
     );
-    final token = await _storage.getAccessToken();
-    final response = await http.post(
+    final response = await _authenticatedPost(
       Uri.parse('$renderUrl/api/notifications/update-status/'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({"message_id": messageId, "status": status}),
+      {"message_id": messageId, "status": status},
     );
 
     if (response.statusCode == 200) {

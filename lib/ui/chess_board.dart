@@ -158,8 +158,37 @@ class _GameBoardState extends State<GameBoard>
       _onRemoteMediaTypeChanged,
     );
 
+    _signalingService!.onConnectionStateChange = (state) {
+      print("[GAME CALL] 🧊 PeerConnection State: ${state.name}");
+      if (mounted) {
+        setState(() {
+          if (state ==
+              RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+            _callStatus = "Connecting media...";
+          } else if (state ==
+              RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+            _callStatus = "Connected";
+          } else if (state ==
+              RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+            _callStatus = "Media Failed";
+          } else if (state ==
+              RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+            _callStatus = "Media Dropped";
+          }
+        });
+      }
+    };
+
     _signalingService!.onLog = (msg) {
-      // print("[SignalingLog] $msg");
+      if (mounted) {
+        print("[GAME CALL_LOG] $msg");
+        if (msg.contains("ICE Connection State: failed") ||
+            msg.contains("ICE Connection State: disconnected")) {
+          setState(() {
+            _callStatus = "ICE Connection Issue";
+          });
+        }
+      }
     };
     _onRemoteStreamChanged();
     _onLocalStreamChanged();
@@ -190,7 +219,15 @@ class _GameBoardState extends State<GameBoard>
     _onCallAcceptedSub = _signalingService!.onCallAcceptedStream.listen((_) {
       print("[GAME CALL] ✅ Call accepted by peer! Establishing media...");
       setState(() {
-        _callStatus = "Establishing media...";
+        _callStatus = "Handshaking...";
+      });
+      // Monitor if we get stuck in Handshaking
+      Future.delayed(const Duration(seconds: 10), () {
+        if (mounted && _callStatus == "Handshaking...") {
+          setState(() {
+            _callStatus = "Slow connection. Retrying...";
+          });
+        }
       });
     });
   }
@@ -220,15 +257,31 @@ class _GameBoardState extends State<GameBoard>
     if (!_isRendererReady) return;
     final remoteStream = _signalingService!.remoteStreamNotifier.value;
     if (mounted && remoteStream != null) {
-      // Always re-assign to ensure renderer picks up changes
+      print(
+        "[GAME CALL] 🚞 Remote stream detected (${remoteStream.id}). Attaching to renderer...",
+      );
+
+      // Use a redundant assignment with a small delay to ensure the renderer picks up the stream
       _remoteRenderer.srcObject = remoteStream;
+
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _remoteRenderer.srcObject != remoteStream) {
+          print("[GAME CALL] 🚞 Redundant remote stream assignment.");
+          setState(() {
+            _remoteRenderer.srcObject = remoteStream;
+          });
+        }
+      });
 
       setState(() {
         _callStatus = "Connected";
-        // If the stream HAS video tracks, assume it should be visible initially
-        if (remoteStream.getVideoTracks().isNotEmpty) {
-          _isRemoteVideoEnabled = true;
-        }
+        // Check if there are active video tracks
+        final videoTracks = remoteStream.getVideoTracks();
+        _isRemoteVideoEnabled =
+            videoTracks.isNotEmpty && videoTracks.any((t) => t.enabled);
+        print(
+          "[GAME CALL] 🏢 Remote video enabled: $_isRemoteVideoEnabled (${videoTracks.length} tracks)",
+        );
       });
       _startCallRecording();
     }
@@ -332,7 +385,7 @@ class _GameBoardState extends State<GameBoard>
 
     // NEW: Ensure Pulse timer starts even if already initialized (for reconnects/edge cases)
     _handshakePulseTimer?.cancel();
-    _handshakePulseTimer = Timer.periodic(const Duration(milliseconds: 1500), (
+    _handshakePulseTimer = Timer.periodic(const Duration(milliseconds: 2000), (
       timer,
     ) {
       if (!mounted) {
@@ -340,11 +393,16 @@ class _GameBoardState extends State<GameBoard>
         return;
       }
 
-      if (!_isCallStarted) {
+      // Continue pulsing until the call is actually CONNECTED
+      // This ensures that if signaling drops and comes back, the handshake is resumed
+      if (_callStatus != "Connected") {
         if (_signalingService!.isConnected) {
-          print("[GAME CALL] 💓 Sending periodic room_ready pulse...");
+          print(
+            "[GAME CALL] 💓 Sending periodic room_ready pulse (Status: $_callStatus)...",
+          );
           _signalingService!.sendCustomMessage({'action': 'room_ready'});
-          if (_callStatus != "Waiting for peer...") {
+
+          if (!_isCallStarted && _callStatus == "Handshake started...") {
             setState(() {
               _callStatus = "Waiting for peer...";
             });
@@ -358,6 +416,7 @@ class _GameBoardState extends State<GameBoard>
           }
         }
       } else {
+        print("[GAME CALL] ✅ Call connected, stopping room_ready pulse.");
         timer.cancel();
       }
     });
@@ -1244,6 +1303,12 @@ class _GameBoardState extends State<GameBoard>
                 children: [
                   if (widget.isMultiplayer) _buildSafeHeader(),
 
+                  // Call Frame
+                  if (widget.isMultiplayer &&
+                      _isCallStarted &&
+                      _signalingService != null)
+                    Expanded(flex: 3, child: _buildCallFrame()),
+
                   // Chess Board
                   Expanded(
                     flex: 4,
@@ -1260,12 +1325,6 @@ class _GameBoardState extends State<GameBoard>
                       ),
                     ),
                   ),
-
-                  // Call Frame
-                  if (widget.isMultiplayer &&
-                      _isCallStarted &&
-                      _signalingService != null)
-                    Expanded(flex: 3, child: _buildCallFrame()),
 
                   // Bottom spacing for non-call multiplayer
                   if (widget.isMultiplayer && !_isCallStarted)
@@ -1458,34 +1517,6 @@ class _GameBoardState extends State<GameBoard>
     );
   }
 
-  Widget _buildLeaveWarningBar() {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.redAccent.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
-          SizedBox(width: 8),
-          Text(
-            "If you leave now, your opponent wins!",
-            style: TextStyle(
-              color: Colors.redAccent,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildVideoContainer({
     required ValueListenable<MediaStream?> notifier,
     required RTCVideoRenderer renderer,
@@ -1553,62 +1584,68 @@ class _GameBoardState extends State<GameBoard>
             },
           ),
 
-          // Top Header with Icons
+          // Bottom Controls and Indicators
           Positioned(
-            top: 4,
-            left: 4,
-            right: 4,
+            bottom: 6,
+            left: 6,
+            right: 6,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Mic Icon
-                if (isLocal)
-                  _buildOverlayIconButton(
-                    icon: _isLocalAudioMuted ? Icons.mic_off : Icons.mic,
-                    color: _isLocalAudioMuted ? Colors.redAccent : Colors.white,
-                    onPressed: _toggleLocalAudio,
-                  )
-                else
-                  _buildOverlayIndicator(
-                    icon: _isRemoteAudioMuted ? Icons.mic_off : Icons.mic,
-                    color: _isRemoteAudioMuted
-                        ? Colors.redAccent
-                        : Colors.greenAccent,
-                  ),
+                // Call Status Icons (Mic/Video)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLocal)
+                      _buildOverlayIconButton(
+                        icon: _isLocalAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: _isLocalAudioMuted
+                            ? Colors.redAccent
+                            : Colors.white,
+                        onPressed: _toggleLocalAudio,
+                      )
+                    else
+                      _buildOverlayIndicator(
+                        icon: _isRemoteAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: _isRemoteAudioMuted
+                            ? Colors.redAccent
+                            : Colors.greenAccent,
+                      ),
+                    const SizedBox(width: 4),
+                    if (isLocal)
+                      _buildOverlayIconButton(
+                        icon: _isLocalVideoEnabled
+                            ? Icons.videocam
+                            : Icons.videocam_off,
+                        color: _isLocalVideoEnabled
+                            ? Colors.blue
+                            : Colors.white70,
+                        onPressed: _toggleLocalVideo,
+                      )
+                    else
+                      _buildOverlayIndicator(
+                        icon: _isRemoteVideoEnabled
+                            ? Icons.videocam
+                            : Icons.videocam_off,
+                        color: _isRemoteVideoEnabled
+                            ? Colors.blue
+                            : Colors.white24,
+                      ),
+                  ],
+                ),
 
-                // Video Icon
+                // Audio Output / Silence Indicator
                 if (isLocal)
-                  _buildOverlayIconButton(
-                    icon: _isLocalVideoEnabled
-                        ? Icons.videocam
-                        : Icons.videocam_off,
-                    color: _isLocalVideoEnabled ? Colors.blue : Colors.white70,
-                    onPressed: _toggleLocalVideo,
-                  )
-                else
-                  _buildOverlayIndicator(
-                    icon: _isRemoteVideoEnabled
-                        ? Icons.videocam
-                        : Icons.videocam_off,
-                    color: _isRemoteVideoEnabled ? Colors.blue : Colors.white24,
-                  ),
-              ],
-            ),
-          ),
-
-          // Bottom Indicator (Speaker/Silenced)
-          Positioned(
-            bottom: 4,
-            right: 4,
-            child: isLocal
-                ? (_amISilencedByOpponent
+                  (_amISilencedByOpponent
                       ? _buildOverlayIndicator(
                           icon: Icons.volume_off,
                           color: Colors.redAccent,
                           label: "Silenced",
                         )
                       : const SizedBox.shrink())
-                : _buildOverlayIconButton(
+                else
+                  _buildOverlayIconButton(
                     icon: _isOpponentLocallySilenced
                         ? Icons.volume_off
                         : Icons.volume_up,
@@ -1618,6 +1655,8 @@ class _GameBoardState extends State<GameBoard>
                     onPressed: _toggleRemoteAudioLocalOverride,
                     label: _isOpponentLocallySilenced ? "Silenced" : null,
                   ),
+              ],
+            ),
           ),
         ],
       ),

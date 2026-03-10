@@ -35,6 +35,23 @@ class _LoginState extends State<Login> {
   final _formKey = GlobalKey<FormState>();
   bool loader = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      rememberMe = prefs.getBool('rememberMe') ?? false;
+      if (rememberMe) {
+        _emailController.text = prefs.getString('savedEmail') ?? '';
+        _passwordController.text = prefs.getString('savedPassword') ?? '';
+      }
+    });
+  }
+
   // CHANGE: Updated to login with email
   Future<void> login() async {
     // Show loader
@@ -57,6 +74,17 @@ class _LoginState extends State<Login> {
         // Save email flag first for quick access
         final prefs = await SharedPreferences.getInstance();
         final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
+
+        await prefs.setBool('rememberMe', rememberMe);
+        if (rememberMe) {
+          await prefs.setString('savedEmail', email);
+          await prefs.setString('savedPassword', password);
+        } else {
+          await prefs.remove('savedEmail');
+          await prefs.remove('savedPassword');
+        }
+
         await prefs.setString('email', email);
         await prefs.setBool('loggedIn', true);
 

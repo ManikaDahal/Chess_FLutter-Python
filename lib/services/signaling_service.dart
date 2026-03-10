@@ -104,6 +104,9 @@ class SignalingService {
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
       {'urls': 'stun:stun2.l.google.com:19302'},
+      {'urls': 'stun:stun3.l.google.com:19302'},
+      {'urls': 'stun:stun4.l.google.com:19302'},
+      {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:stun.services.mozilla.com'},
       {
         'urls': [
@@ -124,7 +127,7 @@ class SignalingService {
       },
     ],
     'iceCandidatePoolSize': 10,
-    'bundlePolicy': 'balanced',
+    'bundlePolicy': 'balanced', // Reverted to balanced for wider compatibility
     'rtcpMuxPolicy': 'require',
     'sdpSemantics': 'unified-plan',
     'iceTransportPolicy': 'all',
@@ -268,15 +271,17 @@ class SignalingService {
         _startHeartbeat();
         _log('✅ WebSocket Connected optimistically to $roomId');
 
-        if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
-          _readyCompleter!.complete();
-        }
+        _log('✅ WebSocket Connected optimistically to $roomId');
 
         _channel!.stream.listen(
           (message) {
             _handshakeTimeout?.cancel();
             _isReconnecting = false;
-            _handleMessage(message);
+            try {
+              _handleMessage(message);
+            } catch (e) {
+              _log('❌ Error in message handler: $e\nMessage: $message');
+            }
           },
           onError: (error) {
             _handshakeTimeout?.cancel();
@@ -352,9 +357,9 @@ class SignalingService {
       // Check for zombie connection (no message for 60s)
       final now = DateTime.now();
       if (_lastMessageTime != null &&
-          now.difference(_lastMessageTime!).inSeconds > 60) {
+          now.difference(_lastMessageTime!).inSeconds > 90) {
         _log(
-          '⚠️ Zombie connection detected (no pong for 60s). Reconnecting...',
+          '⚠️ Zombie connection detected (no message for 90s). Reconnecting...',
         );
         _channel?.sink.close();
         _handleDisconnect();
@@ -363,7 +368,9 @@ class SignalingService {
 
       _log('💓 Sending Heartbeat');
       try {
-        _channel!.sink.add(jsonEncode({'type': 'ping'}));
+        _channel!.sink.add(
+          jsonEncode({'type': 'ping', 'room_id': _currentRoomId}),
+        );
       } catch (e) {
         _log('❌ Heartbeat send failed: $e');
         _handleDisconnect();
@@ -402,10 +409,16 @@ class SignalingService {
                 RTCIceConnectionState.RTCIceConnectionStateConnected ||
             state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
           _stopIceRestartTimer();
-        } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-          _log('❌ ICE Connection Failed - attempting restart...');
+        } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+          _log('❌ ICE Connection Failed/Disconnected - attempting restart...');
           _stopIceRestartTimer();
-          if (_isCaller) _triggerIceRestart();
+          if (_isCaller) {
+            // Delay slightly to avoid spamming restarts
+            Future.delayed(const Duration(seconds: 2), () {
+              if (_inCallSession) _triggerIceRestart();
+            });
+          }
         }
       };
 
@@ -479,6 +492,9 @@ class SignalingService {
 
     if (type == 'connection_established') {
       _log('✅ Server connection handshake verified');
+      if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+        _readyCompleter!.complete();
+      }
       return;
     }
 
@@ -634,10 +650,18 @@ class SignalingService {
           _log('✅ Got Local Stream: ${_localStream!.id}');
           // onLocalStream?.call(_localStream!); // Deprecated
 
-          _localStream!.getTracks().forEach((track) {
-            // Deduplicate: check if track doesn't exist already
-            _peerConnection!.addTrack(track, _localStream!);
-          });
+          final senders = await _peerConnection!.getSenders();
+          for (var track in _localStream!.getTracks()) {
+            bool alreadyAdded = senders.any((s) => s.track?.id == track.id);
+            if (!alreadyAdded) {
+              _log(
+                '➕ Adding track to PeerConnection: ${track.kind} (${track.id})',
+              );
+              await _peerConnection!.addTrack(track, _localStream!);
+            } else {
+              _log('ℹ️ Track already added: ${track.kind}');
+            }
+          }
 
           final transceivers = await _peerConnection!.getTransceivers();
           for (var t in transceivers) {

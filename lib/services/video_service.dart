@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../core/utils/const.dart';
 import '../models/video_model.dart';
 import 'token_storage.dart';
+import 'auth_services.dart';
 
 class VideoService {
   // Singleton pattern
@@ -14,11 +15,57 @@ class VideoService {
 
   Future<Map<String, String>> _headers() async {
     final token = await _storage.getAccessToken();
-    print('DEBUG: [SERVICE] Fetching headers, Token present: ${token != null}');
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
+  }
+
+  /// Authenticated GET with automatic token refresh
+  Future<http.Response> _authenticatedGet(Uri uri) async {
+    final headers = await _headers();
+    var response = await http.get(uri, headers: headers);
+
+    if (response.statusCode == 401) {
+      print("VideoService: 401 Unauthorized. Attempting token refresh...");
+      final refreshed = await AuthServices().refreshToken();
+      if (refreshed) {
+        final newHeaders = await _headers();
+        print("VideoService: Token refreshed. Retrying request...");
+        response = await http.get(uri, headers: newHeaders);
+      }
+    }
+    return response;
+  }
+
+  /// Authenticated POST with automatic token refresh
+  Future<http.Response> _authenticatedPost(
+    Uri uri,
+    Map<String, dynamic> body,
+  ) async {
+    final headers = await _headers();
+    var response = await http.post(
+      uri,
+      headers: headers,
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 401) {
+      print(
+        "VideoService: 401 Unauthorized on POST. Attempting token refresh...",
+      );
+      final refreshed = await AuthServices().refreshToken();
+      if (refreshed) {
+        final newHeaders = await _headers();
+        print("VideoService: Token refreshed. Retrying POST...");
+        response = await http.post(
+          uri,
+          headers: newHeaders,
+          body: jsonEncode(body),
+        );
+      }
+    }
+    return response;
   }
 
   List<GameVideo>? _cachedVideos;
@@ -28,10 +75,8 @@ class VideoService {
       return _cachedVideos!;
     }
     try {
-      final headers = await _headers();
-      final response = await http.get(
+      final response = await _authenticatedGet(
         Uri.parse('${Constants.videoBaseUrl}/api/videos/'),
-        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -49,10 +94,8 @@ class VideoService {
 
   Future<List<VideoComment>> getComments(int videoId) async {
     try {
-      final headers = await _headers();
-      final response = await http.get(
+      final response = await _authenticatedGet(
         Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/comments/'),
-        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -69,11 +112,9 @@ class VideoService {
 
   Future<VideoComment?> postComment(int videoId, String text) async {
     try {
-      final headers = await _headers();
-      final response = await http.post(
+      final response = await _authenticatedPost(
         Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/comments/'),
-        headers: headers,
-        body: jsonEncode({'text': text}),
+        {'text': text},
       );
 
       if (response.statusCode == 201) {
@@ -93,11 +134,9 @@ class VideoService {
 
   Future<GameVideo?> toggleReaction(int videoId, String reactionType) async {
     try {
-      final headers = await _headers();
-      final response = await http.post(
+      final response = await _authenticatedPost(
         Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/react/'),
-        headers: headers,
-        body: jsonEncode({'reaction_type': reactionType}),
+        {'reaction_type': reactionType},
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
