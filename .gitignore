@@ -30,7 +30,9 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+# Ignore all build outputs EXCEPT the web build (needed for Render static deployment)
 /build/
+!/build/web/
 /coverage/
 
 # Symbolication related
