@@ -44,7 +44,7 @@ class RecordingService {
       // await StickyNotificationService.setRecordingState(true);
 
       // --- 2️⃣ Request permissions ---
-      if (Platform.isAndroid) {
+      if (!kIsWeb && Platform.isAndroid) {
         debugPrint('RecordingService: Requesting Android permissions...');
         await _requestAndroidPermissions();
       }

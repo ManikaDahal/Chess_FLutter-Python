@@ -8,6 +8,7 @@ import 'package:chess_game_manika/features/chat/presentation/providers/chat_prov
 
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -105,13 +106,14 @@ class NotificationService {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
 
     // Request permissions for iOS/Android 13+
-    NotificationSettings settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    print('FCM: User granted permission: ${settings.authorizationStatus}');
+    if (!kIsWeb) {
+      NotificationSettings settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      print('FCM: User granted permission: ${settings.authorizationStatus}');
+    }
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,7 +8,7 @@ class PermissionService {
       'notification_permission_requested';
 
   static Future<void> requestPermissionsOnce() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
 
     final prefs = await SharedPreferences.getInstance();
     final bool alreadyRequested =
@@ -42,7 +43,7 @@ class PermissionService {
   }
 
   static Future<bool> hasNotificationPermission() async {
-    if (!Platform.isAndroid) return true;
+    if (kIsWeb || !Platform.isAndroid) return true;
     final status = await FlutterForegroundTask.checkNotificationPermission();
     return status == NotificationPermission.granted;
   }
