@@ -1,3 +1,10 @@
+import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
+import 'package:chess_game_manika/features/call/presentation/screens/video_gallery_screen.dart';
+import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
+import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
+import 'package:chess_game_manika/features/profile/presentation/screens/profile_page.dart';
+import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -5,15 +12,9 @@ import 'package:badges/badges.dart' as badges;
 
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
-import 'package:chess_game_manika/provider/chat_provider.dart';
-import 'package:chess_game_manika/services/api_services.dart';
-import 'package:chess_game_manika/ui/chess_board.dart';
-import 'package:chess_game_manika/ui/user_list.dart';
-import 'package:chess_game_manika/ui/chat_page.dart';
-import 'package:chess_game_manika/profile_page.dart';
-import 'package:chess_game_manika/services/notification_service.dart';
-import 'package:chess_game_manika/login.dart';
-import 'package:chess_game_manika/ui/video_gallery_screen.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:chess_game_manika/core/utils/const.dart';
 

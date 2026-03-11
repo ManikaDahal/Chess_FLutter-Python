@@ -1,7 +1,7 @@
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/services/recording_service.dart';
-import 'package:chess_game_manika/services/signaling_service.dart';
-import 'package:chess_game_manika/ui/call_screen.dart';
+import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
+import 'package:chess_game_manika/features/call/services/recording_service.dart';
+import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:vibration/vibration.dart';

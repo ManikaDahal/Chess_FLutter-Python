@@ -1,0 +1,212 @@
+import 'dart:convert';
+import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:chess_game_manika/features/auth/services/token_storage.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AuthServices {
+  final TokenStorage _storage = TokenStorage();
+  final ApiService _apiService = ApiService();
+
+  //Signup
+  // CHANGE: Now throws exceptions with specific error messages from backend
+  Future<bool> signup(String username, String password, String email) async {
+    // CHANGE: Using apiBaseUrl for REST API (Vercel)
+    final url = Uri.parse("${Constants.apiBaseUrl}/api/signup/");
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+        'email': email,
+      }),
+    );
+
+    if (response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      await _storage.saveAccessToken(data['access']);
+      await _storage.saveRefreshToken(data['refresh']);
+
+      // Register FCM token
+      _registerFCM();
+
+      return true;
+    } else {
+      print("Signup Failed:${response.body}");
+
+      // Parse error message from backend
+      try {
+        final errorData = jsonDecode(response.body);
+        if (errorData['error'] != null) {
+          throw Exception(errorData['error']);
+        }
+      } catch (e) {
+        // If parsing fails, check for common error patterns
+        if (response.body.contains('Username already exists')) {
+          throw Exception('Username already exists');
+        } else if (response.body.contains('Email already registered')) {
+          throw Exception('Email already registered');
+        }
+      }
+
+      throw Exception('Signup failed. Please try again.');
+    }
+  }
+
+  //Login
+  // CHANGE: Now using email and password
+  Future<bool> login(String email, String password) async {
+    final response = await http.post(
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse("${Constants.apiBaseUrl}/api/token/"),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['access'] != null && data['refresh'] != null) {
+        print("Login response successful");
+
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          "email",
+          email,
+        ); // Store email instead of username
+
+        await _storage.saveAccessToken(data['access']);
+        await _storage.saveRefreshToken(data['refresh']);
+
+        // Register FCM token
+        _registerFCM();
+
+        return true;
+      } else {
+        print("Login api didnot return token");
+        throw Exception('Login failed. Please try again.');
+      }
+    } else {
+      print("Login failed: ${response.body}");
+
+      // Parse error message from backend
+      final errorData = jsonDecode(response.body);
+      if (errorData['detail'] != null) {
+        throw Exception(errorData['detail']);
+      }
+
+      // Default error message for invalid credentials
+      throw Exception('Invalid email or password');
+    }
+  }
+
+  //Refresh token
+  Future<bool> refreshToken() async {
+    final refresh = await _storage.getRefreshToken();
+    if (refresh == null) return false;
+
+    final response = await http.post(
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/token/refresh/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refresh': refresh}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      await _storage.saveAccessToken(data['access']);
+      print("Access token refreshed ${data['access']}");
+      return true;
+    }
+
+    print("Refresh failed: ${response.body}");
+    return false;
+  }
+
+  //Logout
+  // Future<void> logout() async {
+  //   await _storage.deleteAll();
+
+  // }
+
+  //Forgot Password
+  Future<bool> forgotPassword({String? email, String? phone}) async {
+    final body = <String, String>{};
+    if (email != null) body['email'] = email;
+    if (phone != null) body['phone'] = phone;
+    final response = await http.post(
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/forgot-password/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (response.statusCode == 200) {
+      return true;
+    } else {
+      print("OTP sending failed : ${response.body}");
+      return false;
+    }
+  }
+
+  //Verify OTP
+  Future<bool> verifyOtp(String email, String otp) async {
+    final response = await http.post(
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/verify-otp/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email.trim(), 'otp': otp.trim()}),
+    );
+
+    print("VERIFY OTP RESPONSE: ${response.body}");
+
+    return response.statusCode == 200;
+  }
+
+  //Reset Password
+  Future<bool> resetPassword(
+    String email,
+    String new_password,
+    String otp,
+  ) async {
+    final response = await http.post(
+      // CHANGE: Using apiBaseUrl for REST API (Vercel)
+      Uri.parse('${Constants.apiBaseUrl}/api/reset-password/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'new_password': new_password,
+        'otp': otp,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return true;
+    } else {
+      print("Password Reset failed ");
+      return false;
+    }
+  }
+
+  Future<void> _registerFCM() async {
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      print("TOKEN: $token");
+      if (token != null) {
+        await _apiService.registerFcmToken(token);
+      }
+    } catch (e) {
+      print("FCM: Failed to get/register token: $e");
+    }
+  }
+}
+
+
+
+
+
+// sendChessInvite(int userId) aync{
+//   final response= await http.post(
+    
+//   ) 
+// }

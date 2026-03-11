@@ -1,0 +1,255 @@
+import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/utils/global_callhandler.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
+import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
+import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
+import 'package:chess_game_manika/features/invites/services/invite_services.dart';
+import 'package:chess_game_manika/features/invites/presentation/screens/invite_waiting_screen.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+class UserList extends StatefulWidget {
+  final int currentUserId;
+  const UserList({super.key, required this.currentUserId});
+
+  @override
+  State<UserList> createState() => _UserListState();
+}
+
+class _UserListState extends State<UserList> {
+  final ApiService _apiService = ApiService();
+  late Future<List<dynamic>> _usersFuture;
+  bool _isEnteringChat = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Delay the API call slightly to allow the UI navigation transition to finish smoothly
+    _usersFuture = Future.microtask(() => _apiService.getUsers());
+  }
+
+  void _startChat(int targetUserId) async {
+    if (_isEnteringChat) return;
+
+    setState(() {
+      _isEnteringChat = true;
+    });
+
+    print("UserList: Attempting to start chat with $targetUserId");
+    try {
+      final int? roomId = await _apiService.getOrCreateChatRoom(
+        widget.currentUserId,
+        targetUserId,
+      );
+
+      print("UserList: getOrCreateChatRoom returned roomId: $roomId");
+
+      if (roomId != null && mounted) {
+        // Initialize the chat provider for this specific room
+        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+        // chatProvider.clear(); // REMOVED: Destructive and unnecessary
+        chatProvider.init(roomId, widget.currentUserId);
+
+        // Navigate to ChatPage
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                ChatPage(roomId: roomId, currentUserId: widget.currentUserId),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to open chat. Please try again."),
+          ),
+        );
+      }
+    } catch (e) {
+      print("UserList: Error starting chat: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEnteringChat = false;
+        });
+      }
+    }
+  }
+
+  void _playChess(int targetUserId, String targetUserName) async {
+    if (_isEnteringChat) return;
+
+    setState(() {
+      _isEnteringChat = true;
+    });
+
+    try {
+      final inviteService = InviteService();
+      final int? roomId = await inviteService.sendInvite(targetUserId);
+
+      if (roomId != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Invitation sent! Waiting for opponent to accept..."),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InviteWaitingScreen(
+              targetUserId: targetUserId,
+              targetUserName: targetUserName,
+              roomId: roomId,
+            ),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to send invitation. Please try again."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print("Error starting chess game: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEnteringChat = false;
+        });
+      }
+    }
+  }
+
+  void _startCall(String roomId, bool isVideo) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          roomId: roomId,
+          isIncomingCall: false,
+          isInitialVideo: isVideo,
+          signalingService:
+              (GlobalCallHandler().userSignalingService?.currentRoomId ==
+                  roomId)
+              ? GlobalCallHandler().userSignalingService
+              : null, // Create new instance if room doesn't match to avoid hijacking
+          currentUserId: widget.currentUserId,
+          canMinimize: false,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: whiteColor),
+          onPressed: () {
+            RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+          },
+        ),
+        title: const Text("Users"),
+        centerTitle: true,
+        backgroundColor: backgroundColor,
+        foregroundColor: whiteColor,
+      ),
+      body: Stack(
+        children: [
+          FutureBuilder<List<dynamic>>(
+            future: _usersFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              } else if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(child: Text("No users found"));
+              }
+
+              final users = snapshot.data!;
+              // Remove ourselves from the list
+              final otherUsers = users
+                  .where((u) => u['id'] != widget.currentUserId)
+                  .toList();
+
+              return ListView.separated(
+                itemCount: otherUsers.length,
+                separatorBuilder: (context, index) => const Divider(),
+                itemBuilder: (context, index) {
+                  final user = otherUsers[index];
+                  final username = user['username'] ?? "Unknown User";
+                  final email = user['email'] ?? "";
+                  final targetUserId = user['id'];
+
+                  // Format: user_{targetUserId}
+                  final callRoomId = "user_$targetUserId";
+
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: foregroundColor,
+                      child: Text(
+                        username[0].toUpperCase(),
+                        style: const TextStyle(color: whiteColor),
+                      ),
+                    ),
+                    title: Text(username),
+                    subtitle: Text(email),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chat, color: Colors.blue),
+                          onPressed: () => _startChat(targetUserId),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.phone, color: Colors.green),
+                          onPressed: () => _startCall(callRoomId, false),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.videocam, color: Colors.blue),
+                          onPressed: () => _startCall(callRoomId, true),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.grid_4x4,
+                            color: Colors.orange,
+                          ),
+                          tooltip: "Play Chess",
+                          onPressed: () => _playChess(targetUserId, username),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          if (_isEnteringChat)
+            Container(
+              color: Colors.black26,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+    );
+  }
+}

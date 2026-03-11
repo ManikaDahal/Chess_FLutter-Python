@@ -1,15 +1,15 @@
+import 'package:chess_game_manika/bottom_navbar.dart';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
-import 'package:chess_game_manika/login.dart';
-import 'package:chess_game_manika/provider/chat_provider.dart';
-import 'package:chess_game_manika/services/notification_service.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
+import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
+import 'package:chess_game_manika/core/permission/permission_service.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'bottom_navbar.dart';
-import 'package:chess_game_manika/services/permission_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {

@@ -3,13 +3,14 @@ import 'package:chess_game_manika/core/utils/otp_args.dart';
 import 'package:chess_game_manika/core/utils/resetPassword_args.dart';
 import 'package:chess_game_manika/core/utils/room_args.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
-import 'package:chess_game_manika/forgot_password.dart';
-import 'package:chess_game_manika/login.dart';
-import 'package:chess_game_manika/otp_page.dart';
-import 'package:chess_game_manika/reset_password.dart';
-import 'package:chess_game_manika/sign_up.dart';
-import 'package:chess_game_manika/ui/chess_board.dart';
-import 'package:chess_game_manika/ui/self_chat_screen.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/forgot_password.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/otp_page.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/reset_password.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/sign_up.dart';
+import 'package:chess_game_manika/features/chat/presentation/screens/self_chat_screen.dart';
+import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+
 import 'package:flutter/material.dart';
 
 class RouteGenerator {
