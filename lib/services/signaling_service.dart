@@ -469,7 +469,13 @@ class SignalingService {
           remoteStreamNotifier.value = null; // force update
           remoteStreamNotifier.value = _remoteStream;
         } else {
-          _log('🚞 onTrack: Streams empty. Expecting onAddStream...');
+          _log('🚞 onTrack: Stream list empty. Manually handling track.');
+          // If no stream is provided, we can either use the existing remote one or create a dummy
+          if (_remoteStream != null) {
+            _remoteStream!.addTrack(event.track);
+            remoteStreamNotifier.value = null; // force update
+            remoteStreamNotifier.value = _remoteStream;
+          }
         }
       };
       _pcCompleter!.complete();
@@ -667,6 +673,7 @@ class SignalingService {
           for (var t in transceivers) {
             final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
             if (kind == 'audio' || kind == 'video') {
+              _log('📡 Explicitly setting transceiver $kind to SendRecv');
               await t.setDirection(TransceiverDirection.SendRecv);
             }
           }

@@ -54,6 +54,12 @@ class GlobalCallHandler {
     if (_initialized) return;
     _initialized = true;
 
+    // Reset any existing services to handle multi-login on same device
+    _generalSignalingService?.disconnect();
+    _userSignalingService?.disconnect();
+    _generalSignalingService = null;
+    _userSignalingService = null;
+
     const homeRoom = "chess_room_1";
 
     // Create a dedicated instance for general signaling
@@ -94,12 +100,20 @@ class GlobalCallHandler {
   Future<void> connectForUser(int userId) async {
     final roomId = "user_$userId";
 
-    // Create a dedicated instance for user-specific signaling (if not already created)
+    // If it's already connected to the SAME room, skip.
+    // Otherwise, disconnect and reconnect for the new user.
     if (_userSignalingService != null) {
-      debugPrint('⚠️ User signaling already connected, skipping');
-      return;
+      if (_userSignalingService!.currentRoomId == roomId) {
+        debugPrint('⚠️ User signaling already connected to $roomId, skipping');
+        return;
+      }
+      debugPrint(
+        '🔄 Switch user signaling from ${_userSignalingService!.currentRoomId} to $roomId',
+      );
+      _userSignalingService!.disconnect();
     }
     _userSignalingService = SignalingService();
+    this.currentUserId.value = userId; // Ensure global state is synced
 
     // Listen for incoming calls in the user-specific room
     _userSignalingService!.onIncomingCallStream.listen((_) {
