@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:http/http.dart' as http;
+import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
@@ -206,21 +206,7 @@ class SignalingService {
         );
 
         // diagnostics probe as before
-        try {
-          final probeScheme = (uri.scheme == 'wss')
-              ? 'https'
-              : (uri.scheme == 'ws' ? 'http' : uri.scheme);
-          // WAKE UP: Hit the root URL (/) instead of the WebSocket path to wake up the server
-          // hitting /ws/call/... via GET often returns 404 even if the server is awake
-          final probeUri = uri.replace(scheme: probeScheme, path: '/');
-          _log('🔎 Probing server root to wake up: $probeUri');
-          final resp = await http
-              .get(probeUri)
-              .timeout(const Duration(seconds: 15));
-          _log('🔎 Probe response: ${resp.statusCode}');
-        } catch (e) {
-          _log('⚠️ Probe failed (server might still be sleeping): $e');
-        }
+        await ApiService().probe(ApiBase.render);
 
         _channel = WebSocketChannel.connect(uri);
       }

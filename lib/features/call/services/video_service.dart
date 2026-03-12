@@ -1,9 +1,6 @@
 import 'dart:convert';
-import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/features/auth/services/auth_services.dart';
-import 'package:chess_game_manika/features/auth/services/token_storage.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/features/call/data/models/video_model.dart';
-import 'package:http/http.dart' as http;
 
 class VideoService {
   // Singleton pattern
@@ -11,62 +8,7 @@ class VideoService {
   factory VideoService() => _instance;
   VideoService._internal();
 
-  final TokenStorage _storage = TokenStorage();
-
-  Future<Map<String, String>> _headers() async {
-    final token = await _storage.getAccessToken();
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
-
-  /// Authenticated GET with automatic token refresh
-  Future<http.Response> _authenticatedGet(Uri uri) async {
-    final headers = await _headers();
-    var response = await http.get(uri, headers: headers);
-
-    if (response.statusCode == 401) {
-      print("VideoService: 401 Unauthorized. Attempting token refresh...");
-      final refreshed = await AuthServices().refreshToken();
-      if (refreshed) {
-        final newHeaders = await _headers();
-        print("VideoService: Token refreshed. Retrying request...");
-        response = await http.get(uri, headers: newHeaders);
-      }
-    }
-    return response;
-  }
-
-  /// Authenticated POST with automatic token refresh
-  Future<http.Response> _authenticatedPost(
-    Uri uri,
-    Map<String, dynamic> body,
-  ) async {
-    final headers = await _headers();
-    var response = await http.post(
-      uri,
-      headers: headers,
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode == 401) {
-      print(
-        "VideoService: 401 Unauthorized on POST. Attempting token refresh...",
-      );
-      final refreshed = await AuthServices().refreshToken();
-      if (refreshed) {
-        final newHeaders = await _headers();
-        print("VideoService: Token refreshed. Retrying POST...");
-        response = await http.post(
-          uri,
-          headers: newHeaders,
-          body: jsonEncode(body),
-        );
-      }
-    }
-    return response;
-  }
+  final ApiService _apiService = ApiService();
 
   List<GameVideo>? _cachedVideos;
 
@@ -75,9 +17,7 @@ class VideoService {
       return _cachedVideos!;
     }
     try {
-      final response = await _authenticatedGet(
-        Uri.parse('${Constants.videoBaseUrl}/api/videos/'),
-      );
+      final response = await _apiService.get('/api/videos/', base: ApiBase.render);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -94,9 +34,7 @@ class VideoService {
 
   Future<List<VideoComment>> getComments(int videoId) async {
     try {
-      final response = await _authenticatedGet(
-        Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/comments/'),
-      );
+      final response = await _apiService.get('/api/videos/$videoId/comments/', base: ApiBase.render);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -112,18 +50,11 @@ class VideoService {
 
   Future<VideoComment?> postComment(int videoId, String text) async {
     try {
-      final response = await _authenticatedPost(
-        Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/comments/'),
-        {'text': text},
-      );
+      final response = await _apiService.post('/api/videos/$videoId/comments/', {'text': text}, base: ApiBase.render);
 
       if (response.statusCode == 201) {
         return VideoComment.fromJson(
           jsonDecode(utf8.decode(response.bodyBytes)),
-        );
-      } else {
-        print(
-          'DEBUG: [SERVICE] Post comment failed. Status: ${response.statusCode}, Body: ${response.body}',
         );
       }
     } catch (e) {
@@ -134,20 +65,13 @@ class VideoService {
 
   Future<GameVideo?> toggleReaction(int videoId, String reactionType) async {
     try {
-      final response = await _authenticatedPost(
-        Uri.parse('${Constants.videoBaseUrl}/api/videos/$videoId/react/'),
-        {'reaction_type': reactionType},
-      );
+      final response = await _apiService.post('/api/videos/$videoId/react/', {'reaction_type': reactionType}, base: ApiBase.render);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         if (data['video'] != null) {
           return GameVideo.fromJson(data['video']);
         }
-      } else {
-        print(
-          'DEBUG: [SERVICE] Toggle reaction failed. Status: ${response.statusCode}, Body: ${response.body}',
-        );
       }
       return null;
     } catch (e) {
@@ -157,6 +81,6 @@ class VideoService {
   }
 
   String getStreamUrl(int videoId) {
-    return '${Constants.videoBaseUrl}/api/videos/$videoId/stream/';
+    return _apiService.getStreamUrl(videoId);
   }
 }

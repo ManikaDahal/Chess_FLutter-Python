@@ -15,8 +15,6 @@ import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 
-import 'package:http/http.dart' as http;
-import 'package:chess_game_manika/core/utils/const.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -81,18 +79,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
         // Register FCM token
         NotificationService.registerToken(),
         // 3. Wake up Render server (Video/WebSocket service) early
-        (() async {
-          try {
-            print("BottomNavBar: Waking up Render server...");
-            // A simple HEAD or GET request to warm up the instance
-            await http
-                .get(Uri.parse('${Constants.videoBaseUrl}/api/videos/'))
-                .timeout(const Duration(seconds: 5));
-            print("BottomNavBar: Render server responsive.");
-          } catch (e) {
-            print("BottomNavBar: Render wake-up probe non-critical error: $e");
-          }
-        })(),
+        ApiService().probe(ApiBase.render),
       ]);
 
       final endTime = DateTime.now();

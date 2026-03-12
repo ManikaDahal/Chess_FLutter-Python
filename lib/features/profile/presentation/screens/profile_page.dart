@@ -4,8 +4,6 @@ import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/core/utils/string_utils.dart';
 import 'package:chess_game_manika/core/widgets/custom_elevatedbutton.dart';
-import 'package:chess_game_manika/features/auth/services/auth_services.dart';
-import 'package:chess_game_manika/features/auth/services/token_storage.dart';
 import 'package:chess_game_manika/features/chat/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
@@ -22,8 +20,6 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final ApiService api = ApiService();
-  final TokenStorage _storage = TokenStorage();
-  final AuthServices _authService = AuthServices();
   Map<String, dynamic>? profileData;
   @override
   void initState() {

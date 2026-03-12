@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/features/auth/services/token_storage.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_screen_recording/flutter_screen_recording.dart';
-import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
-import 'package:http/http.dart' as http;
 
 
 
@@ -18,7 +15,7 @@ class RecordingService {
   factory RecordingService() => _instance;
   RecordingService._internal();
 
-  final TokenStorage _storage = TokenStorage();
+  final ApiService _apiService = ApiService();
 
   bool _isRecording = false;
   bool _isStopping = false;
@@ -179,23 +176,13 @@ class RecordingService {
       final File file = File(filePath);
       if (!await file.exists()) return;
 
-      final String? token = await _storage.getAccessToken();
-      if (token == null) return;
+      final response = await _apiService.multipartPost(
+        '/api/call/upload/',
+        filePath: filePath,
+        fields: {'room_id': roomId},
+        base: ApiBase.render,
+      );
 
-      final uri = Uri.parse('${Constants.videoBaseUrl}/api/call/upload/');
-      final request = http.MultipartRequest('POST', uri)
-        ..headers['Authorization'] = 'Bearer $token'
-        ..fields['room_id'] = roomId
-        ..files.add(
-          await http.MultipartFile.fromPath(
-            'file',
-            filePath,
-            filename: p.basename(filePath),
-          ),
-        );
-
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('✅ Upload successful');
       } else {

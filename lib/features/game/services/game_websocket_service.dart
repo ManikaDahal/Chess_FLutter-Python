@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:http/http.dart' as http;
 
 class GameWebsocketService {
   static final GameWebsocketService _instance =
@@ -53,13 +53,7 @@ class GameWebsocketService {
 
     try {
       // Wake up the server before connecting
-      try {
-        final rootUrl = url.split("/ws/")[0].replaceFirst("ws", "http");
-        print("GameWebsocketService: Probing $rootUrl to wake up server...");
-        await http.get(Uri.parse(rootUrl)).timeout(const Duration(seconds: 10));
-      } catch (e) {
-        print("GameWebsocketService: Probe failed (non-fatal): $e");
-      }
+      await ApiService().probe(ApiBase.vercel);
 
       var uri = Uri.parse(url);
       // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
