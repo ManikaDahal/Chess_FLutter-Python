@@ -630,7 +630,8 @@ class SignalingService {
         }
       }
 
-      final mediaConstraints = {
+      // Use legacy mandatory/optional structure for widest mobile compatibility
+      final mediaConstraints = <String, dynamic>{
         'audio': {
           'echoCancellation': true,
           'noiseSuppression': true,
@@ -638,38 +639,64 @@ class SignalingService {
         },
         'video': isVideo
             ? {
+                'mandatory': {
+                  'minWidth': '480',
+                  'minHeight': '360',
+                  'minFrameRate': '30',
+                },
                 'facingMode': 'user',
-                'width': '640',
-                'height': '480',
-                'frameRate': '30',
+                'optional': [],
               }
             : false,
+      };
+
+      // Fallback constraints for the 2nd attempt (no size requirements - maximum compatibility)
+      final fallbackConstraints = <String, dynamic>{
+        'audio': true,
+        'video': isVideo,
       };
 
       int attempts = 0;
       while (attempts < 2) {
         try {
-          _localStream = await navigator.mediaDevices.getUserMedia(
-            mediaConstraints,
-          );
-          localStreamNotifier.value = _localStream;
-          _log('✅ Got Local Stream: ${_localStream!.id}');
-          // onLocalStream?.call(_localStream!); // Deprecated
+          final constraints = attempts == 0 ? mediaConstraints : fallbackConstraints;
+          _log('🎥 getUserMedia attempt ${attempts + 1} with constraints: $constraints');
+          
+          final MediaStream? localStream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (localStream == null) {
+            throw Exception('navigator.mediaDevices.getUserMedia returned null');
+          }
+          
+          _localStream = localStream;
+          localStreamNotifier.value = localStream;
+          _log('✅ Got Local Stream: ${localStream.id}');
+          // onLocalStream?.call(localStream); // Deprecated
 
-          final senders = await _peerConnection!.getSenders();
-          for (var track in _localStream!.getTracks()) {
+          // Guard: if peerConnection became null (e.g., call was ended during setup),
+          // attempt to recover by re-creating it rather than aborting.
+          if (_peerConnection == null) {
+            _log('⚠️ PeerConnection became null during getUserMedia. Re-creating...');
+            _pcCompleter = null;
+            await _ensurePeerConnection();
+            if (_peerConnection == null) {
+              throw Exception('PeerConnection could not be created.');
+            }
+          }
+          
+          final RTCPeerConnection pc = _peerConnection!;
+
+          final senders = await pc.getSenders();
+          for (var track in localStream.getTracks()) {
             bool alreadyAdded = senders.any((s) => s.track?.id == track.id);
             if (!alreadyAdded) {
-              _log(
-                '➕ Adding track to PeerConnection: ${track.kind} (${track.id})',
-              );
-              await _peerConnection!.addTrack(track, _localStream!);
+              _log('➕ Adding track to pc: ${track.kind} (${track.id})');
+              await pc.addTrack(track, localStream);
             } else {
               _log('ℹ️ Track already added: ${track.kind}');
             }
           }
 
-          final transceivers = await _peerConnection!.getTransceivers();
+          final transceivers = await pc.getTransceivers();
           for (var t in transceivers) {
             final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
             if (kind == 'audio' || kind == 'video') {
@@ -828,44 +855,57 @@ class SignalingService {
   }
 
   void toggleVideo(bool videoOn) async {
-    if (_localStream == null) return;
+    final localStream = _localStream;
+    if (localStream == null) return;
 
-    if (videoOn && _localStream!.getVideoTracks().isEmpty) {
+    if (videoOn && localStream.getVideoTracks().isEmpty) {
       try {
-        final videoStream = await navigator.mediaDevices.getUserMedia({
+        final MediaStream? videoStream = await navigator.mediaDevices.getUserMedia({
           'audio': false,
           'video': {
+            'mandatory': {
+              'minWidth': '480',
+              'minHeight': '360',
+              'minFrameRate': '30',
+            },
             'facingMode': 'user',
-            'width': '640',
-            'height': '480',
-            'frameRate': '30',
+            'optional': [],
           },
         });
+        
+        if (videoStream == null) {
+          throw Exception('Video stream is null');
+        }
 
         final videoTrack = videoStream.getVideoTracks()[0];
-        await _localStream!.addTrack(videoTrack);
-        _peerConnection!.addTrack(videoTrack, _localStream!);
+        await localStream.addTrack(videoTrack);
+        
+        final pc = _peerConnection;
+        if (pc != null) {
+          await pc.addTrack(videoTrack, localStream);
 
-        // TRIGGER REBUILD
-        localStreamNotifier.value = null;
-        localStreamNotifier.value = _localStream;
+          // TRIGGER REBUILD
+          localStreamNotifier.value = null;
+          localStreamNotifier.value = localStream;
 
-        final offer = await _peerConnection!.createOffer();
-        await _peerConnection!.setLocalDescription(offer);
-        _sendSignal({
-          'type': 'call_offer',
-          'offer': {'type': offer.type, 'sdp': offer.sdp},
-          'mediaType': 'video',
-        });
+          final offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          _sendSignal({
+            'type': 'call_offer',
+            'offer': {'type': offer.type, 'sdp': offer.sdp},
+            'mediaType': 'video',
+          });
+        }
       } catch (e) {
         _log('Failed to add video track: $e');
       }
     } else {
-      _localStream!.getVideoTracks().forEach((track) {
+      localStream.getVideoTracks().forEach((track) {
         track.enabled = videoOn;
       });
     }
   }
+
 
   void switchCamera() {
     if (_localStream != null) {
