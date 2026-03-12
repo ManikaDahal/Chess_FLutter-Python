@@ -13,7 +13,7 @@ class AuthServices {
     final response = await _apiService.signup(username, password, email);
 
     if (response.statusCode == 201) {
-      final data = jsonDecode(response.body);
+      final data = response.data;
       await _storage.saveAccessToken(data['access']);
       await _storage.saveRefreshToken(data['refresh']);
 
@@ -22,18 +22,19 @@ class AuthServices {
 
       return true;
     } else {
-      print("Signup Failed:${response.body}");
+      print("Signup Failed:${response.data}");
 
       // Parse error message from backend
       try {
-        final errorData = jsonDecode(response.body);
+        final errorData = response.data;
         if (errorData['error'] != null) {
           throw Exception(errorData['error']);
         }
       } catch (e) {
-        if (response.body.contains('Username already exists')) {
+        final bodyString = response.data.toString();
+        if (bodyString.contains('Username already exists')) {
           throw Exception('Username already exists');
-        } else if (response.body.contains('Email already registered')) {
+        } else if (bodyString.contains('Email already registered')) {
           throw Exception('Email already registered');
         }
       }
@@ -47,7 +48,7 @@ class AuthServices {
     final response = await _apiService.login(email, password);
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = response.data;
       if (data['access'] != null && data['refresh'] != null) {
         print("Login response successful");
 
@@ -66,9 +67,9 @@ class AuthServices {
         throw Exception('Login failed. Please try again.');
       }
     } else {
-      print("Login failed: ${response.body}");
+      print("Login failed: ${response.data}");
 
-      final errorData = jsonDecode(response.body);
+      final errorData = response.data;
       if (errorData['detail'] != null) {
         throw Exception(errorData['detail']);
       }
@@ -99,6 +100,26 @@ class AuthServices {
     String otp,
   ) async {
     return await _apiService.resetPassword(email, new_password, otp);
+  }
+
+  Future<void> logout() async {
+    // 1. Clear Tokens
+    await _storage.deleteAll();
+
+    // 2. Clear SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('loggedIn', false);
+    await prefs.remove('userId');
+    await prefs.remove('email');
+    await prefs.remove('username');
+    await prefs.remove('roomId');
+    
+    // 3. Clear "Remember Me" data as well on explicit logout
+    await prefs.setBool('rememberMe', false);
+    await prefs.remove('savedEmail');
+    await prefs.remove('savedPassword');
+    
+    print("AuthServices: Logout complete. All session and credential data cleared.");
   }
 
   Future<void> _registerFCM() async {

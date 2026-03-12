@@ -187,7 +187,7 @@ class RecordingService {
         debugPrint('✅ Upload successful');
       } else {
         debugPrint(
-          '❌ Upload failed: ${response.statusCode} - ${response.body}',
+          '❌ Upload failed: ${response.statusCode} - ${response.data}',
         );
       }
     } catch (e) {

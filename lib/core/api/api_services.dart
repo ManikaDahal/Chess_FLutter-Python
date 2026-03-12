@@ -1,13 +1,87 @@
-import 'dart:convert';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/features/auth/services/token_storage.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
 enum ApiBase { vercel, render }
 
 class ApiService {
+  late final Dio _dio;
   final TokenStorage _storage = TokenStorage();
+
+  // Singleton pattern
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+
+  ApiService._internal() {
+    _dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ));
+    _setupInterceptors();
+  }
+
+  void _setupInterceptors() {
+    _dio.interceptors.addAll([
+      // 1. Authorization Interceptor
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final isAuthRequired = options.extra['authenticated'] ?? true;
+          if (isAuthRequired) {
+            final token = await _storage.getAccessToken();
+            if (token != null) {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
+          }
+          return handler.next(options);
+        },
+      ),
+
+      // 2. Token Refresh Interceptor
+      InterceptorsWrapper(
+        onError: (DioException e, handler) async {
+          if (e.response?.statusCode == 401 && e.requestOptions.extra['authenticated'] != false) {
+            print("ApiService Interceptor: 401 error detected. Refreshing token...");
+            final success = await refreshToken();
+            if (success) {
+              print("ApiService Interceptor: Token refreshed. Retrying original request...");
+              final token = await _storage.getAccessToken();
+              final opts = e.requestOptions;
+              opts.headers['Authorization'] = 'Bearer $token';
+
+              // Create a special retry instance to avoid infinite loops if it fails again
+              final retryDio = Dio();
+              try {
+                final response = await retryDio.request(
+                  opts.path,
+                  data: opts.data,
+                  queryParameters: opts.queryParameters,
+                  options: Options(
+                    method: opts.method,
+                    headers: opts.headers,
+                  ),
+                );
+                return handler.resolve(response);
+              } catch (retryError) {
+                return handler.next(e);
+              }
+            }
+          }
+          return handler.next(e);
+        },
+      ),
+
+      // 3. Simple Logging Interceptor
+      LogInterceptor(
+        request: true,
+        requestHeader: true,
+        requestBody: true,
+        responseHeader: false,
+        responseBody: true,
+        error: true,
+      ),
+    ]);
+  }
 
   String _getBaseUrl(ApiBase base) {
     switch (base) {
@@ -19,138 +93,72 @@ class ApiService {
     }
   }
 
-  /// Core GET implementation with automatic token refresh
-  Future<http.Response> get(String endpoint, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
-    final uri = Uri.parse('${_getBaseUrl(base)}$endpoint');
-    final headers = {'Content-Type': 'application/json'};
-    
-    if (authenticated) {
-      final token = await _storage.getAccessToken();
-      headers['Authorization'] = 'Bearer $token';
-    }
-
-    var response = await http.get(uri, headers: headers);
-
-    if (authenticated && response.statusCode == 401) {
-      print("ApiService: 401 Unauthorized. Attempting token refresh...");
-      final refreshed = await refreshToken();
-      if (refreshed) {
-        final newToken = await _storage.getAccessToken();
-        headers['Authorization'] = 'Bearer $newToken';
-        print("ApiService: Token refreshed. Retrying GET...");
-        response = await http.get(uri, headers: headers);
-      }
-    }
-    return response;
+  /// Wrapper to make GET requests
+  Future<Response> get(String endpoint, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
+    final url = '${_getBaseUrl(base)}$endpoint';
+    return await _dio.get(
+      url,
+      options: Options(extra: {'authenticated': authenticated}),
+    );
   }
 
-  /// Core POST implementation with automatic token refresh
-  Future<http.Response> post(String endpoint, Map<String, dynamic> body, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
-    final uri = Uri.parse('${_getBaseUrl(base)}$endpoint');
-    final headers = {'Content-Type': 'application/json'};
-    
-    if (authenticated) {
-      final token = await _storage.getAccessToken();
-      headers['Authorization'] = 'Bearer $token';
-    }
-
-    var response = await http.post(uri, headers: headers, body: jsonEncode(body));
-
-    if (authenticated && response.statusCode == 401) {
-      print("ApiService: 401 Unauthorized. Attempting token refresh...");
-      final refreshed = await refreshToken();
-      if (refreshed) {
-        final newToken = await _storage.getAccessToken();
-        headers['Authorization'] = 'Bearer $newToken';
-        print("ApiService: Token refreshed. Retrying POST...");
-        response = await http.post(uri, headers: headers, body: jsonEncode(body));
-      }
-    }
-    return response;
+  /// Wrapper to make POST requests
+  Future<Response> post(String endpoint, dynamic body, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
+    final url = '${_getBaseUrl(base)}$endpoint';
+    return await _dio.post(
+      url,
+      data: body,
+      options: Options(extra: {'authenticated': authenticated}),
+    );
   }
 
-  /// Core DELETE implementation
-  Future<http.Response> delete(String endpoint, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
-    final uri = Uri.parse('${_getBaseUrl(base)}$endpoint');
-    final headers = {'Content-Type': 'application/json'};
-    
-    if (authenticated) {
-      final token = await _storage.getAccessToken();
-      headers['Authorization'] = 'Bearer $token';
-    }
-
-    var response = await http.delete(uri, headers: headers);
-
-    if (authenticated && response.statusCode == 401) {
-      print("ApiService: 401 Unauthorized on DELETE. Attempting token refresh...");
-      final refreshed = await refreshToken();
-      if (refreshed) {
-        final newToken = await _storage.getAccessToken();
-        headers['Authorization'] = 'Bearer $newToken';
-        print("ApiService: Token refreshed. Retrying DELETE...");
-        response = await http.delete(uri, headers: headers);
-      }
-    }
-    return response;
+  /// Wrapper to make DELETE requests
+  Future<Response> delete(String endpoint, {ApiBase base = ApiBase.vercel, bool authenticated = true}) async {
+    final url = '${_getBaseUrl(base)}$endpoint';
+    return await _dio.delete(
+      url,
+      options: Options(extra: {'authenticated': authenticated}),
+    );
   }
 
-  /// Multipart POST implementation for file uploads
-  Future<http.Response> multipartPost(
+  /// Wrapper for multipart POST requests
+  Future<Response> multipartPost(
     String endpoint, 
     {
       List<String>? filePaths, 
-      String filePath = '', // Backward compatibility
+      String filePath = '', 
       String fileKey = 'file',
       Map<String, String>? fields, 
       ApiBase base = ApiBase.vercel, 
       bool authenticated = true
     }
   ) async {
-    final uri = Uri.parse('${_getBaseUrl(base)}$endpoint');
-    final request = http.MultipartRequest('POST', uri);
+    final url = '${_getBaseUrl(base)}$endpoint';
+    final formData = FormData();
     
-    if (authenticated) {
-      final token = await _storage.getAccessToken();
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-
-    if (fields != null) request.fields.addAll(fields);
+    if (fields != null) formData.fields.addAll(fields.entries.map((e) => MapEntry(e.key, e.value)));
     
     final paths = filePaths ?? (filePath.isNotEmpty ? [filePath] : []);
     for (var path in paths) {
-      request.files.add(await http.MultipartFile.fromPath(
-        fileKey, 
-        path, 
-        filename: p.basename(path)
+      formData.files.add(MapEntry(
+        fileKey,
+        await MultipartFile.fromFile(path, filename: p.basename(path)),
       ));
     }
 
-    final streamed = await request.send();
-    var response = await http.Response.fromStream(streamed);
-
-    if (authenticated && response.statusCode == 401) {
-      print("ApiService: 401 Unauthorized on Multipart. Attempting token refresh...");
-      final refreshed = await refreshToken();
-      if (refreshed) {
-        return await multipartPost(
-          endpoint, 
-          filePaths: filePaths, 
-          filePath: filePath, 
-          fileKey: fileKey, 
-          fields: fields, 
-          base: base, 
-          authenticated: authenticated
-        );
-      }
-    }
-    return response;
+    return await _dio.post(
+      url,
+      data: formData,
+      options: Options(extra: {'authenticated': authenticated}),
+    );
   }
 
   /// Probe method to wake up servers
   Future<void> probe(ApiBase base) async {
     try {
-      final uri = Uri.parse(_getBaseUrl(base));
-      await http.get(uri).timeout(const Duration(seconds: 10));
+      final url = _getBaseUrl(base);
+      await _dio.get(url, options: Options(extra: {'authenticated': false}))
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       print("ApiService: Probe for $base failed: $e");
     }
@@ -162,28 +170,29 @@ class ApiService {
     final refresh = await _storage.getRefreshToken();
     if (refresh == null) return false;
 
-    final response = await http.post(
-      Uri.parse('${Constants.apiBaseUrl}/api/token/refresh/'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'refresh': refresh}),
-    );
+    try {
+      final dio = Dio(); // Use new instance to avoid interceptor recursion
+      final response = await dio.post(
+        '${Constants.apiBaseUrl}/api/token/refresh/',
+        data: {'refresh': refresh},
+      );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      await _storage.saveAccessToken(data['access']);
-      print("ApiService: Access token refreshed successfully");
-      return true;
+      if (response.statusCode == 200) {
+        await _storage.saveAccessToken(response.data['access']);
+        print("ApiService: Access token refreshed successfully");
+        return true;
+      }
+    } catch (e) {
+      print("ApiService: Refresh failed: $e");
     }
-
-    print("ApiService: Refresh failed: ${response.body}");
     return false;
   }
 
-  Future<http.Response> login(String email, String password) async {
+  Future<Response> login(String email, String password) async {
     return await post('/api/token/', {'email': email, 'password': password}, authenticated: false);
   }
 
-  Future<http.Response> signup(String username, String password, String email) async {
+  Future<Response> signup(String username, String password, String email) async {
     return await post('/api/signup/', {
       'username': username,
       'password': password,
@@ -221,7 +230,7 @@ class ApiService {
   Future<Map<String, dynamic>> getProfile() async {
     final response = await get('/api/profile/');
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      return response.data;
     } else {
       throw Exception("Profile failed [${response.statusCode}]");
     }
@@ -230,7 +239,7 @@ class ApiService {
   Future<List<dynamic>> getUsers() async {
     final response = await get('/api/users/');
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      return response.data;
     } else {
       throw Exception("Failed to fetch users [${response.statusCode}]");
     }
@@ -241,9 +250,9 @@ class ApiService {
   Future<List<dynamic>> getChatMessages(int roomId) async {
     final response = await get('/api/chat/history/$roomId/', base: ApiBase.render);
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      return response.data;
     } else {
-      print("Failed to fetch chat history: ${response.body}");
+      print("Failed to fetch chat history: ${response.data}");
       return [];
     }
   }
@@ -255,10 +264,9 @@ class ApiService {
     }, base: ApiBase.render);
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['room_id'];
+      return response.data['room_id'];
     } else {
-      print("Failed to get/create chat room: ${response.body}");
+      print("Failed to get/create chat room: ${response.data}");
       return null;
     }
   }
@@ -268,7 +276,7 @@ class ApiService {
   Future<int?> sendInvite(int toUserId) async {
     final response = await post('/api/send-invite/', {"to_user": toUserId}, base: ApiBase.render);
     if (response.statusCode == 201) {
-      return jsonDecode(response.body)['room_id'];
+      return response.data['room_id'];
     }
     return null;
   }
@@ -276,7 +284,7 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getPendingInvites() async {
     final response = await get('/api/pending-invites/', base: ApiBase.render);
     if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      return List<Map<String, dynamic>>.from(response.data);
     }
     return [];
   }
@@ -284,7 +292,7 @@ class ApiService {
   Future<int?> acceptInvite(int inviteId) async {
     final response = await post('/api/accept-invite/', {"invite_id": inviteId}, base: ApiBase.render);
     if (response.statusCode == 200) {
-      return jsonDecode(response.body)["room_id"];
+      return response.data["room_id"];
     }
     return null;
   }
@@ -300,7 +308,7 @@ class ApiService {
     if (response.statusCode == 200) {
       print("FCM: Token registered successfully");
     } else {
-      print("FCM Error: ${response.statusCode} - ${response.body}");
+      print("FCM Error: ${response.statusCode} - ${response.data}");
     }
   }
 
@@ -313,7 +321,7 @@ class ApiService {
     if (response.statusCode == 200) {
       print("FCM: Notification status updated to $status");
     } else {
-      print("FCM ERROR: Failed to update status: ${response.body}");
+      print("FCM ERROR: Failed to update status: ${response.data}");
     }
   }
 

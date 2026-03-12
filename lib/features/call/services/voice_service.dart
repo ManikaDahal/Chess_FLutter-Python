@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:chess_game_manika/core/api/api_services.dart';
 
 class VoiceService {
@@ -10,7 +9,7 @@ class VoiceService {
       final response = await _apiService.get('/api/voice/status/', base: ApiBase.render);
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        return response.data;
       }
     } catch (e) {
       print('DEBUG: [VOICE] Error getting status: $e');
@@ -46,7 +45,7 @@ class VoiceService {
       );
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        return response.data;
       }
     } catch (e) {
       print('DEBUG: [VOICE] Error in chat: $e');
