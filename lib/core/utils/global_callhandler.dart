@@ -22,6 +22,9 @@ class GlobalCallHandler {
   set userSignalingService(SignalingService? service) =>
       _userSignalingService = service;
 
+  // Guard to prevent multiple stacked incoming call dialogs
+  bool _isDialogShowing = false;
+
   // Track minimized state
   final ValueNotifier<bool> isMinimized = ValueNotifier<bool>(false);
   final ValueNotifier<String?> activeRoomId = ValueNotifier<String?>(null);
@@ -66,11 +69,11 @@ class GlobalCallHandler {
     _generalSignalingService = SignalingService();
 
     // Listen for incoming calls in the general room
-    _generalSignalingService!.onIncomingCallStream.listen((_) {
-      debugPrint('🔔 Incoming call received in general room: $homeRoom');
+    _generalSignalingService!.onIncomingCallStream.listen((mediaType) {
+      debugPrint('🔔 Incoming $mediaType call received in general room: $homeRoom');
       final context = Constants.navigatorKey.currentContext;
       if (context != null) {
-        bool isVideo = _generalSignalingService!.pendingMediaType == 'video';
+        bool isVideo = mediaType == 'video';
         _showIncomingCallDialog(context, homeRoom, isVideo: isVideo);
       } else {
         debugPrint('❌ Cannot show incoming call dialog: context is null');
@@ -116,11 +119,11 @@ class GlobalCallHandler {
     this.currentUserId.value = userId; // Ensure global state is synced
 
     // Listen for incoming calls in the user-specific room
-    _userSignalingService!.onIncomingCallStream.listen((_) {
-      debugPrint('🔔 Incoming call received in user-specific room: $roomId');
+    _userSignalingService!.onIncomingCallStream.listen((mediaType) {
+      debugPrint('🔔 Incoming $mediaType call in user-specific room: $roomId');
       final context = Constants.navigatorKey.currentContext;
       if (context != null) {
-        bool isVideo = _userSignalingService!.pendingMediaType == 'video';
+        bool isVideo = mediaType == 'video';
         _showIncomingCallDialog(context, roomId, isVideo: isVideo);
       } else {
         debugPrint('❌ Cannot show incoming call dialog: context is null');
@@ -175,6 +178,13 @@ class GlobalCallHandler {
     String roomId, {
     bool isVideo = true,
   }) {
+    // Guard: only show one dialog at a time
+    if (_isDialogShowing) {
+      debugPrint('⚠️ Skipping duplicate incoming call dialog for room: $roomId');
+      return;
+    }
+    _isDialogShowing = true;
+
     FlutterRingtonePlayer().playRingtone(looping: true);
     Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
 
@@ -227,7 +237,14 @@ class GlobalCallHandler {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      // Always reset the flag when dialog is dismissed for ANY reason
+      // (includes back button, OS, or programmatic pop)
+      _isDialogShowing = false;
+      FlutterRingtonePlayer().stop();
+      Vibration.cancel();
+      debugPrint('ℹ️ Incoming call dialog dismissed. Ready for next call.');
+    });
   }
 
   // Optional: Method to disconnect all services (e.g., on app close)

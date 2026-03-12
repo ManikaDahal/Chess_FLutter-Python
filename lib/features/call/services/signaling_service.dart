@@ -6,6 +6,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 
+// kIsWeb is re-exported from foundation.dart, so no extra import needed.
+
 // typedef StreamStateCallback = void Function(MediaStream stream);
 
 class SignalingService {
@@ -54,8 +56,9 @@ class SignalingService {
     onLog?.call(message);
   }
 
-  final _incomingCallController = StreamController<void>.broadcast();
-  Stream<void> get onIncomingCallStream => _incomingCallController.stream;
+  // Emits the mediaType ('video' or 'audio') so listeners get it directly
+  final _incomingCallController = StreamController<String>.broadcast();
+  Stream<String> get onIncomingCallStream => _incomingCallController.stream;
 
   final _hangupController = StreamController<void>.broadcast();
   Stream<void> get onHangupStream => _hangupController.stream;
@@ -98,6 +101,12 @@ class SignalingService {
   MediaStream? get remoteStream => _remoteStream;
 
   bool _isRemoteDescriptionSet = false;
+
+  // Cooldown after endCall() to suppress stale call_offer replayed by server.
+  // This is cleared as soon as a fresh `connection_established` handshake is received,
+  // so legitimate new calls are NOT blocked after reconnection.
+  bool _suppressReconnectOffer = false;
+  Timer? _ignoreCallsTimer;
 
   final Map<String, dynamic> _configuration = {
     'iceServers': [
@@ -465,6 +474,7 @@ class SignalingService {
         }
       };
       _pcCompleter!.complete();
+      _pcCompleter = null; // Reset so it can be re-entered for future calls
     } catch (e) {
       _pcCompleter!.completeError(e);
       _pcCompleter = null;
@@ -484,6 +494,16 @@ class SignalingService {
 
     if (type == 'connection_established') {
       _log('✅ Server connection handshake verified');
+      // A fresh connection was established. The server may still replay a stale call_offer
+      // IMMEDIATELY after this message, so we delay clearing the suppression flag slightly
+      // to ensure replayed offers are still blocked, but genuine new calls (>2s later) work.
+      if (_suppressReconnectOffer) {
+        _ignoreCallsTimer?.cancel();
+        _ignoreCallsTimer = Timer(const Duration(seconds: 2), () {
+          _suppressReconnectOffer = false;
+          _log('✅ Reconnect offer suppression lifted (2s post-handshake delay)');
+        });
+      }
       if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
         _readyCompleter!.complete();
       }
@@ -503,7 +523,13 @@ class SignalingService {
     _log('RX: $type');
 
     if (type == 'call_offer') {
-      _log('📶 Incoming call offer received (InSession: $_inCallSession)');
+      _log('📶 Incoming call offer received (InSession: $_inCallSession, SuppressReconnectOffer: $_suppressReconnectOffer)');
+      // Suppress stale offers that arrive right after a call ends during WebSocket reconnect.
+      // Cleared automatically on `connection_established` so new genuine offers are NOT blocked.
+      if (_suppressReconnectOffer) {
+        _log('🚫 Suppressing stale call_offer from previous session (reconnecting)');
+        return;
+      }
       _pendingOffer = data['offer'];
       _pendingMediaType = data['mediaType'] ?? 'video';
       remoteMediaTypeNotifier.value = _pendingMediaType;
@@ -514,7 +540,8 @@ class SignalingService {
         );
       } else {
         if (!_incomingCallController.isClosed) {
-          _incomingCallController.add(null);
+          // Emit the mediaType directly so listeners don't need to read pendingMediaType
+          _incomingCallController.add(_pendingMediaType ?? 'audio');
         }
         onIncomingCall?.call(); // Still call deprecated if set
       }
@@ -597,26 +624,33 @@ class SignalingService {
         _localStream = null;
       }
 
-      var micStatus = await Permission.microphone.status;
-      if (!micStatus.isGranted) {
-        micStatus = await Permission.microphone.request();
+      // On Web, getUserMedia itself triggers the native browser permission prompt.
+      // permission_handler is NOT supported on Web, so we skip it there.
+      if (!kIsWeb) {
+        var micStatus = await Permission.microphone.status;
         if (!micStatus.isGranted) {
-          _log('Microphone permission denied');
-          throw Exception('Microphone permission is required for calls.');
-        }
-      }
-
-      if (isVideo) {
-        var camStatus = await Permission.camera.status;
-        if (!camStatus.isGranted) {
-          camStatus = await Permission.camera.request();
-          if (!camStatus.isGranted) {
-            _log('⚠️ Camera permission denied');
+          micStatus = await Permission.microphone.request();
+          if (!micStatus.isGranted) {
+            _log('Microphone permission denied');
+            throw Exception('Microphone permission is required for calls.');
           }
         }
+
+        if (isVideo) {
+          var camStatus = await Permission.camera.status;
+          if (!camStatus.isGranted) {
+            camStatus = await Permission.camera.request();
+            if (!camStatus.isGranted) {
+              _log('⚠️ Camera permission denied - will attempt getUserMedia anyway');
+            }
+          }
+        }
+      } else {
+        _log('🌐 Web platform: Skipping permission_handler, relying on browser prompt');
       }
 
-      final mediaConstraints = {
+      // Use legacy mandatory/optional structure for widest mobile compatibility
+      final mediaConstraints = <String, dynamic>{
         'audio': {
           'echoCancellation': true,
           'noiseSuppression': true,
@@ -624,38 +658,64 @@ class SignalingService {
         },
         'video': isVideo
             ? {
+                'mandatory': {
+                  'minWidth': '480',
+                  'minHeight': '360',
+                  'minFrameRate': '30',
+                },
                 'facingMode': 'user',
-                'width': '640',
-                'height': '480',
-                'frameRate': '30',
+                'optional': [],
               }
             : false,
       };
 
       int attempts = 0;
+      // Fallback constraints for the 2nd attempt (no size requirements - maximum compatibility)
+      final fallbackConstraints = <String, dynamic>{
+        'audio': true,
+        'video': isVideo,
+      };
+
       while (attempts < 2) {
         try {
-          _localStream = await navigator.mediaDevices.getUserMedia(
-            mediaConstraints,
-          );
-          localStreamNotifier.value = _localStream;
-          _log('✅ Got Local Stream: ${_localStream!.id}');
-          // onLocalStream?.call(_localStream!); // Deprecated
+          final constraints = attempts == 0 ? mediaConstraints : fallbackConstraints;
+          _log('🎥 getUserMedia attempt ${attempts + 1} with constraints: $constraints');
+          
+          final MediaStream? localStream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (localStream == null) {
+            throw Exception('navigator.mediaDevices.getUserMedia returned null');
+          }
+          
+          _localStream = localStream;
+          localStreamNotifier.value = localStream;
+          _log('✅ Got Local Stream: ${localStream.id}');
 
-          final senders = await _peerConnection!.getSenders();
-          for (var track in _localStream!.getTracks()) {
+          // Guard: if peerConnection became null (e.g., call was ended during setup),
+          // attempt to recover by re-creating it rather than aborting.
+          if (_peerConnection == null) {
+            _log('⚠️ PeerConnection became null during getUserMedia. Re-creating...');
+            _pcCompleter = null;
+            await _ensurePeerConnection();
+            // If still null after re-creation, give up
+            if (_peerConnection == null) {
+              throw Exception('PeerConnection could not be created.');
+            }
+          }
+          
+          final RTCPeerConnection pc = _peerConnection!;
+
+          final senders = await pc.getSenders();
+          for (var track in localStream.getTracks()) {
             bool alreadyAdded = senders.any((s) => s.track?.id == track.id);
             if (!alreadyAdded) {
-              _log(
-                '➕ Adding track to PeerConnection: ${track.kind} (${track.id})',
-              );
-              await _peerConnection!.addTrack(track, _localStream!);
+              _log('➕ Adding track to pc: ${track.kind} (${track.id})');
+              await pc.addTrack(track, localStream);
             } else {
               _log('ℹ️ Track already added: ${track.kind}');
             }
           }
 
-          final transceivers = await _peerConnection!.getTransceivers();
+          final transceivers = await pc.getTransceivers();
           for (var t in transceivers) {
             final kind = t.receiver.track?.kind ?? t.sender.track?.kind;
             if (kind == 'audio' || kind == 'video') {
@@ -670,9 +730,11 @@ class SignalingService {
           _log('❌ getUserMedia Trial $attempts Failed: $e');
           if (attempts >= 2) {
             throw Exception(
-              'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted.',
+              'Cannot access camera/microphone. Please ensure other apps are closed and permissions are granted. Error: $e',
             );
           }
+          // Small delay before fallback attempt
+          await Future.delayed(const Duration(milliseconds: 500));
         }
       }
     } catch (e) {
@@ -814,40 +876,52 @@ class SignalingService {
   }
 
   void toggleVideo(bool videoOn) async {
-    if (_localStream == null) return;
+    final localStream = _localStream;
+    if (localStream == null) return;
 
-    if (videoOn && _localStream!.getVideoTracks().isEmpty) {
+    if (videoOn && localStream.getVideoTracks().isEmpty) {
       try {
-        final videoStream = await navigator.mediaDevices.getUserMedia({
+        final MediaStream? videoStream = await navigator.mediaDevices.getUserMedia({
           'audio': false,
           'video': {
+            'mandatory': {
+              'minWidth': '480',
+              'minHeight': '360',
+              'minFrameRate': '30',
+            },
             'facingMode': 'user',
-            'width': '640',
-            'height': '480',
-            'frameRate': '30',
+            'optional': [],
           },
         });
+        
+        if (videoStream == null) {
+          throw Exception('Video stream is null');
+        }
 
         final videoTrack = videoStream.getVideoTracks()[0];
-        await _localStream!.addTrack(videoTrack);
-        _peerConnection!.addTrack(videoTrack, _localStream!);
+        await localStream.addTrack(videoTrack);
+        
+        final pc = _peerConnection;
+        if (pc != null) {
+          await pc.addTrack(videoTrack, localStream);
 
-        // TRIGGER REBUILD
-        localStreamNotifier.value = null;
-        localStreamNotifier.value = _localStream;
+          // TRIGGER REBUILD
+          localStreamNotifier.value = null;
+          localStreamNotifier.value = localStream;
 
-        final offer = await _peerConnection!.createOffer();
-        await _peerConnection!.setLocalDescription(offer);
-        _sendSignal({
-          'type': 'call_offer',
-          'offer': {'type': offer.type, 'sdp': offer.sdp},
-          'mediaType': 'video',
-        });
+          final offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          _sendSignal({
+            'type': 'call_offer',
+            'offer': {'type': offer.type, 'sdp': offer.sdp},
+            'mediaType': 'video',
+          });
+        }
       } catch (e) {
         _log('Failed to add video track: $e');
       }
     } else {
-      _localStream!.getVideoTracks().forEach((track) {
+      localStream.getVideoTracks().forEach((track) {
         track.enabled = videoOn;
       });
     }
@@ -878,14 +952,17 @@ class SignalingService {
     _localStream = null;
     localStreamNotifier.value = null; // Update notifier immediately
     if (local != null) {
-      _log('⏹️ Stopping local stream tracks...');
+      _log('⏹️ Stopping local stream tracks (camera/mic release)...');
       final tracks = local.getTracks();
       for (var track in tracks) {
         _log('⏹️ Stopping local track: ${track.kind} (${track.id})');
         track.enabled = false;
-        track.stop();
+        await track.stop();
       }
+      // Native-level camera/mic release — clears the Android camera indicator
+      // track.stop() on each individual track is the correct flutter_webrtc API
       await local.dispose();
+      _log('✅ Local stream fully released');
     }
 
     final remote = _remoteStream;
@@ -916,6 +993,21 @@ class SignalingService {
     _isCaller = false;
     _inCallSession = false;
     _isEnding = false;
+    _pcCompleter = null;
+
+    // After ending a call, suppress call_offer messages that arrive while the WebSocket
+    // is reconnecting (the server may replay the stale offer from the previous session).
+    // This flag is cleared in `_handleMessage` when `connection_established` is received,
+    // so genuine new calls after reconnection are NOT affected.
+    _ignoreCallsTimer?.cancel();
+    _suppressReconnectOffer = true;
+    // Safety fallback: clear after 10 seconds in case connection_established is never received
+    _ignoreCallsTimer = Timer(const Duration(seconds: 10), () {
+      if (_suppressReconnectOffer) {
+        _suppressReconnectOffer = false;
+        _log('⚠️ Reconnect offer suppression lifted via fallback timeout');
+      }
+    });
   }
 
   void _startIceRestartTimer() {
