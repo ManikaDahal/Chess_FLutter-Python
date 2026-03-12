@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
+import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,6 +30,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
   final SignalingService _signalingService = SignalingService();
   bool _isConnectingCall = false;
   String _statusMessage = "Waiting for opponent to accept...";
+  Timer? _pollingTimer;
 
   @override
   void initState() {
@@ -43,6 +45,35 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
     );
 
     _listenForInviteResponse();
+    _startPollingFallback();
+  }
+
+  void _startPollingFallback() {
+    // Poll every 4 seconds as a fallback for missing FCM events (common on web foreground)
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (!mounted || _isConnectingCall) return;
+
+      debugPrint("[InviteWaiting] Polling fallback check...");
+      try {
+        final invites = await InviteService().getPendingInvites();
+        // If our roomId is no longer in the pending invites list, it was likely accepted
+        // (or declined, but we check for type in handleInviteAccepted usually)
+        // Actually, the best way is to verify if we are now in the game room.
+        final stillPending = invites.any(
+          (inv) =>
+              int.tryParse(inv['room_id']?.toString() ?? "0") == widget.roomId,
+        );
+
+        if (!stillPending && !_isConnectingCall) {
+          debugPrint(
+            "[InviteWaiting] Room ${widget.roomId} no longer pending. Triggering transition.",
+          );
+          _handleInviteAccepted();
+        }
+      } catch (e) {
+        debugPrint("[InviteWaiting] Polling error: $e");
+      }
+    });
   }
 
   void _listenForInviteResponse() {
@@ -101,6 +132,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
     _fcmSubscription?.cancel();
     _pulseController.dispose();
     super.dispose();

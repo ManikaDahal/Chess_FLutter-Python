@@ -206,9 +206,9 @@ class _GameBoardState extends State<GameBoard>
     });
 
     _callTimeoutTimer?.cancel();
-    _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
-      if (mounted && _callStatus == "Starting call...") {
-        print("[GAME CALL] ⚠️ Call connection timeout. Resetting...");
+    _callTimeoutTimer = Timer(const Duration(seconds: 45), () {
+      if (mounted && _callStatus != "Connected") {
+        print("[GAME CALL] ⚠️ Call connection timeout (45s). Resetting...");
         setState(() {
           _isCallStarted = false;
           _callStatus = "Waiting for peer...";
@@ -399,7 +399,7 @@ class _GameBoardState extends State<GameBoard>
       if (_callStatus != "Connected") {
         if (_signalingService!.isConnected) {
           print(
-            "[GAME CALL] 💓 Sending periodic room_ready pulse (Status: $_callStatus)...",
+            "[GAME CALL] 💓 Pulse (Status: $_callStatus, WS: OK)...",
           );
           _signalingService!.sendCustomMessage({'action': 'room_ready'});
 
@@ -411,6 +411,7 @@ class _GameBoardState extends State<GameBoard>
         } else {
           // If not connected to WS yet, show different status
           if (_callStatus != "Connecting to signaling...") {
+            print("[GAME CALL] 💓 Pulse skipped - WS not connected.");
             setState(() {
               _callStatus = "Connecting to signaling...";
             });
