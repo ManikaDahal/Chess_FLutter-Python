@@ -16,6 +16,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:io';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -338,6 +340,14 @@ class _LoginState extends State<Login> {
                   ),
                 ],
               ),
+              const SizedBox(height: 40),
+              if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
+                Center(
+                  child: TextButton(
+                    onPressed: () => throw StateError('Example Crash for Crashlytics'),
+                    child: const Text('Test Crash Logs (Crashlytics)', style: TextStyle(color: Colors.grey)),
+                  ),
+                ),
             ],
           ),
         ),
