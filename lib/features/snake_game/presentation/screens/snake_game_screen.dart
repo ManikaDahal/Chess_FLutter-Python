@@ -27,22 +27,37 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
   bool hasStarted = false;
   String gameStatus = "Roll a 1 to enter the board!";
 
-  // Standard Snakes and Ladders
+  // Exact Reference Mapping
   final Map<int, int> snakes = {
-    17: 7, 54: 34, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 99: 78,
+    17: 7,   // Purple (Bottom)
+    54: 34,  // Orange/Yellow
+    62: 19,  // Large Green
+    64: 60,  // Small Brown
+    87: 36,  // Orange Patterned
+    93: 73,  // Purple Slender
+    95: 75,  // Yellow/Brown
+    98: 78,  // Green Slender
   };
 
   final Map<int, int> ladders = {
-    4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100,
+    1: 38,
+    4: 14,
+    9: 31,
+    21: 42,
+    28: 84,
+    36: 44,
+    51: 67,
+    71: 91,
+    80: 99,
   };
 
-  // Color Palette for Cells
+  // Color Palette - Exact Reference Sequence
   final List<Color> cellColors = [
-    const Color(0xFFF44336), // Red
-    const Color(0xFFFFEB3B), // Yellow
-    const Color(0xFF2196F3), // Blue
-    const Color(0xFF4CAF50), // Green
-    Colors.white,           // White
+    const Color(0xFFFFEB3B), // Yellow (1)
+    Colors.white,           // White (2)
+    const Color(0xFFF44336), // Red (3)
+    const Color(0xFF2196F3), // Blue (4)
+    const Color(0xFF4CAF50), // Green (5)
   ];
 
   Color _getCellColor(int n) {
@@ -274,20 +289,24 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                               int num = dRow * 10 + dCol + 1;
                               return Container(
                                 decoration: BoxDecoration(
-                                  color: _getCellColor(num),
+                                  color: num == 100 ? const Color(0xFFF44336) : _getCellColor(num),
                                   border: Border.all(color: Colors.black, width: 0.8),
                                 ),
                                 child: Stack(
                                   children: [
+                                    if (num == 100)
+                                      const Center(
+                                        child: Icon(Icons.star, color: Color(0xFFFFEB3B), size: 30),
+                                      ),
                                     Align(
                                       alignment: Alignment.topRight,
                                       child: Padding(
-                                        padding: const EdgeInsets.all(3.0),
+                                        padding: const EdgeInsets.all(2.0),
                                         child: Text(
                                           '$num',
                                           style: TextStyle(
                                             color: _getTextColor(num),
-                                            fontSize: 12,
+                                            fontSize: 10,
                                             fontWeight: FontWeight.w900,
                                           ),
                                         ),
@@ -433,9 +452,9 @@ class RetroBoardLinesPainter extends CustomPainter {
       return Offset(col * cell + cell / 2, row * cell + cell / 2);
     }
 
-    // Classic 2-Rail Ladders
-    final railPaint = Paint()..color = Colors.black87..strokeWidth = 4..strokeCap = StrokeCap.square..style = PaintingStyle.stroke;
-    final stepPaint = Paint()..color = Colors.black87..strokeWidth = 3;
+    // Spacious 2-Rail Ladders
+    final railPaint = Paint()..color = Colors.black87..strokeWidth = 3.5..strokeCap = StrokeCap.square..style = PaintingStyle.stroke;
+    final stepPaint = Paint()..color = Colors.black87..strokeWidth = 2.5;
 
     ladders.forEach((s, e) {
       Offset p1 = getC(s);
@@ -454,108 +473,127 @@ class RetroBoardLinesPainter extends CustomPainter {
       }
     });
 
-    // Realistic Snakes
+    // Realistic Snakes with Unique Colors from Reference
+    final Map<int, Color> snakeColors = {
+      17: Colors.purple,
+      54: Colors.orange,
+      62: Colors.green,
+      64: Colors.brown,
+      87: Colors.deepOrange,
+      93: Colors.purpleAccent,
+      95: Colors.orangeAccent,
+      98: Colors.greenAccent,
+    };
+
     for (var entry in snakes.entries) {
-      _drawRealisticSnake(canvas, getC(entry.key), getC(entry.value), cell);
+      _drawRealisticSnake(canvas, getC(entry.key), getC(entry.value), cell, 
+        baseColor: snakeColors[entry.key] ?? Colors.green);
     }
   }
 
-  void _drawRealisticSnake(Canvas canvas, Offset head, Offset tail, double cellSize) {
+  void _drawRealisticSnake(Canvas canvas, Offset head, Offset tail, double cellSize, {required Color baseColor}) {
     final Path path = Path()..moveTo(head.dx, head.dy);
     
-    // Create organic slithering path
+    // Create multi-segment organic slithering path (S-curves)
     double dist = (tail - head).distance;
-    double midX = (head.dx + tail.dx) / 2;
-    double midY = (head.dy + tail.dy) / 2;
+    Offset dir = (tail - head) / dist;
+    Offset perp = Offset(-dir.dy, dir.dx);
     
-    // Offset for organic curve
-    double curveOffset = (tail.dx > head.dx) ? cellSize * 1.8 : -cellSize * 1.8;
+    // Control points for S-curve
+    double curveStrength = cellSize * 2.2;
+    Offset mid = Offset.lerp(head, tail, 0.5)!;
+    Offset cp1 = Offset.lerp(head, mid, 0.5)! + perp * curveStrength;
+    Offset cp2 = Offset.lerp(mid, tail, 0.5)! - perp * curveStrength;
     
-    path.cubicTo(
-      head.dx + curveOffset, head.dy, 
-      tail.dx - curveOffset, midY, 
-      tail.dx, tail.dy
-    );
+    path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, tail.dx, tail.dy);
 
     final ui.PathMetrics pathMetrics = path.computeMetrics();
     final ui.PathMetric pathMetric = pathMetrics.first;
     
-    // 1. Draw Shadow/Outline
-    final outlinePaint = Paint()..color = Colors.black.withOpacity(0.4)..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+    // 1. Slender Shadow/Outline
+    final outlinePaint = Paint()..color = Colors.black..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
     
-    // 2. Draw Body with Taper
-    // We draw segment by segment to achieve tapering
-    int segments = 25;
+    // 2. Multi-Layer Skin Rendering
+    int segments = 40; // Higher fidelity for S-curves
     for (int i = 0; i < segments; i++) {
       double startPercent = i / segments;
       double endPercent = (i + 1) / segments;
+      double progress = i / segments;
       
-      // Taper from width 14 to 3
-      double strokeWidth = 14 * (1.0 - (i / segments) * 0.8);
+      // Taper from width 12 to 2 (slender for spacious feel)
+      double strokeWidth = 12 * (1.0 - progress * 0.9);
       
-      final Paint bodyPaint = Paint()
-        ..color = Color.lerp(const Color(0xFFFDD835), const Color(0xFF43A047), startPercent)!
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round;
-
+      // A. Layer: Main Body
       canvas.drawPath(
         pathMetric.extractPath(pathMetric.length * startPercent, pathMetric.length * endPercent),
-        bodyPaint
+        Paint()
+          ..color = Color.lerp(baseColor.withOpacity(0.9), baseColor, progress)!
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeCap = StrokeCap.round
       );
       
-      // Pattern Overlay (Dotted/Scale effect)
+      // B. Layer: Belly Stripe (Simulating depth)
+      if (strokeWidth > 4) {
+        canvas.drawPath(
+          pathMetric.extractPath(pathMetric.length * startPercent, pathMetric.length * endPercent),
+          Paint()
+            ..color = Colors.white.withOpacity(0.3)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeWidth * 0.35
+            ..strokeCap = StrokeCap.round
+        );
+      }
+      
+      // C. Layer: Spine Pattern (Zig-zag/Dots)
       if (i % 2 == 0) {
         canvas.drawPath(
           pathMetric.extractPath(pathMetric.length * startPercent, pathMetric.length * endPercent),
-          Paint()..color = Colors.red.withOpacity(0.6)..style = PaintingStyle.stroke..strokeWidth = strokeWidth * 0.4
+          Paint()
+            ..color = Colors.black.withOpacity(0.2)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeWidth * 0.2
         );
       }
     }
 
-    // 3. Realistic Head
-    // Direction calculation for head rotation
+    // 3. Realistic Illustrator Head
     ui.Tangent? tangent = pathMetric.getTangentForOffset(0);
     if (tangent != null) {
-      // Add pi (180 degrees) so the head faces AWAY from the tail
       double angle = atan2(tangent.vector.dy, tangent.vector.dx) + pi;
-      
-      // Scaling head relative to cell size - dynamic based on layout
-      double headScale = (cellSize / 40).clamp(0.55, 0.95);
+      double headScale = (cellSize / 38).clamp(0.5, 0.85); // More slender head
       
       canvas.save();
-      // Move head slightly forward from the exact center so it "leads"
       canvas.translate(head.dx, head.dy);
       canvas.rotate(angle);
       canvas.scale(headScale);
 
-      // Higher-detailed Head Shape (Defined snout and wider jaw)
+      // Wider Jaw & Pointed Snout
       Path headPath = Path();
-      headPath.moveTo(0, 0); // Neck connection
-      headPath.quadraticBezierTo(4, -10, 15, -8); // Back to side
-      headPath.quadraticBezierTo(24, -5, 28, 0);  // Side to snout
-      headPath.quadraticBezierTo(24, 5, 15, 8);   // Snout to side
-      headPath.quadraticBezierTo(4, 10, 0, 0);    // Side to neck
+      headPath.moveTo(0, 0); 
+      headPath.quadraticBezierTo(2, -14, 12, -10); // Wide jaw base
+      headPath.quadraticBezierTo(26, -6, 30, 0);   // Fine snout
+      headPath.quadraticBezierTo(26, 6, 12, 10);   // Jaw symmetry
+      headPath.quadraticBezierTo(2, 14, 0, 0); 
       
-      canvas.drawPath(headPath, Paint()..color = const Color(0xFFFDD835));
-      canvas.drawPath(headPath, Paint()..color = Colors.black..style = PaintingStyle.stroke..strokeWidth = 1.6);
+      canvas.drawPath(headPath, Paint()..color = baseColor);
+      canvas.drawPath(headPath, Paint()..color = Colors.black..style = PaintingStyle.stroke..strokeWidth = 1.4);
 
-      // Predatory Eyes - Moved more forward and inward
-      canvas.drawCircle(const Offset(15, -5), 2.2, Paint()..color = Colors.black);
-      canvas.drawCircle(const Offset(16.5, -6), 0.7, Paint()..color = Colors.white); // Glint
-      
-      canvas.drawCircle(const Offset(15, 5), 2.2, Paint()..color = Colors.black);
-      canvas.drawCircle(const Offset(16.5, 6), 0.7, Paint()..color = Colors.white); // Glint
+      // Refined Eyes (Side-facing predatory placement)
+      canvas.drawCircle(const Offset(14, -6), 3.0, Paint()..color = Colors.black);
+      canvas.drawCircle(const Offset(15.5, -7.5), 0.8, Paint()..color = Colors.white); // Glint
+      canvas.drawCircle(const Offset(14, 6), 3.0, Paint()..color = Colors.black);
+      canvas.drawCircle(const Offset(15.5, 7.5), 0.8, Paint()..color = Colors.white); // Glint
 
-      // Forked Tongue (Even longer and flickering from snout tip at x=28)
+      // Long Forked Tongue
       final tonguePaint = Paint()..color = Colors.red..strokeWidth = 1.8..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
       Path tongue = Path();
-      tongue.moveTo(28, 0);
-      tongue.lineTo(44, 0);
-      tongue.moveTo(44, 0);
-      tongue.lineTo(52, -6);
-      tongue.moveTo(44, 0);
-      tongue.lineTo(52, 6);
+      tongue.moveTo(30, 0);
+      tongue.lineTo(48, 0);
+      tongue.moveTo(48, 0);
+      tongue.lineTo(55, -7);
+      tongue.moveTo(48, 0);
+      tongue.lineTo(55, 7);
       canvas.drawPath(tongue, tonguePaint);
 
       canvas.restore();
