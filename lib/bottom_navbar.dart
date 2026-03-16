@@ -51,45 +51,27 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
 
   Future<void> _initUser() async {
     try {
-      print("BottomNavBar: Starting parallel initialization...");
+      print("BottomNavBar: Starting optimized initialization...");
       final startTime = DateTime.now();
 
-      // 1. Fetch profile first to get the essential userId
+      // 1. Fetch profile - this is the ONLY critical path task
       final profile = await ApiService().getProfile();
       final int? userId = profile['id'];
       final int roomId = profile['current_room_id'] ?? 1;
 
       if (userId == null) throw Exception("User ID not found");
 
-      // 2. Run independent initializations in parallel
-      await Future.wait([
-        // Initialize ChatProvider
-        (() async {
-          if (mounted) {
-            final chatProvider = Provider.of<ChatProvider>(
-              context,
-              listen: false,
-            );
-            chatProvider.clearActiveRoom();
-            chatProvider.init(roomId, userId, setAsActive: false);
-          }
-        })(),
-        // Connect user-specific signaling
-        GlobalCallHandler().connectForUser(userId),
-        // Register FCM token
-        NotificationService.registerToken(),
-        // 3. Wake up Render server (Video/WebSocket service) early
-        ApiService().probe(ApiBase.render),
-      ]);
+      // 2. Launch background services asynchronously (NON-BLOCKING)
+      _initializeBackgroundServices(userId, roomId);
 
       final endTime = DateTime.now();
       print(
-        "BottomNavBar: Initialization completed in ${endTime.difference(startTime).inMilliseconds}ms",
+        "BottomNavBar: Critical path initialization completed in ${endTime.difference(startTime).inMilliseconds}ms",
       );
 
       if (!mounted) return;
 
-      // Initialize pages
+      // Initialize pages and stop loading IMMEDIATELY
       setState(() {
         _currentUserId = userId;
         _currentRoomId = roomId;
@@ -113,35 +95,68 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
       });
     } catch (e, st) {
       debugPrint("Error initializing user: $e\n$st");
-      final String errorStr = e.toString().toLowerCase();
-
-      if (errorStr.contains("401") ||
-          errorStr.contains("unauthorized") ||
-          errorStr.contains("[401]") ||
-          errorStr.contains("[403]")) {
-        // Token expired and refresh failed, go back to login
-        debugPrint("User unauthorized, clearing session and going to login");
-        if (mounted) {
-          SharedPreferences.getInstance().then((prefs) {
-            prefs.clear();
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const Login()),
-              (route) => false,
-            );
-          });
-        }
-        return;
-      }
-
+      // Fallback handling remains the same...
       if (mounted) {
-        setState(() {
-          _loading = false;
-          _errorMessage =
-              "App failed to initialize. Please check your internet or try again.";
-        });
+        _handleInitializationError(e);
       }
     }
+  }
+
+  /// Non-blocking initialization of background services
+  Future<void> _initializeBackgroundServices(int userId, int roomId) async {
+    print("BottomNavBar: Initializing background services...");
+    
+    // a. Signaling (Background)
+    GlobalCallHandler().connectForUser(userId).catchError((e) {
+      print("Signaling init error: $e");
+    });
+
+    // b. FCM Token registration (Background)
+    NotificationService.registerToken().catchError((e) {
+      print("FCM registration error: $e");
+    });
+
+    // c. Probe Render server early (Background)
+    ApiService().probe(ApiBase.render).catchError((e) {
+      print("Render probe error: $e");
+    });
+
+    // d. Initialize ChatProvider (Background)
+    if (mounted) {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      chatProvider.clearActiveRoom();
+      try {
+        chatProvider.init(roomId, userId, setAsActive: false);
+      } catch (e) {
+        print("ChatProvider init error: $e");
+      }
+    }
+  }
+
+  void _handleInitializationError(Object e) {
+    final String errorStr = e.toString().toLowerCase();
+
+    if (errorStr.contains("401") ||
+        errorStr.contains("unauthorized") ||
+        errorStr.contains("[401]") ||
+        errorStr.contains("[403]")) {
+      debugPrint("User unauthorized, clearing session and going to login");
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.clear();
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const Login()),
+          (route) => false,
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = false;
+      _errorMessage =
+          "App failed to initialize. Please check your internet or try again.";
+    });
   }
 
   @override
