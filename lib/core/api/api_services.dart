@@ -15,8 +15,8 @@ class ApiService {
 
   ApiService._internal() {
     _dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 60),
     ));
     _setupInterceptors();
   }

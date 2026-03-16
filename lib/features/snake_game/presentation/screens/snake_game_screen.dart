@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
@@ -28,26 +29,35 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
 
   // Standard Snakes and Ladders
   final Map<int, int> snakes = {
-    17: 7,
-    54: 34,
-    62: 19,
-    64: 60,
-    87: 24,
-    93: 73,
-    95: 75,
-    99: 78,
+    17: 7, 54: 34, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 99: 78,
   };
 
   final Map<int, int> ladders = {
-    4: 14,
-    9: 31,
-    21: 42,
-    28: 84,
-    36: 44,
-    51: 67,
-    71: 91,
-    80: 100,
+    4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100,
   };
+
+  // Color Palette for Cells
+  final List<Color> cellColors = [
+    const Color(0xFFF44336), // Red
+    const Color(0xFFFFEB3B), // Yellow
+    const Color(0xFF2196F3), // Blue
+    const Color(0xFF4CAF50), // Green
+    Colors.white,           // White
+  ];
+
+  Color _getCellColor(int n) {
+    if (n == 0) return Colors.white;
+    return cellColors[(n - 1) % cellColors.length];
+  }
+
+  Color _getTextColor(int n) {
+    Color bg = _getCellColor(n);
+    // Darker colors get white text
+    if (bg == const Color(0xFFF44336) || bg == const Color(0xFF2196F3) || bg == const Color(0xFF4CAF50)) {
+      return Colors.white;
+    }
+    return Colors.black87;
+  }
 
   Future<void> rollDice() async {
     if (isRolling || isMoving) return;
@@ -57,7 +67,6 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
       gameStatus = "Waiting for luck...";
     });
 
-    // Dice animation
     for (int i = 0; i < 12; i++) {
       await Future.delayed(const Duration(milliseconds: 70));
       setState(() {
@@ -155,14 +164,8 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Text(
-          "Restart Game?",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          "Your current progress will be lost.",
-          style: TextStyle(color: Colors.black54),
-        ),
+        title: const Text("Restart Game?", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        content: const Text("Your current progress will be lost.", style: TextStyle(color: Colors.black54)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -173,10 +176,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
               Navigator.pop(context);
               resetGame();
             },
-            child: const Text(
-              "RESTART",
-              style: TextStyle(color: Colors.deepOrange),
-            ),
+            child: const Text("RESTART", style: TextStyle(color: Colors.deepOrange)),
           ),
         ],
       ),
@@ -190,17 +190,8 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Center(
-          child: Text(
-            "YOU DID IT!",
-            style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-          ),
-        ),
-        content: const Text(
-          "The board has been conquered.",
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.black87),
-        ),
+        title: const Center(child: Text("YOU DID IT!", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))),
+        content: const Text("The board has been conquered.", textAlign: TextAlign.center, style: TextStyle(color: Colors.black87)),
         actions: [
           Center(
             child: TextButton(
@@ -208,13 +199,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                 Navigator.pop(context);
                 resetGame();
               },
-              child: const Text(
-                "NEW ADVENTURE",
-                style: TextStyle(
-                  color: Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: const Text("NEW ADVENTURE", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -235,168 +220,127 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xFFEEEEEE),
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: whiteColor),
-          onPressed: () =>
-              RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute),
         ),
-        title: const Text(
-          'SNAKE & LADDERS',
-          style: TextStyle(
-            color: whiteColor,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
+        title: const Text('RETRO BOARD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,
-        backgroundColor: backgroundColor,
-        foregroundColor: whiteColor,
-
-        elevation: 1,
+        backgroundColor: const Color(0xFF2C3E50),
+        elevation: 4,
         actions: [
           IconButton(
             onPressed: _showResetConfirmation,
-            icon: const Icon(Icons.refresh, color: whiteColor),
+            icon: const Icon(Icons.refresh, color: Colors.white),
           ),
         ],
       ),
       body: Column(
         children: [
           const Spacer(flex: 1),
-          // Board Area - Maximized Size
+          // Board Area - Maximum Width
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0),
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
             child: AspectRatio(
               aspectRatio: 1,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.black, // Background of the grid lines
+                  borderRadius: BorderRadius.circular(4),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 5),
-                    ),
+                    BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5)),
                   ],
                 ),
+                padding: const EdgeInsets.all(2), // Board frame thickness
                 clipBehavior: Clip.antiAlias,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     double cellSize = constraints.maxWidth / gridSize;
                     return Stack(
                       children: [
-                        // 1. Grid Background (Subtle)
+                        // 1. Colorful Cells Grid
                         Positioned.fill(
                           child: GridView.builder(
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: totalSquares,
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: gridSize,
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: gridSize),
+                            itemBuilder: (context, index) {
+                              int cellRow = index ~/ gridSize;
+                              int cellCol = index % gridSize;
+                              int dRow = 9 - cellRow;
+                              int dCol = (dRow % 2 == 1) ? (9 - cellCol) : cellCol;
+                              int num = dRow * 10 + dCol + 1;
+                              return Container(
+                                decoration: BoxDecoration(
+                                  color: _getCellColor(num),
+                                  border: Border.all(color: Colors.black, width: 0.8),
                                 ),
-                            itemBuilder: (context, index) => Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.05),
-                                  width: 0.5,
+                                child: Stack(
+                                  children: [
+                                    Align(
+                                      alignment: Alignment.topRight,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(3.0),
+                                        child: Text(
+                                          '$num',
+                                          style: TextStyle(
+                                            color: _getTextColor(num),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         ),
                         // 2. Connections Painter
                         Positioned.fill(
                           child: CustomPaint(
-                            painter: BoardLinesPainter(
+                            painter: RetroBoardLinesPainter(
                               snakes: snakes,
                               ladders: ladders,
                               gridSize: gridSize,
                             ),
                           ),
                         ),
-                        // 3. Numbers Layer (On top, bold black)
-                        Positioned.fill(
-                          child: GridView.builder(
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: totalSquares,
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: gridSize,
-                                ),
-                            itemBuilder: (context, index) {
-                              int cellRow = index ~/ gridSize;
-                              int cellCol = index % gridSize;
-                              int dRow = 9 - cellRow;
-                              int dCol = (dRow % 2 == 1)
-                                  ? (9 - cellCol)
-                                  : cellCol;
-                              int num = dRow * 10 + dCol + 1;
-                              bool hl = num == 100 || num == 1;
-                              return Center(
-                                child: Text(
-                                  '$num',
-                                  style: TextStyle(
-                                    color: hl ? Colors.orange : Colors.black87,
-                                    fontSize: 15,
-                                    fontWeight: hl
-                                        ? FontWeight.w100
-                                        : FontWeight.w800,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        // 4. Player Token
-                        Builder(
-                          builder: (context) {
-                            Offset p = getCoord(playerPosition);
-                            return AnimatedPositioned(
-                              duration: const Duration(milliseconds: 350),
-                              curve: Curves.easeInOut,
-                              left: p.dx * cellSize,
-                              top: p.dy * cellSize,
-                              child: SizedBox(
-                                width: cellSize,
-                                height: cellSize,
-                                child: Center(
-                                  child: Opacity(
-                                    opacity: playerPosition == 0 ? 0.3 : 1.0,
-                                    child: Container(
-                                      width: cellSize * 0.75,
-                                      height: cellSize * 0.75,
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.orange.withOpacity(
-                                              0.4,
-                                            ),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ],
-                                        border: Border.all(
-                                          color: Colors.white,
-                                          width: 2.5,
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        Icons.person,
-                                        size: 20,
-                                        color: Colors.white,
-                                      ),
+                        // 3. Player Token
+                        Builder(builder: (context) {
+                          Offset p = getCoord(playerPosition);
+                          return AnimatedPositioned(
+                            duration: const Duration(milliseconds: 350),
+                            curve: Curves.easeInOut,
+                            left: p.dx * cellSize,
+                            top: p.dy * cellSize,
+                            child: SizedBox(
+                              width: cellSize,
+                              height: cellSize,
+                              child: Center(
+                                child: Opacity(
+                                  opacity: playerPosition == 0 ? 0.3 : 1.0,
+                                  child: Container(
+                                    width: cellSize * 0.7,
+                                    height: cellSize * 0.7,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 5)],
+                                      border: Border.all(color: Colors.black, width: 2),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(Icons.stars, size: 20, color: Colors.orange),
                                     ),
                                   ),
                                 ),
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        }),
                       ],
                     );
                   },
@@ -405,22 +349,14 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
             ),
           ),
           const Spacer(flex: 1),
-          // Controls Area - Light Theme
+          // Controls Area
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 35),
+            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 30),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(35),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                ),
-              ],
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -3))],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -428,83 +364,39 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                 Text(
                   gameStatus.toUpperCase(),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.black54,
-                    fontSize: 12,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(color: Colors.black87, fontSize: 13, letterSpacing: 1.2, fontWeight: FontWeight.w800),
                 ),
-                const SizedBox(height: 25),
+                const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Dice Container
                     Container(
-                      width: 85,
-                      height: 85,
+                      width: 80,
+                      height: 80,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.grey.shade200),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.08),
-                            blurRadius: 15,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(color: Colors.black, width: 2.5),
+                        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: const Offset(0, 4))],
                       ),
                       child: Center(
                         child: isRolling
-                            ? const SizedBox(
-                                width: 30,
-                                height: 30,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 4,
-                                  color: Colors.orange,
-                                ),
-                              )
-                            : CustomPaint(
-                                size: const Size(42, 42),
-                                painter: DiceDotsPainter(value: diceValue),
-                              ),
+                            ? const CircularProgressIndicator(color: Colors.black87)
+                            : CustomPaint(size: const Size(40, 40), painter: DiceDotsPainter(value: diceValue)),
                       ),
                     ),
-                    const SizedBox(width: 35),
-                    // Roll Button - Vibrant Orange
+                    const SizedBox(width: 30),
                     GestureDetector(
                       onTap: (isRolling || isMoving) ? null : rollDice,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 45,
-                          vertical: 22,
-                        ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
                         decoration: BoxDecoration(
-                          color: (isRolling || isMoving)
-                              ? Colors.grey.shade200
-                              : Colors.orange,
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: (isRolling || isMoving)
-                              ? []
-                              : [
-                                  BoxShadow(
-                                    color: Colors.orange.withOpacity(0.35),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
+                          color: (isRolling || isMoving) ? Colors.grey : Colors.black87,
+                          borderRadius: BorderRadius.circular(15),
                         ),
-                        child: Text(
-                          (isRolling || isMoving) ? "..." : "ROLL DICE",
-                          style: TextStyle(
-                            color: (isRolling || isMoving)
-                                ? Colors.grey
-                                : Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                          ),
+                        child: const Text(
+                          "ROLL",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
                         ),
                       ),
                     ),
@@ -519,71 +411,155 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
   }
 }
 
-class BoardLinesPainter extends CustomPainter {
+class RetroBoardLinesPainter extends CustomPainter {
   final Map<int, int> snakes;
   final Map<int, int> ladders;
   final int gridSize;
 
-  BoardLinesPainter({
-    required this.snakes,
-    required this.ladders,
-    required this.gridSize,
-  });
+  RetroBoardLinesPainter({required this.snakes, required this.ladders, required this.gridSize});
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.clipRect(Offset.zero & size);
     double cell = size.width / gridSize;
 
-    Offset center(int n) {
+    // Center helper
+    Offset getC(int n) {
       int sq = n - 1;
-      int r = sq ~/ gridSize;
-      int c = sq % gridSize;
-      if (r % 2 == 1) c = (gridSize - 1) - c;
-      r = (gridSize - 1) - r;
-      return Offset(c * cell + cell / 2, r * cell + cell / 2);
+      int row = sq ~/ gridSize;
+      int col = sq % gridSize;
+      if (row % 2 == 1) col = (gridSize - 1) - col;
+      row = (gridSize - 1) - row;
+      return Offset(col * cell + cell / 2, row * cell + cell / 2);
     }
 
-    // Ladders (Solid Royal Blue)
-    final lPaint = Paint()
-      ..color = const Color(0xFF1976D2).withOpacity(0.7)
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
+    // Classic 2-Rail Ladders
+    final railPaint = Paint()..color = Colors.black87..strokeWidth = 4..strokeCap = StrokeCap.square..style = PaintingStyle.stroke;
+    final stepPaint = Paint()..color = Colors.black87..strokeWidth = 3;
+
     ladders.forEach((s, e) {
-      Offset p1 = center(s);
-      Offset p2 = center(e);
-      canvas.drawLine(p1, p2, lPaint);
-      // Rungs
-      final rPaint = Paint()
-        ..color = Colors.white.withOpacity(0.6)
-        ..strokeWidth = 2.5;
-      for (int i = 1; i < 7; i++) {
-        Offset p = Offset.lerp(p1, p2, i / 7)!;
-        double dx = p2.dx - p1.dx, dy = p2.dy - p1.dy;
-        double len = sqrt(dx * dx + dy * dy);
-        Offset perp = Offset(-dy / len, dx / len) * 11;
-        canvas.drawLine(p - perp, p + perp, rPaint);
+      Offset p1 = getC(s);
+      Offset p2 = getC(e);
+      double dx = p2.dx - p1.dx, dy = p2.dy - p1.dy;
+      double len = sqrt(dx*dx + dy*dy);
+      Offset perp = Offset(-dy/len, dx/len) * (cell * 0.2);
+
+      canvas.drawLine(p1 - perp, p2 - perp, railPaint);
+      canvas.drawLine(p1 + perp, p2 + perp, railPaint);
+
+      int steps = (len / 15).floor().clamp(3, 12);
+      for (int i = 0; i <= steps; i++) {
+        Offset p = Offset.lerp(p1, p2, i / steps)!;
+        canvas.drawLine(p - perp, p + perp, stepPaint);
       }
     });
 
-    // Snakes (Vivid Red)
-    final sPaint = Paint()
-      ..color = Colors.red.shade700.withOpacity(0.7)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 14
-      ..strokeCap = StrokeCap.round;
-    snakes.forEach((s, e) {
-      Offset h = center(s), t = center(e);
-      Path path = Path()..moveTo(h.dx, h.dy);
-      double midY = (h.dy + t.dy) / 2,
-          cX = (t.dx > h.dx) ? cell * 1.2 : -cell * 1.2;
-      Offset c1 = Offset((h.dx + cX).clamp(0, size.width), midY - 12);
-      Offset c2 = Offset((t.dx - cX).clamp(0, size.width), midY + 12);
-      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, t.dx, t.dy);
-      canvas.drawPath(path, sPaint);
-      canvas.drawCircle(h, 4, Paint()..color = Colors.black); // Head
-    });
+    // Realistic Snakes
+    for (var entry in snakes.entries) {
+      _drawRealisticSnake(canvas, getC(entry.key), getC(entry.value), cell);
+    }
+  }
+
+  void _drawRealisticSnake(Canvas canvas, Offset head, Offset tail, double cellSize) {
+    final Path path = Path()..moveTo(head.dx, head.dy);
+    
+    // Create organic slithering path
+    double dist = (tail - head).distance;
+    double midX = (head.dx + tail.dx) / 2;
+    double midY = (head.dy + tail.dy) / 2;
+    
+    // Offset for organic curve
+    double curveOffset = (tail.dx > head.dx) ? cellSize * 1.8 : -cellSize * 1.8;
+    
+    path.cubicTo(
+      head.dx + curveOffset, head.dy, 
+      tail.dx - curveOffset, midY, 
+      tail.dx, tail.dy
+    );
+
+    final ui.PathMetrics pathMetrics = path.computeMetrics();
+    final ui.PathMetric pathMetric = pathMetrics.first;
+    
+    // 1. Draw Shadow/Outline
+    final outlinePaint = Paint()..color = Colors.black.withOpacity(0.4)..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+    
+    // 2. Draw Body with Taper
+    // We draw segment by segment to achieve tapering
+    int segments = 25;
+    for (int i = 0; i < segments; i++) {
+      double startPercent = i / segments;
+      double endPercent = (i + 1) / segments;
+      
+      // Taper from width 14 to 3
+      double strokeWidth = 14 * (1.0 - (i / segments) * 0.8);
+      
+      final Paint bodyPaint = Paint()
+        ..color = Color.lerp(const Color(0xFFFDD835), const Color(0xFF43A047), startPercent)!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawPath(
+        pathMetric.extractPath(pathMetric.length * startPercent, pathMetric.length * endPercent),
+        bodyPaint
+      );
+      
+      // Pattern Overlay (Dotted/Scale effect)
+      if (i % 2 == 0) {
+        canvas.drawPath(
+          pathMetric.extractPath(pathMetric.length * startPercent, pathMetric.length * endPercent),
+          Paint()..color = Colors.red.withOpacity(0.6)..style = PaintingStyle.stroke..strokeWidth = strokeWidth * 0.4
+        );
+      }
+    }
+
+    // 3. Realistic Head
+    // Direction calculation for head rotation
+    ui.Tangent? tangent = pathMetric.getTangentForOffset(0);
+    if (tangent != null) {
+      // Add pi (180 degrees) so the head faces AWAY from the tail
+      double angle = atan2(tangent.vector.dy, tangent.vector.dx) + pi;
+      
+      // Scaling head relative to cell size - dynamic based on layout
+      double headScale = (cellSize / 40).clamp(0.55, 0.95);
+      
+      canvas.save();
+      // Move head slightly forward from the exact center so it "leads"
+      canvas.translate(head.dx, head.dy);
+      canvas.rotate(angle);
+      canvas.scale(headScale);
+
+      // Higher-detailed Head Shape (Defined snout and wider jaw)
+      Path headPath = Path();
+      headPath.moveTo(0, 0); // Neck connection
+      headPath.quadraticBezierTo(4, -10, 15, -8); // Back to side
+      headPath.quadraticBezierTo(24, -5, 28, 0);  // Side to snout
+      headPath.quadraticBezierTo(24, 5, 15, 8);   // Snout to side
+      headPath.quadraticBezierTo(4, 10, 0, 0);    // Side to neck
+      
+      canvas.drawPath(headPath, Paint()..color = const Color(0xFFFDD835));
+      canvas.drawPath(headPath, Paint()..color = Colors.black..style = PaintingStyle.stroke..strokeWidth = 1.6);
+
+      // Predatory Eyes - Moved more forward and inward
+      canvas.drawCircle(const Offset(15, -5), 2.2, Paint()..color = Colors.black);
+      canvas.drawCircle(const Offset(16.5, -6), 0.7, Paint()..color = Colors.white); // Glint
+      
+      canvas.drawCircle(const Offset(15, 5), 2.2, Paint()..color = Colors.black);
+      canvas.drawCircle(const Offset(16.5, 6), 0.7, Paint()..color = Colors.white); // Glint
+
+      // Forked Tongue (Even longer and flickering from snout tip at x=28)
+      final tonguePaint = Paint()..color = Colors.red..strokeWidth = 1.8..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+      Path tongue = Path();
+      tongue.moveTo(28, 0);
+      tongue.lineTo(44, 0);
+      tongue.moveTo(44, 0);
+      tongue.lineTo(52, -6);
+      tongue.moveTo(44, 0);
+      tongue.lineTo(52, 6);
+      canvas.drawPath(tongue, tonguePaint);
+
+      canvas.restore();
+    }
   }
 
   @override
@@ -596,23 +572,13 @@ class DiceDotsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = Colors.black87;
+    final p = Paint()..color = Colors.black;
     final r = size.width * 0.12;
-    void dot(double x, double y) =>
-        canvas.drawCircle(Offset(size.width * x, size.height * y), r, p);
+    void dot(double x, double y) => canvas.drawCircle(Offset(size.width * x, size.height * y), r, p);
     if (value % 2 == 1) dot(0.5, 0.5);
-    if (value > 1) {
-      dot(0.22, 0.22);
-      dot(0.78, 0.78);
-    }
-    if (value > 3) {
-      dot(0.78, 0.22);
-      dot(0.22, 0.78);
-    }
-    if (value == 6) {
-      dot(0.22, 0.5);
-      dot(0.78, 0.5);
-    }
+    if (value > 1) { dot(0.22, 0.22); dot(0.78, 0.78); }
+    if (value > 3) { dot(0.78, 0.22); dot(0.22, 0.78); }
+    if (value == 6) { dot(0.22, 0.5); dot(0.78, 0.5); }
   }
 
   @override
