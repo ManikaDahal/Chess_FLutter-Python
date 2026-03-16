@@ -50,6 +50,7 @@ class BiometricAuth {
       bool authenticated = await _auth.authenticate(
         localizedReason: "Scan fingerprint to login",
         biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
       print("AuthBiometrics: UI result=$authenticated");
       return authenticated;
@@ -63,45 +64,60 @@ class BiometricAuth {
 
   Future<bool> loginWithBiometrics() async {
     print("AuthBiometrics: loginWithBiometrics() started");
-    // 1. Session Validation: Check if we even have tokens to use
-    final accessToken = await _storage.getAccessToken();
-    print("AuthBiometrics: accessToken=${accessToken != null ? 'Present' : 'NULL'}");
     
-    if (accessToken == null) {
-      print("AuthBiometrics: Login Failure: No session found. Please login manually first.");
-      return false;
-    }
-
-    // 2. Local Authentication
+    // 1. Local Authentication FIRST (User must prove it's them)
     bool authenticated = await authenticate();
     if (!authenticated) {
-      print("AuthBiometrics: authenticate() failed or was cancelled");
+      print("AuthBiometrics: Biometric scan failed or cancelled");
       return false;
     }
 
-    // 3. API validation
-    try {
-      print("AuthBiometrics: Verifying session with backend profile...");
-      await _apiService.getProfile(); 
-      print("AuthBiometrics: Profile verified successfully");
-      return true;
-    } catch (e) {
-      print("AuthBiometrics: Initial profile fetch failed, trying refresh... Error: $e");
-      
-      bool refreshed = await _authServices.refreshToken();
-      if (!refreshed) {
-        print("AuthBiometrics: Token refresh failed. User must login manually.");
-        return false;
-      }
-
+    // 2. Session Validation: Check if we have active tokens
+    final accessToken = await _storage.getAccessToken();
+    if (accessToken != null) {
+      print("AuthBiometrics: Active session found. Verifying with profile...");
       try {
-        await _apiService.getProfile();
-        print("AuthBiometrics: Profile fetch successful after refresh.");
+        await _apiService.getProfile(); 
+        print("AuthBiometrics: Session valid");
         return true;
-      } catch (e2) {
-        print("AuthBiometrics: Profile fetch failed even after refresh: $e2");
-        return false;
+      } catch (e) {
+        print("AuthBiometrics: Access token expired, attempting refresh... $e");
+        bool refreshed = await _authServices.refreshToken();
+        if (refreshed) {
+          try {
+            await _apiService.getProfile();
+            print("AuthBiometrics: Session restored via refresh");
+            return true;
+          } catch (e2) {
+            print("AuthBiometrics: Profile failed even after refresh: $e2");
+          }
+        }
       }
     }
+
+    // 3. Re-Authentication: If session is missing or invalid, use persistent credentials
+    print("AuthBiometrics: No valid session. Searching persistent biometric credentials...");
+    final bioCreds = await _storage.getBiometricAuth();
+    
+    if (bioCreds != null) {
+      print("AuthBiometrics: Found persistent credentials for ${bioCreds['email']}. Performing background login...");
+      try {
+        bool loginOk = await _authServices.login(
+          bioCreds['email']!, 
+          bioCreds['password']!,
+        );
+        if (loginOk) {
+          print("AuthBiometrics: Background login successful");
+          return true;
+        }
+      } catch (e) {
+        print("AuthBiometrics: Background login failed: $e");
+      }
+    } else {
+      print("AuthBiometrics: No persistent credentials found.");
+    }
+
+    print("AuthBiometrics: Biometric login flow failed. Manual login required.");
+    return false;
   }
 }

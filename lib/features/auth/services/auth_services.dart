@@ -58,6 +58,9 @@ class AuthServices {
         await _storage.saveAccessToken(data['access']);
         await _storage.saveRefreshToken(data['refresh']);
 
+        // Persist for Biometrics (survives logout)
+        await _storage.saveBiometricAuth(email, password);
+
         // Register FCM token
         _registerFCM();
 
@@ -103,8 +106,8 @@ class AuthServices {
   }
 
   Future<void> logout() async {
-    // 1. Clear Tokens
-    await _storage.deleteAll();
+    // 1. Clear Session Tokens (Preserve Biometric Credentials)
+    await _storage.clearSession();
 
     // 2. Clear SharedPreferences
     final prefs = await SharedPreferences.getInstance();
