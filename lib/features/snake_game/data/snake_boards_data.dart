@@ -2,6 +2,18 @@ import '../models/snake_board.dart';
 
 final List<SnakeBoard> snakeBoards = [
   SnakeBoard(
+    id: "board1",
+    name: "CUSTOM BOARD 1",
+    description: "Play on your provided snake1.png image!",
+    imagePath: "assets/images/snake1.png",
+    snakes: {
+      16: 7, 59: 17, 63: 19, 67: 30, 87: 24, 93: 69, 95: 75, 99: 77,
+    },
+    ladders: {
+      9: 27, 18: 37, 25: 54, 28: 51, 56: 64, 68: 88, 76: 97, 79: 100,
+    },
+  ),
+  SnakeBoard(
     id: "classic",
     name: "Classic Retro",
     description: "The balanced layout you know and love.",

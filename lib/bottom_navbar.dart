@@ -215,7 +215,11 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
       );
     }
 
-    // 5️⃣ User the global ChatProvider provided in main.dart
+    // Ensure index is within bounds before building BottomNavigationBar
+    if (_currentIndex >= _pages.length) {
+      _currentIndex = 0;
+    }
+
     return Consumer<ChatProvider>(
       builder: (context, chatProvider, _) {
         return Scaffold(
@@ -226,7 +230,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
           ),
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
-            currentIndex: _currentIndex,
+            currentIndex: (_currentIndex >= _pages.length) ? 0 : _currentIndex,
             backgroundColor: whiteColor,
             selectedItemColor: backgroundColor,
             unselectedItemColor: foregroundColor,

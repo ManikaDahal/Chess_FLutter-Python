@@ -166,9 +166,14 @@ class _BoardSelectionScreenState extends State<BoardSelectionScreen> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: CustomPaint(
-                      painter: BoardPreviewPainter(board: board),
-                    ),
+                    child: board.imagePath != null
+                        ? Image.asset(
+                            board.imagePath!,
+                            fit: BoxFit.cover,
+                          )
+                        : CustomPaint(
+                            painter: BoardPreviewPainter(board: board),
+                          ),
                   ),
                 ),
               ),

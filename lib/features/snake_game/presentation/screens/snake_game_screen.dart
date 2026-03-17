@@ -229,7 +229,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('RETRO BOARD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+        title: Text(widget.board.name.toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,
         backgroundColor: const Color(0xFF2C3E50),
         elevation: 4,
@@ -263,7 +263,15 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                     double cellSize = constraints.maxWidth / gridSize;
                     return Stack(
                       children: [
-                        // 1. Colorful Cells Grid
+                        // 0. Background Image (if board config has one)
+                        if (widget.board.imagePath != null)
+                          Positioned.fill(
+                            child: Image.asset(
+                              widget.board.imagePath!,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        // 1. Colorful Cells Grid (Hide colors if image is present)
                         Positioned.fill(
                           child: GridView.builder(
                             physics: const NeverScrollableScrollPhysics(),
@@ -277,8 +285,13 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                               int num = dRow * 10 + dCol + 1;
                               return Container(
                                 decoration: BoxDecoration(
-                                  color: num == 100 ? const Color(0xFFF44336) : _getCellColor(num),
-                                  border: Border.all(color: Colors.black, width: 0.8),
+                                  color: widget.board.imagePath != null
+                                      ? Colors.transparent
+                                      : (num == 100 ? const Color(0xFFF44336) : _getCellColor(num)),
+                                  border: Border.all(
+                                    color: widget.board.imagePath != null ? Colors.transparent : Colors.black,
+                                    width: 0.8,
+                                  ),
                                 ),
                                 child: Stack(
                                   children: [
@@ -293,7 +306,9 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                                         child: Text(
                                           '$num',
                                           style: TextStyle(
-                                            color: _getTextColor(num),
+                                            color: widget.board.imagePath != null 
+                                                ? _getTextColor(num).withOpacity(0.0) 
+                                                : _getTextColor(num),
                                             fontSize: 10,
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -310,8 +325,8 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                         Positioned.fill(
                           child: CustomPaint(
                             painter: RetroBoardLinesPainter(
-                              snakes: snakes,
-                              ladders: ladders,
+                              snakes: widget.board.imagePath != null ? {} : snakes,
+                              ladders: widget.board.imagePath != null ? {} : ladders,
                               gridSize: gridSize,
                             ),
                           ),
