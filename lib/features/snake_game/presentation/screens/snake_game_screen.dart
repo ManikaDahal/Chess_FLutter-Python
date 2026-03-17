@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
 
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
@@ -423,6 +424,36 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 20),
+                GestureDetector(
+                  onTap: () {
+                    AdService().showRewardedAd(
+                      onUserEarnedReward: (reward) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Reward Earned: ${reward.amount} ${reward.type}')),
+                        );
+                      },
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_circle_fill, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          "WATCH AD FOR REWARD",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),

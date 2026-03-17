@@ -5,6 +5,7 @@ import 'package:chess_game_manika/features/auth/presentation/screens/login.dart'
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/core/permission/permission_service.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,6 +40,10 @@ Future<void> main() async {
     // 1. Must ensure bindings are ready for plugins
     WidgetsFlutterBinding.ensureInitialized();
     print("1. WidgetsFlutterBinding initialized");
+
+    // Initialize Mobile Ads
+    await AdService().initialize();
+    print("Ads initialized");
 
     // 2. Initialize Firebase early
     await Firebase.initializeApp();

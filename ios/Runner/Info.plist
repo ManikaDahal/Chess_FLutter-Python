@@ -51,5 +51,14 @@
 	<string>We need access to your microphone to listen to your voice during calls with your digital twin.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>We use speech recognition to turn your voice into text for your digital twin to understand.</string>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 </dict>
 </plist>
