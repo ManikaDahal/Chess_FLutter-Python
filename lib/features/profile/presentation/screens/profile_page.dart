@@ -154,7 +154,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 subtitle: const Text("Classic Grid Game"),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
-                  RouteGenerator.navigateToPage(context, Routes.snakeGameRoute);
+                  RouteGenerator.navigateToPage(context, Routes.snakeBoardSelectionRoute);
                 },
               ),
             ),

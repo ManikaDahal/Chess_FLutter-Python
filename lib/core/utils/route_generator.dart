@@ -10,6 +10,8 @@ import 'package:chess_game_manika/features/auth/presentation/screens/reset_passw
 import 'package:chess_game_manika/features/auth/presentation/screens/sign_up.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/self_chat_screen.dart';
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
+import 'package:chess_game_manika/features/snake_game/presentation/screens/board_selection_screen.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
 
 import 'package:flutter/material.dart';
@@ -79,8 +81,12 @@ class RouteGenerator {
       case Routes.selfChatRoute:
         return MaterialPageRoute(builder: (_) => const SelfChatScreen());
 
+      case Routes.snakeBoardSelectionRoute:
+        return MaterialPageRoute(builder: (_) => const BoardSelectionScreen());
+
       case Routes.snakeGameRoute:
-        return MaterialPageRoute(builder: (_) => const SnakeGameScreen());
+        final board = settings.arguments as SnakeBoard;
+        return MaterialPageRoute(builder: (_) => SnakeGameScreen(board: board));
 
       default:
         return MaterialPageRoute(

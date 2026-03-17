@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/utils/route_const.dart';
-import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:flutter/material.dart';
 
+import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
+
 class SnakeGameScreen extends StatefulWidget {
-  const SnakeGameScreen({super.key});
+  final SnakeBoard board;
+  const SnakeGameScreen({super.key, required this.board});
 
   @override
   State<SnakeGameScreen> createState() => _SnakeGameScreenState();
@@ -27,29 +28,16 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
   bool hasStarted = false;
   String gameStatus = "Roll a 1 to enter the board!";
 
-  // Exact Reference Mapping
-  final Map<int, int> snakes = {
-    17: 7,   // Purple (Bottom)
-    54: 34,  // Orange/Yellow
-    62: 19,  // Large Green
-    64: 60,  // Small Brown
-    87: 36,  // Orange Patterned
-    93: 73,  // Purple Slender
-    95: 75,  // Yellow/Brown
-    98: 78,  // Green Slender
-  };
+  // Board data from widget
+  late Map<int, int> snakes;
+  late Map<int, int> ladders;
 
-  final Map<int, int> ladders = {
-    1: 38,
-    4: 14,
-    9: 31,
-    21: 42,
-    28: 84,
-    36: 44,
-    51: 67,
-    71: 91,
-    80: 99,
-  };
+  @override
+  void initState() {
+    super.initState();
+    snakes = widget.board.snakes;
+    ladders = widget.board.ladders;
+  }
 
   // Color Palette - Exact Reference Sequence
   final List<Color> cellColors = [
@@ -239,7 +227,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute),
+          onPressed: () => Navigator.pop(context),
         ),
         title: const Text('RETRO BOARD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,

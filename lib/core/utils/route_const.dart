@@ -10,4 +10,5 @@ class Routes {
   static const gameRoomRoute = "/gameRoom";
   static const selfChatRoute = "/selfChat";
   static const snakeGameRoute = "/snakeGame";
+  static const snakeBoardSelectionRoute = "/snakeBoardSelection";
 }
