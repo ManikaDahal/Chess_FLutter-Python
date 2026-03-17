@@ -8,23 +8,23 @@ plugins {
 }
 
 android {
-    namespace = "com.example.chess_python"
+    namespace = "com.manikadahal.chessgame"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-       sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+       sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
-         jvmTarget = "1.8"
+         jvmTarget = "11"
     }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.chess_python"
+        applicationId = "com.manikadahal.chessgame"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdkVersion(flutter.minSdkVersion) 
@@ -58,6 +58,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-crashlytics")
+    implementation("androidx.fragment:fragment:1.5.7")
 }
 
 

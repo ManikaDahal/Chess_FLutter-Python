@@ -12,7 +12,20 @@
           "package_name": "com.example.chess_python"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "244432064616-7cr5qi11bb441segu0a1pgs158s1bv74.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.chess_python",
+            "certificate_hash": "377d6748174f36e15257410df8df4e13e0aa909b"
+          }
+        },
+        {
+          "client_id": "244432064616-7td991prljaqtfh63aei6mfg5eajemku.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC0Oqh9s9I8IhLNGHqpBxy6npdE4D99X8s"
@@ -20,7 +33,63 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "244432064616-7td991prljaqtfh63aei6mfg5eajemku.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "244432064616-2hbdr52ggtj9lnohed3sbdt6t9ok2mvk.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.manikadahal.chessgame"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:244432064616:android:df5f3c72d432fc9e32abdd",
+        "android_client_info": {
+          "package_name": "com.manikadahal.chessgame"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "244432064616-eot482as82j6992grjalt7o0ue65hcid.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.manikadahal.chessgame",
+            "certificate_hash": "377d6748174f36e15257410df8df4e13e0aa909b"
+          }
+        },
+        {
+          "client_id": "244432064616-7td991prljaqtfh63aei6mfg5eajemku.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC0Oqh9s9I8IhLNGHqpBxy6npdE4D99X8s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "244432064616-7td991prljaqtfh63aei6mfg5eajemku.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "244432064616-2hbdr52ggtj9lnohed3sbdt6t9ok2mvk.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.manikadahal.chessgame"
+              }
+            }
+          ]
         }
       }
     }

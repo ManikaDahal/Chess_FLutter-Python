@@ -1,4 +1,4 @@
-package com.example.chess_python
+package com.manikadahal.chessgame
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
