@@ -157,8 +157,25 @@ class _SignupState extends State<Signup> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
+          // Premium Gradient Background
+          Container(
+            height: MediaQuery.of(context).size.height,
+            width: MediaQuery.of(context).size.width,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFFE3F2FD), // Light blue tint
+                  Colors.white,
+                  Colors.white,
+                ],
+              ),
+            ),
+          ),
           ui(),
           loader ? Loader.backdropFilter(context) : const SizedBox(),
         ],
@@ -171,18 +188,28 @@ class _SignupState extends State<Signup> {
       key: _formKey,
       child: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                backgroundColor: foregroundColor,
-                child: IconButton(
-                  onPressed: () {
-                    // RouteGenerator.navigateToPage(context, Routes.getStartedRoute);
-                  },
-                  icon: Icon(Icons.close),
-                  color: whiteColor,
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                      )
+                    ],
+                  ),
+                  child: const Icon(Icons.close, color: Color(0xFF2196F3)),
                 ),
               ),
 

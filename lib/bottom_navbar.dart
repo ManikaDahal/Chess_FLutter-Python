@@ -15,7 +15,7 @@ import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
-
+import 'package:chess_game_manika/core/widgets/connectivity_banner.dart';
 
 class BottomNavBarWrapper extends StatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -50,7 +50,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
     super.dispose();
   }
 
-  Future<void> _initUser() async {
+  Future<void> _initUser({int retryCount = 0}) async {
     try {
       print("BottomNavBar: Starting optimized initialization...");
       final startTime = DateTime.now();
@@ -78,10 +78,12 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
         _currentRoomId = roomId;
         _loading = false;
         _pages = [
-          LandingPage(onTabChange: (index) {
-            setState(() => _currentIndex = index);
-            _pageController.jumpToPage(index);
-          }),
+          LandingPage(
+            onTabChange: (index) {
+              setState(() => _currentIndex = index);
+              _pageController.jumpToPage(index);
+            },
+          ),
           UserList(currentUserId: _currentUserId!),
           const VideoGalleryScreen(),
           ChatPage(
@@ -93,42 +95,72 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
         ];
       });
     } catch (e, st) {
-      debugPrint("Error initializing user: $e\n$st");
-      // Fallback handling remains the same...
-      if (mounted) {
-        _handleInitializationError(e);
+      debugPrint(
+        "Error initializing user (Attempt ${retryCount + 1}/3): $e\n$st",
+      );
+
+      // Check if it should NOT retry (e.g., Auth error)
+      final String errorStr = e.toString().toLowerCase();
+      bool shouldRetry =
+          !errorStr.contains("401") &&
+          !errorStr.contains("unauthorized") &&
+          retryCount < 2;
+
+      if (shouldRetry) {
+        print("BottomNavBar: Retrying in 2 seconds...");
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          _initUser(retryCount: retryCount + 1);
+        }
+      } else {
+        if (mounted) {
+          _handleInitializationError(e);
+        }
       }
     }
   }
 
-  /// Non-blocking initialization of background services
+  /// Non-blocking initialization of background services (Staggered to prevent frame skips)
   Future<void> _initializeBackgroundServices(int userId, int roomId) async {
-    print("BottomNavBar: Initializing background services...");
-    
-    // a. Signaling (Background)
+    print("BottomNavBar: Initializing background services (Staggered)...");
+
+    // 1. Give the UI a moment to be responsive first
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (!mounted) return;
+
+    // 2. Signaling (User-specific) - PRIORITY
     GlobalCallHandler().connectForUser(userId).catchError((e) {
-      print("Signaling init error: $e");
+      print("Signaling user connect error: $e");
     });
 
-    // b. FCM Token registration (Background)
+    // 3. Signaling (General/Home room) - 1s stagger
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+    GlobalCallHandler().init();
+
+    // 4. FCM Token registration - 1s stagger
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
     NotificationService.registerToken().catchError((e) {
       print("FCM registration error: $e");
     });
 
-    // c. Probe Render server early (Background)
+    // 5. Probe Render server - 1s stagger
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
     ApiService().probe(ApiBase.render).catchError((e) {
       print("Render probe error: $e");
     });
 
-    // d. Initialize ChatProvider (Background)
-    if (mounted) {
-      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-      chatProvider.clearActiveRoom();
-      try {
-        chatProvider.init(roomId, userId, setAsActive: false);
-      } catch (e) {
-        print("ChatProvider init error: $e");
-      }
+    // 6. Initialize ChatProvider - Final stagger
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.clearActiveRoom();
+    try {
+      chatProvider.init(roomId, userId, setAsActive: false);
+    } catch (e) {
+      print("ChatProvider init error: $e");
     }
   }
 
@@ -154,7 +186,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
     setState(() {
       _loading = false;
       _errorMessage =
-          "App failed to initialize. Please check your internet or try again.";
+          "Unable to connect to the server. Please check your internet or try again.";
     });
   }
 
@@ -219,79 +251,83 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
       _currentIndex = 0;
     }
 
-    return Consumer<ChatProvider>(
-      builder: (context, chatProvider, _) {
-        return Scaffold(
-          body: PageView(
-            controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(),
-            children: _pages,
-          ),
-          bottomNavigationBar: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            currentIndex: (_currentIndex >= _pages.length) ? 0 : _currentIndex,
-            backgroundColor: foregroundColor, // Premium dark background
-            selectedItemColor: primaryYellow,
-            unselectedItemColor: Colors.white38,
-            showSelectedLabels: true, // Show labels for clarity
-            showUnselectedLabels: false,
-            selectedFontSize: 12,
-            onTap: (index) {
-              print("BottomNavBar: onTap index $index");
-              setState(() => _currentIndex = index);
-              _pageController.jumpToPage(index);
+    return ConnectivityBanner(
+      child: Consumer<ChatProvider>(
+        builder: (context, chatProvider, _) {
+          return Scaffold(
+            body: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: _pages,
+            ),
+            bottomNavigationBar: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              currentIndex: (_currentIndex >= _pages.length)
+                  ? 0
+                  : _currentIndex,
+              backgroundColor: foregroundColor, // Premium dark background
+              selectedItemColor: primaryYellow,
+              unselectedItemColor: Colors.white38,
+              showSelectedLabels: true, // Show labels for clarity
+              showUnselectedLabels: false,
+              selectedFontSize: 12,
+              onTap: (index) {
+                print("BottomNavBar: onTap index $index");
+                setState(() => _currentIndex = index);
+                _pageController.jumpToPage(index);
 
-              // Reset unread count AND ensure we are in the general room if Chat tab (now index 3) is clicked
-              if (index == 3) {
-                if (_currentRoomId != null) {
+                // Reset unread count AND ensure we are in the general room if Chat tab (now index 3) is clicked
+                if (index == 3) {
+                  if (_currentRoomId != null) {
+                    print(
+                      "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $_currentRoomId",
+                    );
+                    chatProvider.resetUnreadCount(_currentRoomId!);
+                    // Re-init general room if we were previously in a private one
+                    print("BottomNavBar: Returning to General Room 1");
+                    chatProvider.init(_currentRoomId!, _currentUserId!);
+                  }
+                } else {
+                  // If leaving the chat tab, clear the active room so notifications can happen
                   print(
-                    "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $_currentRoomId",
+                    "BottomNavBar: Tab $index clicked (NOT Chat), clearing active room",
                   );
-                  chatProvider.resetUnreadCount(_currentRoomId!);
-                  // Re-init general room if we were previously in a private one
-                  print("BottomNavBar: Returning to General Room 1");
-                  chatProvider.init(_currentRoomId!, _currentUserId!);
+                  chatProvider.clearActiveRoom();
                 }
-              } else {
-                // If leaving the chat tab, clear the active room so notifications can happen
-                print(
-                  "BottomNavBar: Tab $index clicked (NOT Chat), clearing active room",
-                );
-                chatProvider.clearActiveRoom();
-              }
-            },
-            items: [
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.home),
-                label: "Home",
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.people),
-                label: "Players",
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.video_library), // Video Gallery Icon
-                label: "Videos",
-              ),
-              BottomNavigationBarItem(
-                icon: badges.Badge(
-                  showBadge: chatProvider.totalUnreadCount > 0,
-                  badgeContent: Text(
-                    chatProvider.totalUnreadCount.toString(),
-                    style: const TextStyle(color: Colors.white, fontSize: 10),
-                  ),
-                  child: const Icon(Icons.chat),
+              },
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.home),
+                  label: "Home",
                 ),
-                label: "Chat",
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                label: "Profile",
-              ),
-            ],
-          ),
-        );
-      },
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.people),
+                  label: "Players",
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.video_library), // Video Gallery Icon
+                  label: "Videos",
+                ),
+                BottomNavigationBarItem(
+                  icon: badges.Badge(
+                    showBadge: chatProvider.totalUnreadCount > 0,
+                    badgeContent: Text(
+                      chatProvider.totalUnreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                    child: const Icon(Icons.chat),
+                  ),
+                  label: "Chat",
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline),
+                  label: "Profile",
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

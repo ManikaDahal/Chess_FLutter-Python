@@ -1,6 +1,5 @@
 import 'package:chess_game_manika/bottom_navbar.dart';
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/core/permission/permission_service.dart';
@@ -78,7 +77,7 @@ Future<void> main() async {
     print("5. Permissions requested");
 
     // 4. Initialize singletons
-    GlobalCallHandler().init();
+    // (GlobalCallHandler init removed here to prevent startup lag; now handled in BottomNavBar)
     print("6. GlobalCallHandler initialized");
     await NotificationService.init(navKey: Constants.navigatorKey);
     print("7. NotificationService initialized");

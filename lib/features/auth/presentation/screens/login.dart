@@ -203,8 +203,25 @@ class _LoginState extends State<Login> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
+          // Premium Gradient Background
+          Container(
+            height: MediaQuery.of(context).size.height,
+            width: MediaQuery.of(context).size.width,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFFE3F2FD), // Light blue tint
+                  Colors.white,
+                  Colors.white,
+                ],
+              ),
+            ),
+          ),
           ui(),
           loader ? Loader.backdropFilter(context) : const SizedBox(),
         ],
@@ -217,18 +234,28 @@ class _LoginState extends State<Login> {
       key: _formKey,
       child: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                backgroundColor: foregroundColor,
-                child: IconButton(
-                  onPressed: () {
-                    RouteGenerator.navigateToPage(context, Routes.signupRoute);
-                  },
-                  icon: Icon(Icons.arrow_back),
-                  color: whiteColor,
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  RouteGenerator.navigateToPage(context, Routes.signupRoute);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                      )
+                    ],
+                  ),
+                  child: const Icon(Icons.arrow_back, color: Color(0xFF2196F3)),
                 ),
               ),
 
@@ -293,29 +320,44 @@ class _LoginState extends State<Login> {
                 ),
               ),
 
+              const SizedBox(height: 25),
               Center(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    try {
-                      bool ok = await _biometricAuth.loginWithBiometrics();
-                      if (ok) {
-                        // Real ID and FCM will be handled in BottomNavBarWrapper
-                        RouteGenerator.navigateToPage(
-                          context,
-                          Routes.bottomNavBarRoute,
-                        );
-                        DisplaySnackbar.show(context, loginSuccessfullStr);
-                      } else {
+                child: Container(
+                  width: double.infinity,
+                  height: 55,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      foregroundColor: const Color(0xFF2196F3),
+                    ),
+                    onPressed: () async {
+                      try {
+                        bool ok = await _biometricAuth.loginWithBiometrics();
+                        if (ok) {
+                          RouteGenerator.navigateToPage(
+                            context,
+                            Routes.bottomNavBarRoute,
+                          );
+                          DisplaySnackbar.show(context, loginSuccessfullStr);
+                        } else {
+                          DisplaySnackbar.show(context, loginFailedStr);
+                        }
+                      } catch (e) {
                         DisplaySnackbar.show(context, loginFailedStr);
                       }
-                    } catch (e) {
-                      DisplaySnackbar.show(context, loginFailedStr);
-                    }
-                  },
-                  icon: Icon(Icons.fingerprint),
-                  label: Text("Login with fingerprint"),
+                    },
+                    icon: const Icon(Icons.fingerprint, size: 28),
+                    label: const Text(
+                      "Login with Biometrics",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ),
               ),
+              const SizedBox(height: 10),
 
               Row(
                 children: [
