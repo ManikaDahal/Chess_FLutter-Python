@@ -10,7 +10,7 @@ import 'package:chess_game_manika/features/call/services/voice_service.dart';
 class SelfChatScreen extends StatefulWidget {
   const SelfChatScreen({super.key});
 
-  @override 
+  @override
   State<SelfChatScreen> createState() => _SelfChatScreenState();
 }
 
@@ -215,7 +215,14 @@ class _SelfChatScreenState extends State<SelfChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Talk with Yourself"),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: whiteColor),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          "Talk with Yourself",
+          style: TextStyle(color: whiteColor),
+        ),
         backgroundColor: foregroundColor,
         actions: [
           if (_isTrained)

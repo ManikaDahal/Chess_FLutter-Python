@@ -1283,11 +1283,14 @@ class _GameBoardState extends State<GameBoard>
           appBar: widget.isMultiplayer
               ? null
               : AppBar(
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: whiteColor),
+                    onPressed: () => Navigator.pop(context),
+                  ),
                   title: const Text("Game Board"),
                   centerTitle: true,
                   backgroundColor: backgroundColor,
                   foregroundColor: whiteColor,
-                  automaticallyImplyLeading: false,
                 ),
           body: SafeArea(
             child: Container(

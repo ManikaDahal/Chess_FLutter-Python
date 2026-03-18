@@ -158,6 +158,7 @@ class _LoginState extends State<Login> {
                     RouteGenerator.navigateToPage(context, Routes.signupRoute);
                   },
                   icon: Icon(Icons.arrow_back),
+                  color: whiteColor,
                 ),
               ),
 

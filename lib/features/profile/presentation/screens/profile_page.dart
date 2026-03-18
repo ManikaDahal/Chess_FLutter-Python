@@ -64,7 +64,7 @@ class _ProfilePageState extends State<ProfilePage> {
           },
         ),
 
-        title: Text(profilePageStr),
+        title: Text(profilePageStr, style: TextStyle(color: whiteColor)),
         centerTitle: true,
         backgroundColor: foregroundColor,
       ),
@@ -154,7 +154,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 subtitle: const Text("Classic Grid Game"),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
-                  RouteGenerator.navigateToPage(context, Routes.snakeBoardSelectionRoute);
+                  RouteGenerator.navigateToPage(
+                    context,
+                    Routes.snakeBoardSelectionRoute,
+                  );
                 },
               ),
             ),
@@ -212,7 +215,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   DisplaySnackbar.show(context, e.toString());
                 }
               },
-              child: Text(logoutStr),
+              child: Text(
+                logoutStr,
+                style: TextStyle(color: whiteColor, fontSize: 20),
+              ),
             ),
             const SizedBox(height: 20),
           ],

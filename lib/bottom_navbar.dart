@@ -4,6 +4,7 @@ import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.d
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/features/profile/presentation/screens/profile_page.dart';
+import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -77,12 +78,10 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
         _currentRoomId = roomId;
         _loading = false;
         _pages = [
-          GameBoard(
-            currentUserId: _currentUserId!,
-            roomId: _currentRoomId!,
-            isMultiplayer: false,
-            showLeaveButton: false,
-          ),
+          LandingPage(onTabChange: (index) {
+            setState(() => _currentIndex = index);
+            _pageController.jumpToPage(index);
+          }),
           UserList(currentUserId: _currentUserId!),
           const VideoGalleryScreen(),
           ChatPage(
@@ -231,11 +230,12 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: (_currentIndex >= _pages.length) ? 0 : _currentIndex,
-            backgroundColor: whiteColor,
-            selectedItemColor: backgroundColor,
-            unselectedItemColor: foregroundColor,
-            showSelectedLabels: false,
+            backgroundColor: foregroundColor, // Premium dark background
+            selectedItemColor: primaryYellow,
+            unselectedItemColor: Colors.white38,
+            showSelectedLabels: true, // Show labels for clarity
             showUnselectedLabels: false,
+            selectedFontSize: 12,
             onTap: (index) {
               print("BottomNavBar: onTap index $index");
               setState(() => _currentIndex = index);
@@ -263,7 +263,7 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
             items: [
               const BottomNavigationBarItem(
                 icon: Icon(Icons.home),
-                label: "Board",
+                label: "Home",
               ),
               const BottomNavigationBarItem(
                 icon: Icon(Icons.people),

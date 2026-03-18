@@ -73,6 +73,7 @@ class _ForgotPasswordState extends State<ForgotPassword> {
                   RouteGenerator.navigateToPage(context, Routes.loginRoute);
                 },
                 icon: const Icon(Icons.arrow_back),
+                color: whiteColor,
               ),
             ),
             const SizedBox(height: 10),

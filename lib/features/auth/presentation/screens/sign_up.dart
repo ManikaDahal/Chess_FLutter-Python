@@ -113,6 +113,7 @@ class _SignupState extends State<Signup> {
                     // RouteGenerator.navigateToPage(context, Routes.getStartedRoute);
                   },
                   icon: Icon(Icons.close),
+                  color: whiteColor,
                 ),
               ),
 
