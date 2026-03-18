@@ -348,6 +348,27 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> googleLogin(String idToken) async {
+    final response = await post('/api/google-login/', {'idToken': idToken}, authenticated: false);
+    if (response.statusCode == 200) {
+      final data = response.data;
+      await _storage.saveAccessToken(data['access']);
+      await _storage.saveRefreshToken(data['refresh']);
+      return data;
+    } else {
+      throw Exception(response.data['error'] ?? 'Google login failed');
+    }
+  }
+
+  Future<Map<String, dynamic>> setPassword(String password) async {
+    final response = await post('/api/set-password/', {'password': password});
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception(response.data['error'] ?? "Failed to set password");
+    }
+  }
+
   String getStreamUrl(int videoId) {
     return '${Constants.videoBaseUrl}/api/videos/$videoId/stream/';
   }

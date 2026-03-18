@@ -8,10 +8,13 @@ import 'package:chess_game_manika/core/widgets/custom_Inkwell.dart';
 import 'package:chess_game_manika/core/widgets/custom_elevatedbutton.dart';
 import 'package:chess_game_manika/core/widgets/custom_text.dart';
 import 'package:chess_game_manika/core/widgets/custom_textformfield.dart';
-import 'package:chess_game_manika/features/auth/services/auth_services.dart';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:chess_game_manika/features/auth/presentation/screens/set_password_screen.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:chess_game_manika/features/auth/services/auth_services.dart';
 
 class Signup extends StatefulWidget {
   const Signup({super.key});
@@ -29,6 +32,72 @@ class _SignupState extends State<Signup> {
   bool loader = false;
   bool visible = false;
   bool isTermsAndConditionedAgreed = false;
+
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: ['email', 'profile'],
+  );
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      loader = true;
+    });
+
+    try {
+      await _googleSignIn.signOut();
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        setState(() => loader = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken == null) {
+        throw Exception("Failed to get ID Token from Google");
+      }
+
+      // Call backend
+      final result = await ApiService().googleLogin(idToken);
+
+      // Save session info
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('loggedIn', true);
+      await prefs.setString('email', googleUser.email);
+      await prefs.setInt('userId', result['user']['id']);
+
+      if (mounted) {
+        setState(() {
+          loader = false;
+        });
+
+        if (result['is_new_user'] == true) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
+          );
+        } else {
+          RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
+        }
+        DisplaySnackbar.show(context, "Google Login Successful");
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          loader = false;
+        });
+      }
+      print("Google Sign-In Error: $e");
+      if (mounted) {
+        String errMsg = e.toString();
+        if (errMsg.contains("Exception: ")) {
+          errMsg = errMsg.split("Exception: ").last;
+        }
+        DisplaySnackbar.show(context, "Google Sign-In failed: $errMsg");
+      }
+    }
+  }
 
   // CHANGE: Added loading state and better error handling
   Future<void> signup() async {
@@ -244,7 +313,7 @@ class _SignupState extends State<Signup> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   CustomElevatedbutton(
-                    onPressed: () {},
+                    onPressed: _handleGoogleSignIn,
                     width: MediaQuery.of(context).size.width * 0.25,
                     backgroundColor: Colors.white,
                     child: Image.asset("assets/images/google_logo.png"),

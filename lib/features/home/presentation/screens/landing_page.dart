@@ -406,9 +406,9 @@ class _LandingPageState extends State<LandingPage> {
           }
         } catch (e) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error updating coins: $e")),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text("Error updating coins: $e")));
           }
         }
       },
@@ -441,10 +441,13 @@ class _LandingPageState extends State<LandingPage> {
         if (errorMsg.contains("Exception: ")) {
           errorMsg = errorMsg.split("Exception: ").last;
         }
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(errorMsg, style: const TextStyle(color: Colors.white)),
+            content: Text(
+              errorMsg,
+              style: const TextStyle(color: Colors.white),
+            ),
             backgroundColor: Colors.redAccent,
           ),
         );
