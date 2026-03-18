@@ -19,6 +19,11 @@ class _LandingPageState extends State<LandingPage> {
   Map<String, dynamic>? profileData;
   bool _loading = true;
 
+  // Live progress tracking
+  final ValueNotifier<int> _coinsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<String> _rankNotifier = ValueNotifier<String>("Novice");
+  bool _isClaiming = false;
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +37,8 @@ class _LandingPageState extends State<LandingPage> {
         setState(() {
           profileData = data;
           _loading = false;
+          _coinsNotifier.value = data['coins'] ?? 0;
+          _rankNotifier.value = data['rank_name'] ?? "Novice";
         });
       }
     } catch (e) {
@@ -109,13 +116,16 @@ class _LandingPageState extends State<LandingPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Text(
-                    profileData?['rank_name'] ?? "Novice", // Dynamic rank
-                    style: const TextStyle(
-                      color: primaryYellow,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.1,
+                  ValueListenableBuilder<String>(
+                    valueListenable: _rankNotifier,
+                    builder: (context, rank, _) => Text(
+                      rank,
+                      style: const TextStyle(
+                        color: primaryYellow,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                      ),
                     ),
                   ),
                 ],
@@ -124,9 +134,14 @@ class _LandingPageState extends State<LandingPage> {
           ),
           Row(
             children: [
-              _buildResourceItem(Icons.monetization_on, "1,250", primaryYellow),
-              const SizedBox(width: 10),
-              _buildResourceItem(Icons.diamond, "50", Colors.cyanAccent),
+              ValueListenableBuilder<int>(
+                valueListenable: _coinsNotifier,
+                builder: (context, coins, _) => _buildResourceItem(
+                  Icons.monetization_on,
+                  coins.toString(),
+                  primaryYellow,
+                ),
+              ),
             ],
           ),
         ],
@@ -369,6 +384,76 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
+  void _handleWatchAd() {
+    AdService().showRewardedAd(
+      onUserEarnedReward: (reward) async {
+        try {
+          final result = await ApiService().updateCoins(100);
+          print("COIN UPDATE SUCCESS: ${result['coins']} gold");
+          _coinsNotifier.value = result['coins'];
+          _rankNotifier.value = result['rank_name'];
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Reward Earned! You got 100 gold.",
+                  style: TextStyle(color: Colors.black),
+                ),
+                backgroundColor: Colors.white,
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Error updating coins: $e")),
+            );
+          }
+        }
+      },
+    );
+  }
+
+  void _handleClaimGift() async {
+    if (_isClaiming) return;
+    setState(() => _isClaiming = true);
+
+    try {
+      final result = await ApiService().claimDailyGift();
+      _coinsNotifier.value = result['coins'];
+      _rankNotifier.value = result['rank_name'];
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result['message'] ?? "Daily gift claimed!",
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMsg = e.toString();
+        if (errorMsg.contains("Exception: ")) {
+          errorMsg = errorMsg.split("Exception: ").last;
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg, style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isClaiming = false);
+    }
+  }
+
   Widget _buildRewardsSection() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
@@ -379,38 +464,14 @@ class _LandingPageState extends State<LandingPage> {
             Icons.card_giftcard_rounded,
             "DAILY GIFT",
             accentRed,
-            () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    "Come back tomorrow for your daily gift!",
-                    style: TextStyle(color: Colors.black),
-                  ),
-                  backgroundColor: Colors.white,
-                ),
-              );
-            },
+            _handleClaimGift,
           ),
           Container(height: 40, width: 1, color: Colors.white10),
           _buildRewardIcon(
             Icons.play_circle_filled_rounded,
             "WATCH AD",
             Colors.purpleAccent,
-            () {
-              AdService().showRewardedAd(
-                onUserEarnedReward: (reward) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        "Reward Earned! You got 100 gold.",
-                        style: TextStyle(color: Colors.black),
-                      ),
-                      backgroundColor: Colors.white,
-                    ),
-                  );
-                },
-              );
-            },
+            _handleWatchAd,
           ),
         ],
       ),

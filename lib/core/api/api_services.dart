@@ -325,6 +325,29 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> updateCoins(int amount) async {
+    final response = await post('/api/update-coins/', {'amount': amount});
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception("Failed to update coins");
+    }
+  }
+
+  Future<Map<String, dynamic>> claimDailyGift() async {
+    try {
+      final response = await post('/api/claim-daily-gift/', {});
+      if (response.statusCode == 200) {
+        return response.data;
+      } else {
+        throw Exception(response.data['error'] ?? "Failed to claim gift");
+      }
+    } on DioException catch (e) {
+      final message = e.response?.data?['error'] ?? e.message ?? "Network error";
+      throw Exception(message);
+    }
+  }
+
   String getStreamUrl(int videoId) {
     return '${Constants.videoBaseUrl}/api/videos/$videoId/stream/';
   }
