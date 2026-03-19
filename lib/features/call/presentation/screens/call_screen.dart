@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/features/call/services/recording_service.dart';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 
-
-class CallScreen extends StatefulWidget {
+class CallScreen extends ConsumerStatefulWidget {
   final String roomId;
   final bool isIncomingCall;
   final bool isInitialVideo;
@@ -28,10 +28,10 @@ class CallScreen extends StatefulWidget {
   });
 
   @override
-  State<CallScreen> createState() => _CallScreenState();
+  ConsumerState<CallScreen> createState() => _CallScreenState();
 }
 
-class _CallScreenState extends State<CallScreen>
+class _CallScreenState extends ConsumerState<CallScreen>
     with SingleTickerProviderStateMixin {
   late final SignalingService _signalingService;
   bool _isMuted = false;
@@ -60,7 +60,12 @@ class _CallScreenState extends State<CallScreen>
 
     // Use provided signaling service for incoming calls, or create new for outgoing
     _signalingService = widget.signalingService ?? SignalingService();
-    GlobalCallHandler().activeCallService.value = _signalingService;
+    // Using scheduleMicrotask to avoid modifying provider state during build/initState
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(callProvider.notifier).setActiveCallService(_signalingService);
+      ref.read(callProvider.notifier).setVideoEnabled(_isVideoOn);
+      ref.read(callProvider.notifier).setMuted(_isMuted);
+    });
 
     // Set initial status based on call type
     String callType = widget.isInitialVideo ? "Video" : "Audio";
@@ -74,8 +79,6 @@ class _CallScreenState extends State<CallScreen>
           : "${callType} Calling...";
     }
     _isVideoOn = widget.isInitialVideo;
-    GlobalCallHandler().isVideoEnabled.value = _isVideoOn;
-    GlobalCallHandler().isMuted.value = _isMuted;
 
     // Pulse animation for avatar
     _pulseController = AnimationController(
@@ -329,9 +332,9 @@ class _CallScreenState extends State<CallScreen>
       } catch (e) {
         debugPrint('CallScreen: Error in emergency stopRecording: $e');
       }
-      GlobalCallHandler().activeCallService.value = null;
-      GlobalCallHandler().isMinimized.value = false;
-      GlobalCallHandler().activeRoomId.value = null;
+      ref.read(callProvider.notifier).setActiveCallService(null);
+      ref.read(callProvider.notifier).setIsMinimized(false);
+      ref.read(callProvider.notifier).setActiveRoomId(null);
     }
 
     try {
@@ -378,6 +381,7 @@ class _CallScreenState extends State<CallScreen>
     final recordingService = _recordingService;
     final currentUserId = widget.currentUserId;
     final shouldSendHangup = !fromPeer;
+    final callNotifier = ref.read(callProvider.notifier);
 
     // Navigate away NOW — removes Flutter from the equation before native teardown
     if (mounted) {
@@ -390,6 +394,7 @@ class _CallScreenState extends State<CallScreen>
       recordingService: recordingService,
       currentUserId: currentUserId,
       sendHangup: shouldSendHangup,
+      callNotifier: callNotifier,
     );
   }
 
@@ -398,6 +403,7 @@ class _CallScreenState extends State<CallScreen>
     required RecordingService recordingService,
     required int? currentUserId,
     required bool sendHangup,
+    required CallNotifier callNotifier,
   }) async {
     // 1. PAUSE: Give the UI/OS a moment to stabilize after the pop/minimization
     await Future.delayed(const Duration(milliseconds: 800));
@@ -435,10 +441,10 @@ class _CallScreenState extends State<CallScreen>
 
     // 7. Restore global state
     try {
-      GlobalCallHandler().activeCallService.value = null;
-      GlobalCallHandler().isMinimized.value = false;
-      GlobalCallHandler().activeRoomId.value = null;
-      GlobalCallHandler().ensureRoomResidency(currentUserId);
+      callNotifier.setActiveCallService(null);
+      callNotifier.setIsMinimized(false);
+      callNotifier.setActiveRoomId(null);
+      callNotifier.ensureRoomResidency(currentUserId);
     } catch (e) {
       debugPrint('PostCallCleanup: Room residency error (non-fatal): $e');
     }
@@ -516,7 +522,7 @@ class _CallScreenState extends State<CallScreen>
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
     _signalingService.toggleMute(_isMuted);
-    GlobalCallHandler().isMuted.value = _isMuted;
+    ref.read(callProvider.notifier).setMuted(_isMuted);
   }
 
   void _toggleVideo() {
@@ -524,7 +530,7 @@ class _CallScreenState extends State<CallScreen>
       _isVideoOn = !_isVideoOn;
     });
     _signalingService.toggleVideo(_isVideoOn);
-    GlobalCallHandler().isVideoEnabled.value = _isVideoOn;
+    ref.read(callProvider.notifier).setVideoEnabled(_isVideoOn);
   }
 
   void _switchCamera() {
@@ -545,8 +551,8 @@ class _CallScreenState extends State<CallScreen>
   void _minimizeCall() {
     debugPrint('CallScreen: Minimizing call for room ${widget.roomId}');
     _isMinimizing = true;
-    GlobalCallHandler().activeRoomId.value = widget.roomId;
-    GlobalCallHandler().isMinimized.value = true;
+    ref.read(callProvider.notifier).setActiveRoomId(widget.roomId);
+    ref.read(callProvider.notifier).setIsMinimized(true);
     Navigator.pop(context);
   }
 

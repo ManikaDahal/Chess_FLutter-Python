@@ -3,15 +3,13 @@ import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/core/permission/permission_service.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
@@ -79,21 +77,17 @@ Future<void> main() async {
     print("5. Permissions requested");
 
     // 4. Initialize singletons
-    // (GlobalCallHandler init removed here to prevent startup lag; now handled in BottomNavBar)
-    print("6. GlobalCallHandler initialized");
+    // Initialized features
+    print("6. Services initialized");
     await NotificationService.init(navKey: Constants.navigatorKey);
     print("7. NotificationService initialized");
 
-    // 6. Load user data
-    final prefs = await SharedPreferences.getInstance();
-    final bool loggedIn = prefs.getBool('loggedIn') ?? false;
-    final int? userId = prefs.getInt('userId');
-    print("8. User data loaded: loggedIn=$loggedIn, userId=$userId");
+    // 6. User data initialization is now handled by authProvider
 
     print("9. Calling runApp...");
     runApp(
       ProviderScope(
-        child: MyApp(autoLogin: loggedIn && userId != null),
+        child: const MyApp(),
       ),
     );
 
@@ -107,8 +101,7 @@ Future<void> main() async {
 }
 
 class MyApp extends StatelessWidget {
-  final bool autoLogin;
-  const MyApp({super.key, required this.autoLogin});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -122,8 +115,33 @@ class MyApp extends StatelessWidget {
       builder: (context, child) {
         return child ?? const SizedBox.shrink();
       },
-      home: autoLogin ? BottomNavBarWrapper() : Login(),
+      home: const AuthChecker(),
     );
+  }
+}
 
+class AuthChecker extends ConsumerWidget {
+  const AuthChecker({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Read authProvider to decide routing dynamically
+    final authState = ref.watch(authProvider);
+
+    return authState.when(
+      data: (state) {
+        if (state.isAuthenticated) {
+          // BottomNavBarWrapper will now safely assume user exists
+          return BottomNavBarWrapper();
+        } else {
+          return const Login();
+        }
+      },
+      loading: () => const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, st) => const Login(),
+    );
   }
 }

@@ -1,4 +1,4 @@
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
@@ -47,7 +47,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     print("ChatPage: initState called for Room ${widget.roomId}");
     // Ensure the provider is initialized for THIS specific room
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = ref.read(chatProvider);
+      final provider = ref.read(chatProvider.notifier);
       provider.init(widget.roomId, widget.currentUserId);
       provider.resetUnreadCount(widget.roomId);
     });
@@ -57,7 +57,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void dispose() {
     print("ChatPage: dispose called for Room ${widget.roomId}");
-    ref.read(chatProvider).clearActiveRoom();
+    ref.read(chatProvider.notifier).clearActiveRoom();
     super.dispose();
   }
 
@@ -252,7 +252,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       final text = _controller.text.trim();
                       if (text.isEmpty) return;
 
-                      ref.read(chatProvider).send(widget.roomId, text);
+                      ref.read(chatProvider.notifier).send(widget.roomId, text);
 
 
                       _controller.clear();

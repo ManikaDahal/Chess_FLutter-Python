@@ -137,7 +137,7 @@ class NotificationService {
         _handleFcmPayload(dataPayload);
       }
 
-      ChatProvider.instance?.processIncomingPayload(dataPayload);
+      ChatNotifier.instance?.processIncomingPayload(dataPayload);
     });
 
     // Handle notification click when app is in background but not terminated

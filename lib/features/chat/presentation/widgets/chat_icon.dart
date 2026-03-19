@@ -1,5 +1,5 @@
 
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

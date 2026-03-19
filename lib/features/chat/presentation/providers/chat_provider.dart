@@ -5,98 +5,102 @@ import 'package:chess_game_manika/features/chat/services/chat_websocket_service.
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
-  static ChatProvider? instance;
+class ChatState {
+  final Map<int, List<ChatMessage>> roomMessages;
+  final Map<int, int> unreadCounts;
+  final int? currentUserId;
+  final String? currentUserName;
+  final int? activeRoomId;
 
-  final String instanceId = DateTime.now().millisecondsSinceEpoch
-      .toString()
-      .substring(8);
+  const ChatState({
+    this.roomMessages = const {},
+    this.unreadCounts = const {},
+    this.currentUserId,
+    this.currentUserName,
+    this.activeRoomId,
+  });
 
-  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+  int get totalUnreadCount => unreadCounts.values.fold(0, (sum, count) => sum + count);
+  List<ChatMessage> getMessages(int roomId) => roomMessages[roomId] ?? [];
+  int getUnreadCount(int roomId) => unreadCounts[roomId] ?? 0;
 
-  ChatProvider() {
-    instance = this;
-    WidgetsBinding.instance.addObserver(this);
+  ChatState copyWith({
+    Map<int, List<ChatMessage>>? roomMessages,
+    Map<int, int>? unreadCounts,
+    int? currentUserId,
+    String? currentUserName,
+    int? activeRoomId,
+    bool clearActiveRoom = false,
+  }) {
+    return ChatState(
+      roomMessages: roomMessages ?? this.roomMessages,
+      unreadCounts: unreadCounts ?? this.unreadCounts,
+      currentUserId: currentUserId ?? this.currentUserId,
+      currentUserName: currentUserName ?? this.currentUserName,
+      activeRoomId: clearActiveRoom ? null : (activeRoomId ?? this.activeRoomId),
+    );
   }
+}
 
-  // Isolated Storage: RoomID -> Message List
-  final Map<int, List<ChatMessage>> _roomMessages = {};
-
-  // Isolated Unread Counts: RoomID -> Count
-  final Map<int, int> _unreadCounts = {};
-
-  int? _currentUserId;
-  String? _currentUserName;
-  int? _activeRoomId; // Track current viewing room
-
-  // Static accessor for other services
+class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
+  static ChatNotifier? instance;
+  final String instanceId = DateTime.now().millisecondsSinceEpoch.toString().substring(8);
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+  StreamSubscription? _subscription;
   static int? currentActiveRoomId;
 
-  StreamSubscription? _subscription;
+  @override
+  ChatState build() {
+    instance = this;
+    WidgetsBinding.instance.addObserver(this);
+    ref.onDispose(() {
+      WidgetsBinding.instance.removeObserver(this);
+      _subscription?.cancel();
+    });
+    return const ChatState();
+  }
 
-  // Get messages for a specific room
-  List<ChatMessage> getMessages(int roomId) => _roomMessages[roomId] ?? [];
-
-  // Get unread count for a specific room
-  int getUnreadCount(int roomId) => _unreadCounts[roomId] ?? 0;
-
-  // Total unread count for the bottom bar badge
-  int get totalUnreadCount =>
-      _unreadCounts.values.fold(0, (sum, count) => sum + count);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    _lifecycleState = appState;
+  }
 
   void init(int roomId, int currentUserId, {bool setAsActive = true}) {
-    if (_currentUserId == currentUserId &&
-        _activeRoomId == roomId &&
+    if (state.currentUserId == currentUserId &&
+        state.activeRoomId == roomId &&
         setAsActive &&
         _subscription != null) {
-      print(
-        "ChatProvider [$instanceId]: Already initialized for room $roomId. Skipping.",
-      );
       return;
     }
 
-    print(
-      "ChatProvider [$instanceId]: init for user $currentUserId in room $roomId (active: $setAsActive)",
+    ChatNotifier.currentActiveRoomId = setAsActive ? roomId : state.activeRoomId;
+
+    SharedPreferences.getInstance().then((prefs) {
+      final username = prefs.getString("username") ?? "Unknown";
+      state = state.copyWith(currentUserName: username);
+    });
+
+    final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
+    if (!newRoomMsgs.containsKey(roomId)) {
+      newRoomMsgs[roomId] = [];
+    }
+
+    state = state.copyWith(
+      currentUserId: currentUserId,
+      activeRoomId: setAsActive ? roomId : state.activeRoomId,
+      roomMessages: newRoomMsgs,
     );
-    _currentUserId = currentUserId;
-    if (setAsActive) {
-      _activeRoomId = roomId;
-      currentActiveRoomId = roomId;
-    }
 
-    // Retrieve username if not set or "Unknown"
-    if (_currentUserName == null || _currentUserName == "Unknown") {
-      SharedPreferences.getInstance().then((prefs) {
-        _currentUserName = prefs.getString("username") ?? "Unknown";
-        print(
-          "ChatProvider [$instanceId]: Retrieved username: $_currentUserName",
-        );
-      });
-    }
-
-    // If we already have messages for this room, don't show empty screen while loading
-    if (!_roomMessages.containsKey(roomId)) {
-      _roomMessages[roomId] = [];
-    }
-
-    // Ensure listener is active BEFORE connecting or requesting history
     if (_subscription == null) {
-      print("ChatProvider [$instanceId]: Starting stream listener");
       _listenToStream();
     }
 
-    // Connect or request history if already connected
     if (ChatWebsocketService().isRoomConnected(roomId)) {
-      print(
-        "ChatProvider [$instanceId]: Room $roomId already connected, requesting history",
-      );
       ChatWebsocketService().requestHistory(roomId);
     } else {
-      print(
-        "ChatProvider [$instanceId]: Room $roomId NOT connected, initiating connection",
-      );
-      ChatWebsocketService().connect(roomId, _currentUserId!);
+      ChatWebsocketService().connect(roomId, currentUserId);
     }
   }
 
@@ -104,66 +108,44 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
     _subscription?.cancel();
     _subscription = ChatWebsocketService().stream.listen((data) {
       processIncomingPayload(data);
-    }, onError: (error) => print("ChatProvider: Stream error: $error"));
+    }, onError: (error) => print("ChatNotifier: Stream error: $error"));
   }
 
-  /// Unified processor for messages from any source (WebSocket or FCM)
   void processIncomingPayload(Map<String, dynamic> data) {
-    print("ChatProvider [$instanceId]: Processing incoming payload: $data");
     try {
       if (data['type'] == 'history') {
         final List<dynamic> historyData = data['messages'] ?? [];
-        final int msgRoomId =
-            int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
-        print(
-          "ChatProvider [$instanceId]: Processing history for room $msgRoomId. Count: ${historyData.length}",
-        );
+        final int msgRoomId = int.tryParse(data['room_id']?.toString() ?? '0') ?? 0;
 
-        final historyMsgs = historyData
-            .map((e) => ChatMessage.fromJson(e))
-            .toList();
+        final historyMsgs = historyData.map((e) => ChatMessage.fromJson(e)).toList();
+        final currentMsgs = state.roomMessages[msgRoomId] ?? [];
 
-        final currentMsgs = _roomMessages[msgRoomId] ?? [];
-
-        // ROBUST MERGE STRATEGY:
         final Map<int, ChatMessage> idMap = {};
         final List<ChatMessage> optimisticMsgs = [];
 
-        // 1. Add existing messages (to keep older history not in the new batch)
         for (var m in currentMsgs) {
-          if (m.id != null)
-            idMap[m.id!] = m;
-          else
-            optimisticMsgs.add(m);
+          if (m.id != null) idMap[m.id!] = m;
+          else optimisticMsgs.add(m);
         }
 
-        // 2. Add new history batch (overwrites/updates existing by ID)
         for (var m in historyMsgs) {
           if (m.id != null) idMap[m.id!] = m;
         }
 
-        // 3. Rebuild sorted list
         final List<ChatMessage> merged = idMap.values.toList();
         merged.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
 
-        // 4. Append optimistic messages (which have id == null)
         for (var optMsg in optimisticMsgs) {
-          bool matched = historyMsgs.any(
-            (h) => h.message == optMsg.message && h.userId == optMsg.userId,
-          );
-          if (!matched) {
-            merged.add(optMsg);
-          }
+          bool matched = historyMsgs.any((h) => h.message == optMsg.message && h.userId == optMsg.userId);
+          if (!matched) merged.add(optMsg);
         }
 
-        _roomMessages[msgRoomId] = merged;
-        print(
-          "ChatProvider [$instanceId]: Final merged count for room $msgRoomId: ${merged.length}",
-        );
-        notifyListeners();
+        final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
+        newRoomMsgs[msgRoomId] = merged;
+
+        state = state.copyWith(roomMessages: newRoomMsgs);
       } else if (data['type'] == 'chess_invite') {
-        final bool isForeground = _lifecycleState == AppLifecycleState.resumed;
-        if (isForeground) {
+        if (_lifecycleState == AppLifecycleState.resumed) {
           NotificationService.showNotification(
             title: "Chess Invite",
             body: data['message'] ?? "You have been invited to play chess!",
@@ -171,94 +153,57 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
           );
         }
       } else {
-        // Only process if it looks like a chat message
         if (data['type'] == 'chat_message' || data.containsKey('message')) {
           final msg = ChatMessage.fromJson(data);
-          _processIncomingMessage(
-            msg,
-            trackingId: data['trackingId']?.toString(),
-          );
-        } else {
-          print(
-            "ChatProvider: Ignoring non-chat payload Type: ${data['type']}",
-          );
+          _processIncomingMessage(msg, trackingId: data['trackingId']?.toString());
         }
       }
     } catch (e, st) {
-      print("ChatProvider: Error processing payload: $e\n$st");
+      print("ChatNotifier: Error $e\n$st");
     }
   }
 
   void _processIncomingMessage(ChatMessage msg, {String? trackingId}) {
-    // Sanitization: Ignore empty message bodies
-    if (msg.message.trim().isEmpty) {
-      print("ChatProvider: Ignoring empty message payload.");
-      return;
-    }
+    if (msg.message.trim().isEmpty) return;
 
     final int msgRoomId = msg.roomId;
-    if (msgRoomId == 0) {
-      print("ChatProvider ERROR: Message has room_id=0");
-      return;
-    }
+    if (msgRoomId == 0) return;
 
-    if (!_roomMessages.containsKey(msgRoomId)) {
-      _roomMessages[msgRoomId] = [];
-    }
-    final List<ChatMessage> currentMsgs = _roomMessages[msgRoomId]!;
+    final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
+    if (!newRoomMsgs.containsKey(msgRoomId)) newRoomMsgs[msgRoomId] = [];
+    final currentMsgs = List<ChatMessage>.from(newRoomMsgs[msgRoomId]!);
 
-    // 1. Deduplication
-    if (msg.id != null && currentMsgs.any((m) => m.id == msg.id)) {
-      print("ChatProvider: Ignoring duplicate ID: ${msg.id}");
-      return;
-    }
+    if (msg.id != null && currentMsgs.any((m) => m.id == msg.id)) return;
 
-    // 2. Optimistic replacement
     bool replaced = false;
-    if (msg.userId == _currentUserId) {
+    if (msg.userId == state.currentUserId) {
       for (int i = currentMsgs.length - 1; i >= 0; i--) {
         final m = currentMsgs[i];
         if (m.id == null && m.message == msg.message) {
           currentMsgs[i] = msg;
           replaced = true;
-          print(
-            "ChatProvider: Replaced optimistic message with server ID: ${msg.id}",
-          );
           break;
         }
       }
     }
 
     if (!replaced) {
-      print(
-        "ChatProvider: Adding new message from ${msg.senderName} to Room $msgRoomId",
-      );
       currentMsgs.add(msg);
     }
+    newRoomMsgs[msgRoomId] = currentMsgs;
 
-    // 3. Update unread count
-    if (msgRoomId != _activeRoomId) {
-      _unreadCounts[msgRoomId] = (_unreadCounts[msgRoomId] ?? 0) + 1;
+    final newUnreadCounts = Map<int, int>.from(state.unreadCounts);
+    if (msgRoomId != state.activeRoomId) {
+      newUnreadCounts[msgRoomId] = (newUnreadCounts[msgRoomId] ?? 0) + 1;
     }
 
-    notifyListeners();
+    state = state.copyWith(roomMessages: newRoomMsgs, unreadCounts: newUnreadCounts);
 
-    // 4. Unified Notification Alert
-    final bool isVisible = msgRoomId == _activeRoomId;
-    final bool fromMe = msg.userId == _currentUserId;
-
-    // CRITICAL: Only show manual notification if APP IS IN FOREGROUND.
-    // If the app is in background/paused, the OS handles the FCM notification automatically.
+    final bool isVisible = msgRoomId == state.activeRoomId;
+    final bool fromMe = msg.userId == state.currentUserId;
     final bool isForeground = _lifecycleState == AppLifecycleState.resumed;
 
-    print(
-      "ChatProvider NotifyCheck: roomMatch=$isVisible, isMe=$fromMe, isFG=$isForeground",
-    );
-
     if (!fromMe && !isVisible && isForeground) {
-      print(
-        "ChatProvider: Triggering manual foreground notification alert (Tracking ID: $trackingId)",
-      );
       NotificationService.showNotification(
         title: msg.senderName,
         body: msg.message,
@@ -270,72 +215,56 @@ class ChatProvider with ChangeNotifier, WidgetsBindingObserver {
           if (trackingId != null) "trackingId": trackingId,
         },
       );
-    } else if (!isForeground) {
-      print(
-        "ChatProvider: Suppressing manual alert (OS handles background FCM)",
-      );
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    print("ChatProvider: Lifecycle state changed to $state");
-    _lifecycleState = state;
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _subscription?.cancel();
-    super.dispose();
-  }
-
   void send(int roomId, String message) {
-    if (_currentUserId == null) return;
+    if (state.currentUserId == null) return;
 
-    // Optimistic add to the SPECIFIC room list
     final optimisticMsg = ChatMessage(
       message: message,
-      userId: _currentUserId!,
+      userId: state.currentUserId!,
       roomId: roomId,
-      senderName: _currentUserName ?? "Unknown",
+      senderName: state.currentUserName ?? "Unknown",
     );
 
-    _roomMessages[roomId] = List.from(_roomMessages[roomId] ?? [])
-      ..add(optimisticMsg);
-    notifyListeners();
+    final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
+    final currentMsgs = List<ChatMessage>.from(newRoomMsgs[roomId] ?? []);
+    currentMsgs.add(optimisticMsg);
+    newRoomMsgs[roomId] = currentMsgs;
 
-    // Ensure we are connected to the correct room before sending
-    ChatWebsocketService().connect(roomId, _currentUserId!).then((_) {
+    state = state.copyWith(roomMessages: newRoomMsgs);
+
+    ChatWebsocketService().connect(roomId, state.currentUserId!).then((_) {
       ChatWebsocketService().sendMessage(
         roomId,
         message,
-        _currentUserId!,
-        _currentUserName ?? "Unknown",
+        state.currentUserId!,
+        state.currentUserName ?? "Unknown",
       );
     });
   }
 
   void resetUnreadCount(int roomId) {
-    print("ChatProvider: resetUnreadCount $roomId");
-    _unreadCounts[roomId] = 0;
-    _activeRoomId = roomId;
-    currentActiveRoomId = roomId;
-    notifyListeners();
+    final newUnreadCounts = Map<int, int>.from(state.unreadCounts);
+    newUnreadCounts[roomId] = 0;
+    ChatNotifier.currentActiveRoomId = roomId;
+    state = state.copyWith(unreadCounts: newUnreadCounts, activeRoomId: roomId);
   }
 
   void clearActiveRoom() {
-    print("ChatProvider: clearActiveRoom called (Current: $_activeRoomId)");
-    _activeRoomId = null;
-    currentActiveRoomId = null;
+    ChatNotifier.currentActiveRoomId = null;
+    state = state.copyWith(clearActiveRoom: true);
   }
 
   void clear() {
     _subscription?.cancel();
     _subscription = null;
-    _roomMessages.clear();
-    _unreadCounts.clear();
     ChatWebsocketService().disconnectAll();
-    notifyListeners();
+    state = const ChatState();
   }
 }
+
+final chatProvider = NotifierProvider<ChatNotifier, ChatState>(() {
+  return ChatNotifier();
+});

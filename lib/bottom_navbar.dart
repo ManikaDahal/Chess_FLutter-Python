@@ -1,23 +1,23 @@
-import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/call/presentation/screens/video_gallery_screen.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/features/profile/presentation/screens/profile_page.dart';
 import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
 
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:badges/badges.dart' as badges;
 
 import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/utils/global_callhandler.dart';
+
 import 'package:chess_game_manika/core/api/api_services.dart';
 
 import 'package:chess_game_manika/core/widgets/connectivity_banner.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 
 class BottomNavBarWrapper extends ConsumerStatefulWidget {
   const BottomNavBarWrapper({super.key});
@@ -31,19 +31,16 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
 
   int _currentIndex = 0;
   late final PageController _pageController;
-  int? _currentUserId;
-  int? _currentRoomId;
-  bool _loading = true;
-  String? _errorMessage;
-
-  List<Widget> _pages = [];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _pageController = PageController();
-    _initUser();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startServices();
+    });
   }
 
   @override
@@ -53,73 +50,10 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
     super.dispose();
   }
 
-  Future<void> _initUser({int retryCount = 0}) async {
-    try {
-      print("BottomNavBar: Starting optimized initialization...");
-      final startTime = DateTime.now();
-
-      // 1. Fetch profile - this is the ONLY critical path task
-      final profile = await ApiService().getProfile();
-      final int? userId = profile['id'];
-      final int roomId = profile['current_room_id'] ?? 1;
-
-      if (userId == null) throw Exception("User ID not found");
-
-      // 2. Launch background services asynchronously (NON-BLOCKING)
-      _initializeBackgroundServices(userId, roomId);
-
-      final endTime = DateTime.now();
-      print(
-        "BottomNavBar: Critical path initialization completed in ${endTime.difference(startTime).inMilliseconds}ms",
-      );
-
-      if (!mounted) return;
-
-      // Initialize pages and stop loading IMMEDIATELY
-      setState(() {
-        _currentUserId = userId;
-        _currentRoomId = roomId;
-        _loading = false;
-        _pages = [
-          LandingPage(
-            onTabChange: (index) {
-              setState(() => _currentIndex = index);
-              _pageController.jumpToPage(index);
-            },
-          ),
-          UserList(currentUserId: _currentUserId!),
-          const VideoGalleryScreen(),
-          ChatPage(
-            roomId: _currentRoomId!,
-            currentUserId: _currentUserId!,
-            showBackButton: false,
-          ),
-          const ProfilePage(),
-        ];
-      });
-    } catch (e, st) {
-      debugPrint(
-        "Error initializing user (Attempt ${retryCount + 1}/3): $e\n$st",
-      );
-
-      // Check if it should NOT retry (e.g., Auth error)
-      final String errorStr = e.toString().toLowerCase();
-      bool shouldRetry =
-          !errorStr.contains("401") &&
-          !errorStr.contains("unauthorized") &&
-          retryCount < 2;
-
-      if (shouldRetry) {
-        print("BottomNavBar: Retrying in 2 seconds...");
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) {
-          _initUser(retryCount: retryCount + 1);
-        }
-      } else {
-        if (mounted) {
-          _handleInitializationError(e);
-        }
-      }
+  void _startServices() {
+    final authState = ref.read(authProvider).value;
+    if (authState != null && authState.isAuthenticated && authState.userId != null) {
+      _initializeBackgroundServices(authState.userId!, authState.roomId ?? 1);
     }
   }
 
@@ -132,14 +66,14 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
     if (!mounted) return;
 
     // 2. Signaling (User-specific) - PRIORITY
-    GlobalCallHandler().connectForUser(userId).catchError((e) {
+    ref.read(callProvider.notifier).connectForUser(userId).catchError((e) {
       print("Signaling user connect error: $e");
     });
 
     // 3. Signaling (General/Home room) - 1s stagger
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
-    GlobalCallHandler().init();
+    ref.read(callProvider.notifier).init();
 
     // 4. FCM Token registration - 1s stagger
     await Future.delayed(const Duration(seconds: 1));
@@ -158,100 +92,49 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
     // 6. Initialize ChatProvider - Final stagger
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
-    final chatProviderRef = ref.read(chatProvider);
-    chatProviderRef.clearActiveRoom();
     try {
-      chatProviderRef.init(roomId, userId, setAsActive: false);
+      ref.read(chatProvider.notifier).clearActiveRoom();
+      ref.read(chatProvider.notifier).init(roomId, userId, setAsActive: false);
     } catch (e) {
       print("ChatProvider init error: $e");
     }
 
   }
 
-  void _handleInitializationError(Object e) {
-    final String errorStr = e.toString().toLowerCase();
-
-    if (errorStr.contains("401") ||
-        errorStr.contains("unauthorized") ||
-        errorStr.contains("[401]") ||
-        errorStr.contains("[403]")) {
-      debugPrint("User unauthorized, clearing session and going to login");
-      SharedPreferences.getInstance().then((prefs) {
-        prefs.clear();
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const Login()),
-          (route) => false,
-        );
-      });
-      return;
-    }
-
-    setState(() {
-      _loading = false;
-      _errorMessage =
-          "Unable to connect to the server. Please check your internet or try again.";
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
+    // Read from auth provider synchronously to ensure we have the ID to render pages
+    final authState = ref.watch(authProvider).value;
+    
+    if (authState == null || !authState.isAuthenticated || authState.userId == null) {
       return const Scaffold(
         backgroundColor: Colors.white,
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    
+    final currentUserId = authState.userId!;
+    final currentRoomId = authState.roomId ?? 1;
 
-    if (_errorMessage != null) {
-      return Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 60),
-                const SizedBox(height: 16),
-                Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _loading = true;
-                      _errorMessage = null;
-                    });
-                    _initUser();
-                  },
-                  child: const Text("Retry"),
-                ),
-                TextButton(
-                  onPressed: () {
-                    SharedPreferences.getInstance().then((prefs) {
-                      prefs.clear();
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        MaterialPageRoute(builder: (_) => const Login()),
-                        (route) => false,
-                      );
-                    });
-                  },
-                  child: const Text("Go to Login Page"),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+    final pages = [
+      LandingPage(
+        onTabChange: (index) {
+          setState(() => _currentIndex = index);
+          _pageController.jumpToPage(index);
+        },
+      ),
+      UserList(currentUserId: currentUserId),
+      const VideoGalleryScreen(),
+      ChatPage(
+        roomId: currentRoomId,
+        currentUserId: currentUserId,
+        showBackButton: false,
+      ),
+      const ProfilePage(),
+    ];
 
     // Ensure index is within bounds before building BottomNavigationBar
-    if (_currentIndex >= _pages.length) {
+    if (_currentIndex >= pages.length) {
       _currentIndex = 0;
     }
 
@@ -264,11 +147,11 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
             body: PageView(
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
-              children: _pages,
+              children: pages,
             ),
             bottomNavigationBar: BottomNavigationBar(
               type: BottomNavigationBarType.fixed,
-              currentIndex: (_currentIndex >= _pages.length)
+              currentIndex: (_currentIndex >= pages.length)
                   ? 0
                   : _currentIndex,
               backgroundColor: foregroundColor, // Premium dark background
@@ -284,22 +167,19 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
 
                 // Reset unread count AND ensure we are in the general room if Chat tab (now index 3) is clicked
                 if (index == 3) {
-                  if (_currentRoomId != null) {
-                    print(
-                      "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $_currentRoomId",
-                    );
-                    chatProviderRef.resetUnreadCount(_currentRoomId!);
-                    // Re-init general room if we were previously in a private one
-                    print("BottomNavBar: Returning to General Room 1");
-                    chatProviderRef.init(_currentRoomId!, _currentUserId!);
-
-                  }
+                  print(
+                    "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $currentRoomId",
+                  );
+                  ref.read(chatProvider.notifier).resetUnreadCount(currentRoomId);
+                  // Re-init general room if we were previously in a private one
+                  print("BottomNavBar: Returning to General Room 1");
+                  ref.read(chatProvider.notifier).init(currentRoomId, currentUserId);
                 } else {
                   // If leaving the chat tab, clear the active room so notifications can happen
                   print(
                     "BottomNavBar: Tab $index clicked (NOT Chat), clearing active room",
                   );
-                  chatProviderRef.clearActiveRoom();
+                  ref.read(chatProvider.notifier).clearActiveRoom();
 
                 }
               },

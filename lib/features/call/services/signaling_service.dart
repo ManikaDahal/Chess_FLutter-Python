@@ -12,7 +12,7 @@ import 'dart:async';
 
 class SignalingService {
   // REMOVED: Singleton pattern to allow multiple instances (e.g., for general and user-specific rooms)
-  // Now, create separate instances in GlobalCallHandler and CallScreen as needed
+  // Now separate instances are created via CallNotifier (Riverpod) or CallScreen as needed
 
   WebSocketChannel? _channel;
   String? _currentRoomId;

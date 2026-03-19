@@ -1,12 +1,12 @@
 import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:chess_game_manika/features/invites/presentation/screens/invite_waiting_screen.dart';
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -51,7 +51,7 @@ class _UserListState extends ConsumerState<UserList> {
 
       if (roomId != null && mounted) {
         // Initialize the chat provider for this specific room
-        ref.read(chatProvider).init(roomId, widget.currentUserId);
+        ref.read(chatProvider.notifier).init(roomId, widget.currentUserId);
 
 
         // Navigate to ChatPage
@@ -147,9 +147,9 @@ class _UserListState extends ConsumerState<UserList> {
           isIncomingCall: false,
           isInitialVideo: isVideo,
           signalingService:
-              (GlobalCallHandler().userSignalingService?.currentRoomId ==
+              (ref.read(callProvider.notifier).userSignalingService?.currentRoomId ==
                   roomId)
-              ? GlobalCallHandler().userSignalingService
+              ? ref.read(callProvider.notifier).userSignalingService
               : null, // Create new instance if room doesn't match to avoid hijacking
           currentUserId: widget.currentUserId,
           canMinimize: false,

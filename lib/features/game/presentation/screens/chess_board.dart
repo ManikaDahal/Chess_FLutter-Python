@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:badges/badges.dart' as badges;
 import 'package:chess_game_manika/core/utils/const.dart';
-import 'package:chess_game_manika/core/utils/global_callhandler.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/call/services/recording_service.dart';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/game/presentation/widgets/square_widget.dart';
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/game/presentation/providers/chess_provider.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
 import 'package:chess_game_manika/helper/helper.dart';
 import 'package:chess_game_manika/features/game/data/models/chess_piece.dart';
@@ -45,53 +47,26 @@ class GameBoard extends ConsumerStatefulWidget {
   ConsumerState<GameBoard> createState() => _GameBoardState();
 }
 
-
 class _GameBoardState extends ConsumerState<GameBoard>
     with AutomaticKeepAliveClientMixin {
-
-  late List<List<ChessPiece?>> board;
-  ChessPiece? selectedPiece;
-  int selectedRow = -1;
-  int selectedCol = -1;
-  List<List<int>> validMoves = [];
-  bool whiteTurn = true;
-
-  // Add position of kings to track them easily
-  List<int> whiteKingPosition = [7, 4];
-  List<int> blackKingPosition = [0, 4];
-  bool checkStatus = false;
-  bool _isSyncing = false; // Track if we are replaying history
-
   final GameWebsocketService _gameService = GameWebsocketService();
-  StreamSubscription? _gameSubscription;
+  final RecordingService _recordingService = RecordingService();
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+
+  SignalingService? _signalingService;
+  bool _isRendererReady = false;
+
+  // Cleanup subscriptions
   StreamSubscription? _gameConnSub;
   StreamSubscription? _signalingConnSub;
-
-  // Embedded Call Variables
-  SignalingService? _signalingService;
   StreamSubscription? _incomingCallSub;
   StreamSubscription? _customMessageSub;
   StreamSubscription? _peerJoinedSub;
   StreamSubscription? _onHangupSub;
   StreamSubscription? _onCallAcceptedSub;
-  bool _isCallStarted = false;
   Timer? _handshakePulseTimer;
   Timer? _callTimeoutTimer;
-  String _callStatus = "Initializing...";
-
-  // Call Controls State
-  bool _isLocalAudioMuted = false; // Microphone ON by default
-  bool _isLocalVideoEnabled = false; // Camera OFF by default
-  bool _isRemoteAudioMuted = false;
-  bool _isRemoteVideoEnabled = false;
-  bool _isOpponentLocallySilenced = false;
-  bool _amISilencedByOpponent = false; // New: signaled by peer
-  bool _isRendererReady =
-      false; // NEW: Guard for RTCVideoRenderer srcObject assignments
-
-  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
-  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  final RecordingService _recordingService = RecordingService();
 
   void _setupEmbeddedCall() {
     final String callRoomId = "game_call_${widget.roomId}";
@@ -100,9 +75,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
     if (widget.signalingService != null) {
       print("[GAME CALL] Using externally provided SignalingService.");
       _signalingService = widget.signalingService!;
-      // Sync initial state from the service's notifiers
-      _isRemoteAudioMuted = _signalingService!.isRemoteMuted.value;
-      _isRemoteVideoEnabled = _signalingService!.isRemoteVideoEnabled.value;
+      // Sync initial state from the service's notifiers to ChessProvider
+      ref.read(chessProvider.notifier).setRemoteAudioMuted(_signalingService!.isRemoteMuted.value);
+      ref.read(chessProvider.notifier).setRemoteVideoEnabled(_signalingService!.isRemoteVideoEnabled.value);
     } else {
       _signalingService = SignalingService();
     }
@@ -116,20 +91,14 @@ class _GameBoardState extends ConsumerState<GameBoard>
     // Listen for remote mute state changes
     _customMessageSub = _signalingService!.onCustomMessageStream.listen((data) {
       if (data['action'] == 'toggle_mute') {
-        setState(() {
-          _isRemoteAudioMuted = data['isMuted'];
-        });
+        ref.read(chessProvider.notifier).setRemoteAudioMuted(data['isMuted']);
       } else if (data['action'] == 'toggle_video') {
-        setState(() {
-          _isRemoteVideoEnabled = data['isVideoEnabled'];
-        });
+        ref.read(chessProvider.notifier).setRemoteVideoEnabled(data['isVideoEnabled']);
       } else if (data['action'] == 'local_silence_toggle') {
-        setState(() {
-          _amISilencedByOpponent = data['isSilenced'];
-        });
+        ref.read(chessProvider.notifier).setAmISilencedByOpponent(data['isSilenced']);
       } else if (data['action'] == 'room_ready') {
         print("[GAME CALL] 🏢 Peer signaled room_ready!");
-        if (widget.amIWhite && !_isCallStarted) {
+        if (widget.amIWhite && !ref.read(chessProvider).isCallStarted) {
           _startCallConnection();
         }
       }
@@ -138,9 +107,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
     // Listen for peer join notifications (to start call as inviter)
     _peerJoinedSub = _signalingService!.onPeerJoinedStream.listen((_) {
       print(
-        "[GAME CALL] 👥 Peer joined! isWhite: ${widget.amIWhite}, _isCallStarted: $_isCallStarted",
+        "[GAME CALL] 👥 Peer joined! isWhite: ${widget.amIWhite}",
       );
-      if (widget.amIWhite && !_isCallStarted) {
+      if (widget.amIWhite && !ref.read(chessProvider).isCallStarted) {
         _startCallConnection();
       }
     });
@@ -148,11 +117,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
     // Listen for hangups (to clean up UI when call ends)
     _onHangupSub = _signalingService!.onHangupStream.listen((_) {
       print("[GAME CALL] 🛑 Peer hung up. Cleaning up...");
-      setState(() {
-        _isCallStarted = false;
-        _callStatus = "Disconnected";
-        _isRemoteVideoEnabled = false;
-      });
+      ref.read(chessProvider.notifier).setCallStarted(false);
+      ref.read(chessProvider.notifier).setCallStatus("Disconnected");
+      ref.read(chessProvider.notifier).setRemoteVideoEnabled(false);
       _stopCallTimers();
       _signalingService!.endCall(sendSignal: false);
     });
@@ -166,21 +133,19 @@ class _GameBoardState extends ConsumerState<GameBoard>
     _signalingService!.onConnectionStateChange = (state) {
       print("[GAME CALL] 🧊 PeerConnection State: ${state.name}");
       if (mounted) {
-        setState(() {
-          if (state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
-            _callStatus = "Connecting media...";
-          } else if (state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-            _callStatus = "Connected";
-          } else if (state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-            _callStatus = "Media Failed";
-          } else if (state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-            _callStatus = "Media Dropped";
-          }
-        });
+        if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+          ref.read(chessProvider.notifier).setCallStatus("Connecting media...");
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          ref.read(chessProvider.notifier).setCallStatus("Connected");
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          ref.read(chessProvider.notifier).setCallStatus("Media Failed");
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          ref.read(chessProvider.notifier).setCallStatus("Media Dropped");
+        }
       }
     };
 
@@ -189,9 +154,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
         print("[GAME CALL_LOG] $msg");
         if (msg.contains("ICE Connection State: failed") ||
             msg.contains("ICE Connection State: disconnected")) {
-          setState(() {
-            _callStatus = "ICE Connection Issue";
-          });
+          ref.read(chessProvider.notifier).setCallStatus("ICE Connection Issue");
         }
       }
     };
@@ -203,35 +166,27 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
   void _startCallConnection() {
     print("[GAME CALL] 🚀 Triggering call start...");
-    _isCallStarted = true;
-    _signalingService!.startCall(isVideo: _isLocalVideoEnabled);
-    setState(() {
-      _callStatus = "Starting call...";
-    });
+    ref.read(chessProvider.notifier).setCallStarted(true);
+    _signalingService!.startCall(isVideo: ref.read(chessProvider).isLocalVideoEnabled);
+    ref.read(chessProvider.notifier).setCallStatus("Starting call...");
 
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
-      if (mounted && _callStatus == "Starting call...") {
+      if (mounted && ref.read(chessProvider).callStatus == "Starting call...") {
         print("[GAME CALL] ⚠️ Call connection timeout. Resetting...");
-        setState(() {
-          _isCallStarted = false;
-          _callStatus = "Waiting for peer...";
-        });
+        ref.read(chessProvider.notifier).setCallStarted(false);
+        ref.read(chessProvider.notifier).setCallStatus("Waiting for peer...");
         _signalingService!.endCall(sendSignal: false);
       }
     });
     // Listen for call acceptance (inviter side)
     _onCallAcceptedSub = _signalingService!.onCallAcceptedStream.listen((_) {
       print("[GAME CALL] ✅ Call accepted by peer! Establishing media...");
-      setState(() {
-        _callStatus = "Handshaking...";
-      });
+      ref.read(chessProvider.notifier).setCallStatus("Handshaking...");
       // Monitor if we get stuck in Handshaking
       Future.delayed(const Duration(seconds: 10), () {
-        if (mounted && _callStatus == "Handshaking...") {
-          setState(() {
-            _callStatus = "Slow connection. Retrying...";
-          });
+        if (mounted && ref.read(chessProvider).callStatus == "Handshaking...") {
+          ref.read(chessProvider.notifier).setCallStatus("Slow connection. Retrying...");
         }
       });
     });
@@ -241,9 +196,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
     final mediaType = _signalingService!.remoteMediaTypeNotifier.value;
     if (mounted && mediaType != null) {
       print("[GAME CALL] 🏢 Remote media type detected: $mediaType");
-      setState(() {
-        _isRemoteVideoEnabled = (mediaType == 'video');
-      });
+      ref.read(chessProvider.notifier).setRemoteVideoEnabled(mediaType == 'video');
     }
   }
 
@@ -266,7 +219,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
         "[GAME CALL] 🚞 Remote stream detected (${remoteStream.id}). Attaching to renderer...",
       );
 
-      // Use a redundant assignment with a small delay to ensure the renderer picks up the stream
       _remoteRenderer.srcObject = remoteStream;
 
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -278,16 +230,14 @@ class _GameBoardState extends ConsumerState<GameBoard>
         }
       });
 
-      setState(() {
-        _callStatus = "Connected";
-        // Check if there are active video tracks
-        final videoTracks = remoteStream.getVideoTracks();
-        _isRemoteVideoEnabled =
-            videoTracks.isNotEmpty && videoTracks.any((t) => t.enabled);
-        print(
-          "[GAME CALL] 🏢 Remote video enabled: $_isRemoteVideoEnabled (${videoTracks.length} tracks)",
-        );
-      });
+      ref.read(chessProvider.notifier).setCallStatus("Connected");
+      // Check if there are active video tracks
+      final videoTracks = remoteStream.getVideoTracks();
+      final bool videoEnabled = videoTracks.isNotEmpty && videoTracks.any((t) => t.enabled);
+      ref.read(chessProvider.notifier).setRemoteVideoEnabled(videoEnabled);
+      print(
+        "[GAME CALL] 🏢 Remote video enabled: $videoEnabled (${videoTracks.length} tracks)",
+      );
       _startCallRecording();
     }
   }
@@ -372,9 +322,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
         .catchError((e) {
           print("[GAME CALL] ❌ Connection failed: $e");
           if (mounted) {
-            setState(() {
-              _callStatus = "Connection Error";
-            });
+            ref.read(chessProvider.notifier).setCallStatus("Connection Error");
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text("Call connection error: $e"),
@@ -400,24 +348,20 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
       // Continue pulsing until the call is actually CONNECTED
       // This ensures that if signaling drops and comes back, the handshake is resumed
-      if (_callStatus != "Connected") {
+      if (ref.read(chessProvider).callStatus != "Connected") {
         if (_signalingService!.isConnected) {
           print(
-            "[GAME CALL] 💓 Sending periodic room_ready pulse (Status: $_callStatus)...",
+            "[GAME CALL] 💓 Sending periodic room_ready pulse (Status: ${ref.read(chessProvider).callStatus})...",
           );
           _signalingService!.sendCustomMessage({'action': 'room_ready'});
 
-          if (!_isCallStarted && _callStatus == "Handshake started...") {
-            setState(() {
-              _callStatus = "Waiting for peer...";
-            });
+          if (!ref.read(chessProvider).isCallStarted && ref.read(chessProvider).callStatus == "Handshake started...") {
+            ref.read(chessProvider.notifier).setCallStatus("Waiting for peer...");
           }
         } else {
           // If not connected to WS yet, show different status
-          if (_callStatus != "Connecting to signaling...") {
-            setState(() {
-              _callStatus = "Connecting to signaling...";
-            });
+          if (ref.read(chessProvider).callStatus != "Connecting to signaling...") {
+            ref.read(chessProvider.notifier).setCallStatus("Connecting to signaling...");
           }
         }
       } else {
@@ -431,69 +375,50 @@ class _GameBoardState extends ConsumerState<GameBoard>
     _signalingService!.sendCustomMessage({'action': 'room_ready'});
 
     // Update initial status
-    setState(() {
-      _callStatus = widget.amIWhite
-          ? "Handshake started..."
-          : "Waiting for offer...";
-    });
+    ref.read(chessProvider.notifier).setCallStatus(widget.amIWhite
+        ? "Handshake started..."
+        : "Waiting for offer...");
 
     // If an offer is already pending (race condition), accept it immediately
     if (!widget.amIWhite && _signalingService!.pendingMediaType != null) {
       print("[GAME CALL] Pending offer found. Accepting immediately.");
-      _isCallStarted = true;
-      _signalingService!.acceptCall(isVideo: _isLocalVideoEnabled);
-      setState(() {
-        _callStatus = "Call Connected";
-      });
+      ref.read(chessProvider.notifier).setCallStarted(true);
+      _signalingService!.acceptCall(isVideo: ref.read(chessProvider).isLocalVideoEnabled);
+      ref.read(chessProvider.notifier).setCallStatus("Call Connected");
     }
   }
 
   void _toggleLocalAudio() {
-    setState(() {
-      _isLocalAudioMuted = !_isLocalAudioMuted;
-    });
-    _signalingService!.toggleMute(_isLocalAudioMuted);
-    _signalingService!.sendCustomMessage({
-      'action': 'toggle_mute',
-      'isMuted': _isLocalAudioMuted,
-    });
+    ref.read(chessProvider.notifier).toggleLocalAudio(!ref.read(chessProvider).isLocalAudioMuted);
   }
 
   void _toggleLocalVideo() {
-    setState(() {
-      _isLocalVideoEnabled = !_isLocalVideoEnabled;
-    });
-    _signalingService!.toggleVideo(_isLocalVideoEnabled);
+    ref.read(chessProvider.notifier).toggleLocalVideo(!ref.read(chessProvider).isLocalVideoEnabled);
     _onLocalStreamChanged(); // Force the renderer to pick up the enabled/disabled stream state
-    _signalingService!.sendCustomMessage({
-      'action': 'toggle_video',
-      'isVideoEnabled': _isLocalVideoEnabled,
-    });
   }
 
   void _toggleRemoteAudioLocalOverride() {
-    setState(() {
-      _isOpponentLocallySilenced = !_isOpponentLocallySilenced;
-    });
+    final bool currentSilenced = ref.read(chessProvider).isOpponentLocallySilenced;
+    ref.read(chessProvider.notifier).setOpponentLocallySilenced(!currentSilenced);
 
     // Mute/Unmute the remote audio tracks locally so the opponent cannot be heard.
     final remoteStream = _signalingService!.remoteStreamNotifier.value;
     if (remoteStream != null) {
       for (var track in remoteStream.getAudioTracks()) {
-        track.enabled = !_isOpponentLocallySilenced;
+        track.enabled = currentSilenced;
       }
     }
 
     // Notify peer so they see the "Silenced" indicator
     _signalingService!.sendCustomMessage({
       'action': 'local_silence_toggle',
-      'isSilenced': _isOpponentLocallySilenced,
+      'isSilenced': !currentSilenced,
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          _isOpponentLocallySilenced
+          ref.read(chessProvider).isOpponentLocallySilenced
               ? "Opponent silenced locally"
               : "Opponent unsilenced locally",
         ),
@@ -555,8 +480,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
     try {
       print("GameBoard: initState starting for room ${widget.roomId}");
 
-      // 1. CRITICAL: Initialize board FIRST to avoid LateInitializationError in build()
-      _initializeBoard();
 
       // 2. Initialize renderers (async, but we don't await here to not block initState)
       _initRenderers().catchError((e) {
@@ -566,12 +489,21 @@ class _GameBoardState extends ConsumerState<GameBoard>
       if (widget.isMultiplayer) {
         _setupEmbeddedCall(); // Initialize the embedded call first
 
-        // SYNC: Populate GlobalCallHandler with game context for the overlay
-        GlobalCallHandler().activeChessRoomId.value = widget.roomId;
-        GlobalCallHandler().currentUserId.value = widget.currentUserId;
-        GlobalCallHandler().opponentId.value = widget.opponentId;
-        GlobalCallHandler().amIWhite.value = widget.amIWhite;
-        GlobalCallHandler().userSignalingService = _signalingService;
+        // SYNC: Populate callProvider with game context for the overlay
+        ref.read(callProvider.notifier).setChessContext(
+          roomId: widget.roomId,
+          currentUserId: widget.currentUserId,
+          opponentId: widget.opponentId,
+          amIWhite: widget.amIWhite,
+        );
+        ref.read(callProvider.notifier).userSignalingService = _signalingService;
+
+        // Reactive listener for Game Over
+        ref.listenManual(chessProvider, (previous, next) {
+          if (next.isGameOver && !(previous?.isGameOver ?? false)) {
+            _showGameOverDialog(next.winnerMessage ?? "Game Over", isVictory: next.winnerMessage?.contains("Win") ?? false);
+          }
+        });
 
         print(
           "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
@@ -597,56 +529,16 @@ class _GameBoardState extends ConsumerState<GameBoard>
           );
         });
 
-        _onHangupSub = _signalingService!.onHangupStream.listen((_) {
-          if (!mounted) return;
-          _showGameOverDialog(
-            "Congratulations! Your opponent has resigned. You win!",
-            isVictory: true,
-          );
-        });
-
-        _gameService.connect(widget.roomId);
-        _gameSubscription = _gameService.stream.listen((data) {
-          final dynamic rawRoomId = data['room_id'];
-          final int? moveRoomId = rawRoomId is int
-              ? rawRoomId
-              : int.tryParse(rawRoomId?.toString() ?? "");
-
-          if (moveRoomId != null && moveRoomId != widget.roomId) return;
-
-          if (data['type'] == 'move') {
-            final bool isMyMove =
-                data['sender_id']?.toString() ==
-                widget.currentUserId.toString();
-            if (isMyMove && !_isSyncing) return;
-            _handleRemoteMove(data);
-          } else if (data['type'] == 'history') {
-            setState(() {
-              _isSyncing = true;
-              _initializeBoard();
-              final List history = data['history'];
-              for (var move in history) {
-                _handleRemoteMove(Map<String, dynamic>.from(move));
-              }
-              _isSyncing = false;
-            });
-          } else if (data['type'] == 'user_left') {
-            if (data['user_id']?.toString() !=
-                widget.currentUserId.toString()) {
-              _showGameOverDialog(
-                "Congratulations! Your opponent has left the game. You win!",
-                isVictory: true,
-              );
-              _signalingService?.endCall(sendSignal: false);
-            }
-          } else if (data['type'] == 'reset') {
-            setState(() => _initializeBoard());
-          }
-        });
+        // Use Notifier to manage game logic and WebSocket stream
+        ref.read(chessProvider.notifier).initGame(
+          widget.roomId,
+          widget.currentUserId,
+          signalingService: _signalingService,
+        );
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ref.read(chatProvider).init(
+          ref.read(chatProvider.notifier).init(
             widget.roomId,
             widget.currentUserId,
             setAsActive: true,
@@ -656,8 +548,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
       }
     } catch (e, st) {
       print("GameBoard FATAL ERROR in initState: $e\n$st");
-      // If we failed early, ensure board is at least initialized to an empty state
-      _initializeBoard();
     }
   }
 
@@ -702,16 +592,10 @@ class _GameBoardState extends ConsumerState<GameBoard>
   }
 
   void _showIncomingCallDialog() {
-    // This dialog is shown when an incoming call is received.
-    // For game calls, we auto-accept, so this dialog is not strictly needed
-    // unless we want to give the user an option to decline.
-    // For now, we'll just auto-accept as per the original logic.
     print("[GAME CALL] Incoming call received. Auto-accepting...");
-    _signalingService!.acceptCall(isVideo: _isLocalVideoEnabled);
-    _isCallStarted = true;
-    setState(() {
-      _callStatus = "Call Connected";
-    });
+    _signalingService!.acceptCall(isVideo: ref.read(chessProvider).isLocalVideoEnabled);
+    ref.read(chessProvider.notifier).setCallStarted(true);
+    ref.read(chessProvider.notifier).setCallStatus("Call Connected");
   }
 
   @override
@@ -722,7 +606,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
         _onRemoteStreamChanged,
       );
     }
-    _gameSubscription?.cancel();
     _gameConnSub?.cancel();
     _signalingConnSub?.cancel();
     _incomingCallSub?.cancel();
@@ -762,331 +645,22 @@ class _GameBoardState extends ConsumerState<GameBoard>
     if (widget.isMultiplayer) {
       _gameService.sendLeave(widget.roomId, widget.currentUserId);
     }
-    // Clear game context from GlobalCallHandler
-    if (GlobalCallHandler().activeChessRoomId.value == widget.roomId) {
-      GlobalCallHandler().activeChessRoomId.value = null;
+    // Clear game context from callProvider
+    if (ref.read(callProvider).activeChessRoomId == widget.roomId) {
+      ref.read(callProvider.notifier).clearChessContext();
     }
     super.dispose();
   }
 
-  void _initializeBoard() {
-    board = List.generate(8, (_) => List.generate(8, (_) => null));
-
-    // Pawns
-    for (int i = 0; i < 8; i++) {
-      board[1][i] = ChessPiece(
-        type: ChessPieceType.pawn,
-        isWhite: false,
-        imagePath: "assets/images/black/pawn.png",
-      );
-      board[6][i] = ChessPiece(
-        type: ChessPieceType.pawn,
-        isWhite: true,
-        imagePath: "assets/images/white/pawn.png",
-      );
-    }
-
-    // Back row
-    void placeBackRow(int row, bool isWhite) {
-      String base = isWhite ? "white" : "black";
-      board[row][0] = ChessPiece(
-        type: ChessPieceType.rook,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/rook.png",
-      );
-      board[row][1] = ChessPiece(
-        type: ChessPieceType.knight,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/knight.png",
-      );
-      board[row][2] = ChessPiece(
-        type: ChessPieceType.bishop,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/bishop.png",
-      );
-      board[row][3] = ChessPiece(
-        type: ChessPieceType.queen,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/queen.png",
-      );
-      board[row][4] = ChessPiece(
-        type: ChessPieceType.king,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/king.png",
-      );
-      board[row][5] = ChessPiece(
-        type: ChessPieceType.bishop,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/bishop.png",
-      );
-      board[row][6] = ChessPiece(
-        type: ChessPieceType.knight,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/knight.png",
-      );
-      board[row][7] = ChessPiece(
-        type: ChessPieceType.rook,
-        isWhite: isWhite,
-        imagePath: "assets/images/$base/rook.png",
-      );
-    }
-
-    placeBackRow(0, false);
-    placeBackRow(7, true);
-
-    // Reset king positions
-    whiteKingPosition = [7, 4];
-    blackKingPosition = [0, 4];
-    whiteTurn = true;
-    checkStatus = false;
+  bool isWhiteSquare(int index) {
+    int r = index ~/ 8;
+    int c = index % 8;
+    return (r + c) % 2 == 0;
   }
 
-  void _handleRemoteMove(Map<String, dynamic> data) {
-    int? fR = int.tryParse(data['from_row']?.toString() ?? "");
-    int? fC = int.tryParse(data['from_col']?.toString() ?? "");
-    int? tR = int.tryParse(data['to_row']?.toString() ?? "");
-    int? tC = int.tryParse(data['to_col']?.toString() ?? "");
+  bool isInBoard(int row, int col) => row >= 0 && row < 8 && col >= 0 && col < 8;
 
-    if (fR == null || fC == null || tR == null || tC == null) {
-      print("Error parsing remote move data: $data");
-      return;
-    }
 
-    setState(() {
-      ChessPiece? piece = board[fR][fC];
-      if (piece != null) {
-        // Apply move locally
-        if (piece.type == ChessPieceType.king) {
-          if (piece.isWhite)
-            whiteKingPosition = [tR, tC];
-          else
-            blackKingPosition = [tR, tC];
-        }
-        board[tR][tC] = piece;
-        board[fR][fC] = null;
-        whiteTurn = !whiteTurn;
-        checkStatus = isKingInCheck(whiteTurn);
-        if (isCheckMate(whiteTurn)) {
-          _showGameOverDialog(whiteTurn ? "Black Wins!" : "White Wins!");
-        }
-      }
-    });
-  }
-
-  void onSquareTap(int row, int col) {
-    setState(() {
-      ChessPiece? piece = board[row][col];
-
-      // Move selected piece
-      if (selectedPiece != null &&
-          validMoves.any((m) => m[0] == row && m[1] == col)) {
-        // Multiplayer Turn Enforcement
-        if (widget.isMultiplayer && whiteTurn != widget.amIWhite) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Wait for your turn!"),
-              duration: Duration(seconds: 1),
-            ),
-          );
-          return;
-        }
-
-        // SYNC: if we're in multiplayer mode then send the move **after**
-        // applying it locally. doing the board mutation first means the UI
-        // isn't waiting on the WebSocket send, and we can even queue the data
-        // if we're temporarily offline.
-        if (widget.isMultiplayer) {
-          // apply local move immediately (will also flip turn below)
-          // store last move data in case we need to resend later
-        }
-
-        // Update king position if king is moved
-        if (selectedPiece!.type == ChessPieceType.king) {
-          if (selectedPiece!.isWhite) {
-            whiteKingPosition = [row, col];
-          } else {
-            blackKingPosition = [row, col];
-          }
-        }
-
-        board[row][col] = selectedPiece;
-        board[selectedRow][selectedCol] = null;
-
-        // Pawn promotion
-        if (selectedPiece!.type == ChessPieceType.pawn &&
-            (row == 0 || row == 7)) {
-          board[row][col] = ChessPiece(
-            type: ChessPieceType.queen,
-            isWhite: selectedPiece!.isWhite,
-            imagePath:
-                "assets/images/${selectedPiece!.isWhite ? "white" : "black"}/queen.png",
-          );
-        }
-
-        selectedPiece = null;
-        validMoves.clear();
-        whiteTurn = !whiteTurn;
-
-        // now that the board has been flipped, send the move if the socket is
-        // healthy – if not we will reconnect and flush later.
-        if (widget.isMultiplayer) {
-          if (_gameService.isConnected) {
-            print(
-              "SEND MOVE [Room ${widget.roomId}]: (${selectedRow},${selectedCol}) -> ($row,$col)",
-            );
-            _gameService.sendMove(
-              widget.roomId,
-              widget.currentUserId,
-              selectedRow,
-              selectedCol,
-              row,
-              col,
-            );
-          } else {
-            // start a reconnect attempt; move will be resent when the history
-            // message arrives from the server (see _isSyncing flag handling).
-            print("Socket offline, will resend move later");
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Connecting to game server... Please wait."),
-              ),
-            );
-            _gameService.connect(widget.roomId);
-          }
-        }
-
-        // Check if the other king is in check
-        checkStatus = isKingInCheck(whiteTurn);
-
-        // Check for checkmate
-        if (isCheckMate(whiteTurn)) {
-          _showGameOverDialog(whiteTurn ? "Black Wins!" : "White Wins!");
-        }
-
-        return;
-      }
-
-      // Select new piece
-      if (piece != null &&
-          piece.isWhite ==
-              (widget.isMultiplayer ? widget.amIWhite : whiteTurn)) {
-        selectedPiece = piece;
-        selectedRow = row;
-        selectedCol = col;
-        validMoves = calculateRealValidMoves(row, col, piece, true);
-      } else {
-        selectedPiece = null;
-        validMoves.clear();
-      }
-    });
-  }
-
-  List<List<int>> calculateRawValidMoves(int row, int col, ChessPiece piece) {
-    switch (piece.type) {
-      case ChessPieceType.pawn:
-        return _pawnMoves(row, col, piece);
-      case ChessPieceType.rook:
-        return _rookMoves(row, col, piece);
-      case ChessPieceType.knight:
-        return _knightMoves(row, col, piece);
-      case ChessPieceType.bishop:
-        return _bishopMoves(row, col, piece);
-      case ChessPieceType.queen:
-        return [
-          ..._rookMoves(row, col, piece),
-          ..._bishopMoves(row, col, piece),
-        ];
-      case ChessPieceType.king:
-        return _kingMoves(row, col, piece);
-    }
-  }
-
-  // Filter moves that would put/keep the king in check
-  List<List<int>> calculateRealValidMoves(
-    int row,
-    int col,
-    ChessPiece piece,
-    bool checkCheck,
-  ) {
-    List<List<int>> rawMoves = calculateRawValidMoves(row, col, piece);
-    if (!checkCheck) return rawMoves;
-
-    List<List<int>> realMoves = [];
-    for (var move in rawMoves) {
-      int endRow = move[0];
-      int endCol = move[1];
-
-      // Simulate the move
-      ChessPiece? targetPiece = board[endRow][endCol];
-
-      // If moving king, update simulated king position
-      List<int> originalKingPos = piece.isWhite
-          ? [...whiteKingPosition]
-          : [...blackKingPosition];
-      if (piece.type == ChessPieceType.king) {
-        if (piece.isWhite)
-          whiteKingPosition = [endRow, endCol];
-        else
-          blackKingPosition = [endRow, endCol];
-      }
-
-      board[endRow][endCol] = piece;
-      board[row][col] = null;
-
-      // Check if king is in check after move
-      bool inCheck = isKingInCheck(piece.isWhite);
-
-      // Undo the move
-      board[row][col] = piece;
-      board[endRow][endCol] = targetPiece;
-      if (piece.type == ChessPieceType.king) {
-        if (piece.isWhite)
-          whiteKingPosition = originalKingPos;
-        else
-          blackKingPosition = originalKingPos;
-      }
-
-      if (!inCheck) {
-        realMoves.add(move);
-      }
-    }
-    return realMoves;
-  }
-
-  bool isKingInCheck(bool isWhite) {
-    List<int> kingPos = isWhite ? whiteKingPosition : blackKingPosition;
-
-    // Check all opponent pieces to see if any can hit the king
-    for (int r = 0; r < 8; r++) {
-      for (int c = 0; c < 8; c++) {
-        ChessPiece? p = board[r][c];
-        if (p != null && p.isWhite != isWhite) {
-          List<List<int>> pieceMoves = calculateRawValidMoves(r, c, p);
-          if (pieceMoves.any((m) => m[0] == kingPos[0] && m[1] == kingPos[1])) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  bool isCheckMate(bool isWhite) {
-    if (!isKingInCheck(isWhite)) return false;
-
-    // If king is in check, see if any move can get him out of it
-    for (int r = 0; r < 8; r++) {
-      for (int c = 0; c < 8; c++) {
-        ChessPiece? p = board[r][c];
-        if (p != null && p.isWhite == isWhite) {
-          List<List<int>> moves = calculateRealValidMoves(r, c, p, true);
-          if (moves.isNotEmpty) return false;
-        }
-      }
-    }
-    return true;
-  }
 
   void _showGameOverDialog(String message, {bool isVictory = false}) {
     showDialog(
@@ -1134,9 +708,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              setState(() {
-                _initializeBoard();
-              });
+              ref.read(chessProvider.notifier).resetGame(widget.roomId);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: isVictory ? Colors.green : Colors.blue,
@@ -1154,118 +726,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
     );
   }
 
-  List<List<int>> _pawnMoves(int row, int col, ChessPiece piece) {
-    List<List<int>> moves = [];
-    int dir = piece.isWhite ? -1 : 1;
-    if (isInBoard(row + dir, col) && board[row + dir][col] == null)
-      moves.add([row + dir, col]);
-
-    if ((row == 6 && piece.isWhite) || (row == 1 && !piece.isWhite))
-      if (isInBoard(row + dir, col) &&
-          board[row + dir][col] == null &&
-          isInBoard(row + 2 * dir, col) &&
-          board[row + 2 * dir][col] == null)
-        moves.add([row + 2 * dir, col]);
-
-    for (int dc in [-1, 1])
-      if (isInBoard(row + dir, col + dc) &&
-          board[row + dir][col + dc] != null &&
-          board[row + dir][col + dc]!.isWhite != piece.isWhite)
-        moves.add([row + dir, col + dc]);
-    return moves;
-  }
-
-  List<List<int>> _rookMoves(int row, int col, ChessPiece piece) {
-    List<List<int>> moves = [];
-    List<List<int>> dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
-    for (var d in dirs) {
-      int r = row, c = col;
-      while (true) {
-        r += d[0];
-        c += d[1];
-        if (!isInBoard(r, c)) break;
-        if (board[r][c] == null)
-          moves.add([r, c]);
-        else {
-          if (board[r][c]!.isWhite != piece.isWhite) moves.add([r, c]);
-          break;
-        }
-      }
-    }
-    return moves;
-  }
-
-  List<List<int>> _bishopMoves(int row, int col, ChessPiece piece) {
-    List<List<int>> moves = [];
-    List<List<int>> dirs = [
-      [1, 1],
-      [1, -1],
-      [-1, 1],
-      [-1, -1],
-    ];
-    for (var d in dirs) {
-      int r = row, c = col;
-      while (true) {
-        r += d[0];
-        c += d[1];
-        if (!isInBoard(r, c)) break;
-        if (board[r][c] == null)
-          moves.add([r, c]);
-        else {
-          if (board[r][c]!.isWhite != piece.isWhite) moves.add([r, c]);
-          break;
-        }
-      }
-    }
-    return moves;
-  }
-
-  List<List<int>> _knightMoves(int row, int col, ChessPiece piece) {
-    List<List<int>> moves = [];
-    List<List<int>> jumps = [
-      [2, 1],
-      [2, -1],
-      [-2, 1],
-      [-2, -1],
-      [1, 2],
-      [1, -2],
-      [-1, 2],
-      [-1, -2],
-    ];
-    for (var j in jumps) {
-      int r = row + j[0], c = col + j[1];
-      if (isInBoard(r, c) &&
-          (board[r][c] == null || board[r][c]!.isWhite != piece.isWhite))
-        moves.add([r, c]);
-    }
-    return moves;
-  }
-
-  List<List<int>> _kingMoves(int row, int col, ChessPiece piece) {
-    List<List<int>> moves = [];
-    List<List<int>> dirs = [
-      [1, 0],
-      [1, 1],
-      [0, 1],
-      [-1, 1],
-      [-1, 0],
-      [-1, -1],
-      [0, -1],
-      [1, -1],
-    ];
-    for (var d in dirs) {
-      int r = row + d[0], c = col + d[1];
-      if (isInBoard(r, c) &&
-          (board[r][c] == null || board[r][c]!.isWhite != piece.isWhite))
-        moves.add([r, c]);
-    }
-    return moves;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1315,7 +775,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
                   // Call Frame
                   if (widget.isMultiplayer &&
-                      _isCallStarted &&
+                      ref.watch(chessProvider).isCallStarted &&
                       _signalingService != null)
                     Expanded(flex: 3, child: _buildCallFrame()),
 
@@ -1337,7 +797,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
                   ),
 
                   // Bottom spacing for non-call multiplayer
-                  if (widget.isMultiplayer && !_isCallStarted)
+                  if (widget.isMultiplayer && !ref.watch(chessProvider).isCallStarted)
                     const Spacer(flex: 2),
                 ],
               ),
@@ -1369,7 +829,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
               child: _buildVideoContainer(
                 notifier: _signalingService!.localStreamNotifier,
                 renderer: _localRenderer,
-                isEnabled: _isLocalVideoEnabled,
+                isEnabled: ref.watch(chessProvider).isLocalVideoEnabled,
                 label: "You",
                 isLocal: true,
               ),
@@ -1379,7 +839,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
               child: _buildVideoContainer(
                 notifier: _signalingService!.remoteStreamNotifier,
                 renderer: _remoteRenderer,
-                isEnabled: _isRemoteVideoEnabled,
+                isEnabled: ref.watch(chessProvider).isRemoteVideoEnabled,
                 label: widget.opponentId?.toString() ?? "Opponent",
               ),
             ),
@@ -1446,10 +906,10 @@ class _GameBoardState extends ConsumerState<GameBoard>
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color: whiteTurn ? Colors.white : Colors.blueGrey,
+                    color: ref.watch(chessProvider).whiteTurn ? Colors.white : Colors.blueGrey,
                     shape: BoxShape.circle,
                     boxShadow: [
-                      if (whiteTurn)
+                      if (ref.watch(chessProvider).whiteTurn)
                         const BoxShadow(
                           color: Colors.white54,
                           blurRadius: 10,
@@ -1460,7 +920,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  whiteTurn ? "WHITE'S TURN" : "BLACK'S TURN",
+                  ref.watch(chessProvider).whiteTurn ? "WHITE'S TURN" : "BLACK'S TURN",
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
                     fontSize: 12,
@@ -1468,7 +928,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
                     letterSpacing: 1.1,
                   ),
                 ),
-                if (checkStatus) ...[
+                if (ref.watch(chessProvider).checkStatus) ...[
                   const SizedBox(width: 10),
                   const Text(
                     "CHECK!",
@@ -1490,7 +950,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
               final int unreadCount = provider.getUnreadCount(widget.roomId);
               return GestureDetector(
                 onTap: () {
-                  provider.resetUnreadCount(widget.roomId);
+                  ref.read(chatProvider.notifier).resetUnreadCount(widget.roomId);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -1572,7 +1032,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      label + (isEnabled ? "" : " (Camera Off)"),
+                      label + (ref.watch(chessProvider).isLocalVideoEnabled ? "" : " (Camera Off)"),
                       style: const TextStyle(
                         color: Colors.white24,
                         fontSize: 10,
@@ -1582,7 +1042,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
                       Padding(
                         padding: const EdgeInsets.only(top: 8.0),
                         child: Text(
-                          _callStatus,
+                          ref.watch(chessProvider).callStatus,
                           style: const TextStyle(
                             color: Colors.blueAccent,
                             fontSize: 10,
@@ -1611,36 +1071,36 @@ class _GameBoardState extends ConsumerState<GameBoard>
                   children: [
                     if (isLocal)
                       _buildOverlayIconButton(
-                        icon: _isLocalAudioMuted ? Icons.mic_off : Icons.mic,
-                        color: _isLocalAudioMuted
+                        icon: ref.watch(chessProvider).isLocalAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: ref.watch(chessProvider).isLocalAudioMuted
                             ? Colors.redAccent
                             : Colors.white,
                         onPressed: _toggleLocalAudio,
                       )
                     else
                       _buildOverlayIndicator(
-                        icon: _isRemoteAudioMuted ? Icons.mic_off : Icons.mic,
-                        color: _isRemoteAudioMuted
+                        icon: ref.watch(chessProvider).isRemoteAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: ref.watch(chessProvider).isRemoteAudioMuted
                             ? Colors.redAccent
                             : Colors.greenAccent,
                       ),
                     const SizedBox(width: 4),
                     if (isLocal)
                       _buildOverlayIconButton(
-                        icon: _isLocalVideoEnabled
+                        icon: ref.watch(chessProvider).isLocalVideoEnabled
                             ? Icons.videocam
                             : Icons.videocam_off,
-                        color: _isLocalVideoEnabled
+                        color: ref.watch(chessProvider).isLocalVideoEnabled
                             ? Colors.blue
                             : Colors.white70,
                         onPressed: _toggleLocalVideo,
                       )
                     else
                       _buildOverlayIndicator(
-                        icon: _isRemoteVideoEnabled
+                        icon: ref.watch(chessProvider).isRemoteVideoEnabled
                             ? Icons.videocam
                             : Icons.videocam_off,
-                        color: _isRemoteVideoEnabled
+                        color: ref.watch(chessProvider).isRemoteVideoEnabled
                             ? Colors.blue
                             : Colors.white24,
                       ),
@@ -1649,7 +1109,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
                 // Audio Output / Silence Indicator
                 if (isLocal)
-                  (_amISilencedByOpponent
+                  (ref.watch(chessProvider).amISilencedByOpponent
                       ? _buildOverlayIndicator(
                           icon: Icons.volume_off,
                           color: Colors.redAccent,
@@ -1658,14 +1118,14 @@ class _GameBoardState extends ConsumerState<GameBoard>
                       : const SizedBox.shrink())
                 else
                   _buildOverlayIconButton(
-                    icon: _isOpponentLocallySilenced
+                    icon: ref.watch(chessProvider).isOpponentLocallySilenced
                         ? Icons.volume_off
                         : Icons.volume_up,
-                    color: _isOpponentLocallySilenced
+                    color: ref.watch(chessProvider).isOpponentLocallySilenced
                         ? Colors.redAccent
                         : Colors.white,
                     onPressed: _toggleRemoteAudioLocalOverride,
-                    label: _isOpponentLocallySilenced ? "Silenced" : null,
+                    label: ref.watch(chessProvider).isOpponentLocallySilenced ? "Silenced" : null,
                   ),
               ],
             ),
@@ -1760,12 +1220,24 @@ class _GameBoardState extends ConsumerState<GameBoard>
             ? (7 - c)
             : c;
 
+        final gameState = ref.watch(chessProvider);
         return Square(
           isWhiteSquare: isWhiteSquare(index),
-          piece: board[row][col],
-          isSelected: row == selectedRow && col == selectedCol,
-          isValidMove: validMoves.any((m) => m[0] == row && m[1] == col),
-          onTap: () => onSquareTap(row, col),
+          piece: gameState.board[row][col],
+          isSelected: row == gameState.selectedRow && col == gameState.selectedCol,
+          isValidMove: gameState.validMoves.any((m) => m[0] == row && m[1] == col),
+          isCheck: gameState.whiteTurn
+              ? (gameState.checkStatus && gameState.whiteKingPosition[0] == row && gameState.whiteKingPosition[1] == col)
+              : (gameState.checkStatus && gameState.blackKingPosition[0] == row && gameState.blackKingPosition[1] == col),
+          onTap: () {
+            ref.read(chessProvider.notifier).onSquareTap(
+              row, col,
+              isMultiplayer: widget.isMultiplayer,
+              amIWhite: widget.amIWhite,
+              roomId: widget.roomId,
+              currentUserId: widget.currentUserId,
+            );
+          },
         );
       },
     );

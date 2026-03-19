@@ -7,37 +7,33 @@ import 'package:flutter/material.dart';
 
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 
-class SnakeGameScreen extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/snake_game/presentation/providers/snake_game_provider.dart';
+
+class SnakeGameScreen extends ConsumerStatefulWidget {
   final SnakeBoard board;
   const SnakeGameScreen({super.key, required this.board});
 
   @override
-  State<SnakeGameScreen> createState() => _SnakeGameScreenState();
+  ConsumerState<SnakeGameScreen> createState() => _SnakeGameScreenState();
 }
 
-class _SnakeGameScreenState extends State<SnakeGameScreen>
+class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     with TickerProviderStateMixin {
   // Game constants
   static const int gridSize = 10;
   static const int totalSquares = gridSize * gridSize;
 
-  // Game state
-  int playerPosition = 0; // 0 means not on board
-  int diceValue = 1;
-  bool isRolling = false;
-  bool isMoving = false;
-  bool hasStarted = false;
-  String gameStatus = "Roll a 1 to enter the board!";
-
-  // Board data from widget
-  late Map<int, int> snakes;
-  late Map<int, int> ladders;
-
   @override
   void initState() {
     super.initState();
-    snakes = widget.board.snakes;
-    ladders = widget.board.ladders;
+    // Initialize provider with board data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(snakeGameProvider.notifier).initBoard(
+        widget.board.snakes,
+        widget.board.ladders,
+      );
+    });
   }
 
   // Color Palette - Exact Reference Sequence
@@ -56,112 +52,12 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
 
   Color _getTextColor(int n) {
     Color bg = _getCellColor(n);
-    // Darker colors get white text
     if (bg == const Color(0xFFF44336) ||
         bg == const Color(0xFF2196F3) ||
         bg == const Color(0xFF4CAF50)) {
       return Colors.white;
     }
     return Colors.black87;
-  }
-
-  Future<void> rollDice() async {
-    if (isRolling || isMoving) return;
-
-    setState(() {
-      isRolling = true;
-      gameStatus = "Waiting for luck...";
-    });
-
-    for (int i = 0; i < 12; i++) {
-      await Future.delayed(const Duration(milliseconds: 70));
-      setState(() {
-        diceValue = Random().nextInt(6) + 1;
-      });
-    }
-
-    setState(() {
-      isRolling = false;
-    });
-
-    await handleGameLogic(diceValue);
-  }
-
-  Future<void> handleGameLogic(int roll) async {
-    if (!hasStarted) {
-      if (roll == 1) {
-        setState(() {
-          isMoving = true;
-          hasStarted = true;
-          playerPosition = 1;
-          gameStatus = "Warming up on Square 1!";
-        });
-        await Future.delayed(const Duration(milliseconds: 800));
-        await checkSquareEffect();
-      } else {
-        setState(() {
-          gameStatus = "Almost! Roll a 1 to start.";
-        });
-      }
-      return;
-    }
-    await movePlayerSequence(roll);
-  }
-
-  Future<void> movePlayerSequence(int steps) async {
-    setState(() => isMoving = true);
-    int target = playerPosition + steps;
-    if (target > totalSquares) {
-      setState(() {
-        gameStatus = "Too far! Need exact roll.";
-        isMoving = false;
-      });
-      return;
-    }
-    for (int i = 0; i < steps; i++) {
-      await Future.delayed(const Duration(milliseconds: 300));
-      setState(() {
-        playerPosition++;
-      });
-    }
-    await checkSquareEffect();
-  }
-
-  Future<void> checkSquareEffect() async {
-    setState(() => isMoving = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    if (snakes.containsKey(playerPosition)) {
-      int endPos = snakes[playerPosition]!;
-      setState(() => gameStatus = "SNAGGED BY A SNAKE!");
-      await Future.delayed(const Duration(milliseconds: 800));
-      setState(() => playerPosition = endPos);
-      await Future.delayed(const Duration(milliseconds: 400));
-      setState(() => gameStatus = "Ouch. Dropped to $endPos.");
-    } else if (ladders.containsKey(playerPosition)) {
-      int endPos = ladders[playerPosition]!;
-      setState(() => gameStatus = "LADDER ASCEND!");
-      await Future.delayed(const Duration(milliseconds: 800));
-      setState(() => playerPosition = endPos);
-      await Future.delayed(const Duration(milliseconds: 400));
-      setState(() => gameStatus = "Climbed to $endPos!");
-    } else if (playerPosition == totalSquares) {
-      setState(() => gameStatus = "👑 CHAMPION! 👑");
-      _showWinDialog();
-    } else {
-      setState(() => gameStatus = "Your move. Roll again!");
-    }
-    setState(() => isMoving = false);
-  }
-
-  void resetGame() {
-    setState(() {
-      playerPosition = 0;
-      hasStarted = false;
-      isMoving = false;
-      isRolling = false;
-      gameStatus = "Roll a 1 to enter the board!";
-    });
   }
 
   void _showResetConfirmation() {
@@ -186,7 +82,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              resetGame();
+              ref.read(snakeGameProvider.notifier).resetGame();
             },
             child: const Text(
               "RESTART",
@@ -221,7 +117,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
             child: TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                resetGame();
+                ref.read(snakeGameProvider.notifier).resetGame();
               },
               child: const Text(
                 "NEW ADVENTURE",
@@ -247,8 +143,15 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
     return Offset(col.toDouble(), row.toDouble());
   }
 
-  @override
+
   Widget build(BuildContext context) {
+    ref.listen(snakeGameProvider, (previous, next) {
+      if (next.playerPosition == totalSquares &&
+          (previous?.playerPosition ?? 0) != totalSquares) {
+        _showWinDialog();
+      }
+    });
+
     return Scaffold(
       backgroundColor: const Color(0xFFEEEEEE),
       appBar: AppBar(
@@ -381,10 +284,10 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                             painter: RetroBoardLinesPainter(
                               snakes: widget.board.imagePath != null
                                   ? {}
-                                  : snakes,
+                                  : widget.board.snakes,
                               ladders: widget.board.imagePath != null
                                   ? {}
-                                  : ladders,
+                                  : widget.board.ladders,
                               gridSize: gridSize,
                             ),
                           ),
@@ -392,7 +295,8 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                         // 3. Player Token
                         Builder(
                           builder: (context) {
-                            Offset p = getCoord(playerPosition);
+                            final gameState = ref.watch(snakeGameProvider);
+                            Offset p = getCoord(gameState.playerPosition);
                             return AnimatedPositioned(
                               duration: const Duration(milliseconds: 350),
                               curve: Curves.easeInOut,
@@ -403,7 +307,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                                 height: cellSize,
                                 child: Center(
                                   child: Opacity(
-                                    opacity: playerPosition == 0 ? 0.3 : 1.0,
+                                    opacity: gameState.playerPosition == 0 ? 0.3 : 1.0,
                                     child: Container(
                                       width: cellSize * 0.7,
                                       height: cellSize * 0.7,
@@ -464,7 +368,7 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  gameStatus.toUpperCase(),
+                  ref.watch(snakeGameProvider).gameStatus.toUpperCase(),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.black87,
@@ -493,26 +397,30 @@ class _SnakeGameScreenState extends State<SnakeGameScreen>
                         ],
                       ),
                       child: Center(
-                        child: isRolling
+                        child: ref.watch(snakeGameProvider).isRolling
                             ? const CircularProgressIndicator(
                                 color: Colors.black87,
                               )
                             : CustomPaint(
                                 size: const Size(40, 40),
-                                painter: DiceDotsPainter(value: diceValue),
+                                painter: DiceDotsPainter(value: ref.watch(snakeGameProvider).diceValue),
                               ),
                       ),
                     ),
                     const SizedBox(width: 30),
                     GestureDetector(
-                      onTap: (isRolling || isMoving) ? null : rollDice,
+                      onTap: () {
+                         final state = ref.read(snakeGameProvider);
+                         if (state.isRolling || state.isMoving) return;
+                         ref.read(snakeGameProvider.notifier).rollDice();
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 40,
                           vertical: 20,
                         ),
                         decoration: BoxDecoration(
-                          color: (isRolling || isMoving)
+                          color: (ref.watch(snakeGameProvider).isRolling || ref.watch(snakeGameProvider).isMoving)
                               ? Colors.grey
                               : Colors.black87,
                           borderRadius: BorderRadius.circular(15),
@@ -668,12 +576,6 @@ class RetroBoardLinesPainter extends CustomPainter {
 
     final ui.PathMetrics pathMetrics = path.computeMetrics();
     final ui.PathMetric pathMetric = pathMetrics.first;
-
-    // 1. Slender Shadow/Outline
-    final outlinePaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
 
     // 2. Multi-Layer Skin Rendering
     int segments = 40; // Higher fidelity for S-curves

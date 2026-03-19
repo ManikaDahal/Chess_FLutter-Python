@@ -7,7 +7,7 @@ import 'package:chess_game_manika/core/widgets/custom_elevatedbutton.dart';
 import 'package:chess_game_manika/features/auth/services/auth_services.dart';
 import 'package:chess_game_manika/features/chat/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
-import 'package:chess_game_manika/core/providers/global_providers.dart';
+import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,7 +39,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     if (!mounted) return;
 
     // 1. Stop services and clear providers
-    ref.read(chatProvider).clear();
+    ref.read(chatProvider.notifier).clear();
 
     ChatWebsocketService().disconnectAll();
 

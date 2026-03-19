@@ -6,6 +6,7 @@ class Square extends StatelessWidget {
   final ChessPiece? piece;
   final bool isSelected;
   final bool isValidMove;
+  final bool isCheck;
   final VoidCallback onTap;
 
   const Square({
@@ -14,6 +15,7 @@ class Square extends StatelessWidget {
     required this.piece,
     required this.isSelected,
     required this.isValidMove,
+    this.isCheck = false,
     required this.onTap,
   });
 
@@ -23,6 +25,7 @@ class Square extends StatelessWidget {
     Color? baseColor = isWhiteSquare ? const Color(0xFFDEE3E6) : const Color(0xFF8CA2AD); // Cream and Gray/Blue
     if (isSelected) baseColor = Colors.yellow.withOpacity(0.7);
     if (isValidMove) baseColor = Colors.greenAccent.withOpacity(0.5);
+    if (isCheck) baseColor = Colors.redAccent.withOpacity(0.8);
 
     return GestureDetector(
       onTap: onTap,

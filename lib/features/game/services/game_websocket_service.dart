@@ -199,7 +199,7 @@ class GameWebsocketService {
 
   void resetGame(int roomId) {
     if (_channel == null || !_isConnected) return;
-    _channel!.sink.add(jsonEncode({"type": "reset"}));
+    _channel!.sink.add(jsonEncode({"type": "reset", "room_id": roomId}));
   }
 
   void disconnect() {
