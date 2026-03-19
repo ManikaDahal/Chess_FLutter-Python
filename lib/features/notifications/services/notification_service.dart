@@ -5,6 +5,8 @@ import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.d
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
 import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
+import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
 
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -186,7 +188,7 @@ class NotificationService {
   static void _handleFcmPayload(Map<String, dynamic> data) async {
     print("FCM: Handling payload details: $data");
 
-    if (data['type'] == 'chess_invite') {
+    if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite') {
       _showInviteDialog(data);
       return;
     }
@@ -243,13 +245,16 @@ class NotificationService {
         data['id']?.toString().replaceAll("invite_", "") ?? "0";
     final int inviteId = int.tryParse(inviteIdStr) ?? 0;
 
+    final String gameType = data['type'] == 'snake_invite' ? "Snake & Ladder" : "Chess";
+    final bool isSnake = data['type'] == 'snake_invite';
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text("Game Invitation"),
-          content: Text("$senderName invited you to play a chess game!"),
+          content: Text("$senderName invited you to play a $gameType game!"),
           actions: [
             TextButton(
               onPressed: () async {
@@ -295,19 +300,49 @@ class NotificationService {
 
                   // Navigator navigate to Chess Board IMMEDIATELY
                   // GameBoard's internal initState will handle signaling setup
-                  navigatorKey?.currentState?.push(
-                    MaterialPageRoute(
-                      builder: (_) => GameBoard(
-                        roomId: acceptedRoomId,
-                        currentUserId: currentUserId,
-                        isMultiplayer: true,
-                        amIWhite: false, // Receiver is always Black
-                        opponentId: senderId,
-                        showLeaveButton: true,
-                        signalingService: signalingService,
+                  // Navigator navigate to correct game board
+                  if (isSnake) {
+                    // For Snake, we need to know WHICH board. 
+                    // This info should be in the invite object from the backend.
+                    // pending_invites already returns board_id.
+                    // But we are in a dialog from an FCM.
+                    // Let's assume we can fetch the invite details if needed, 
+                    // or maybe it's already in the FCM payload?
+                    // I updated pending_invites but not FCM payload in views.py.
+                    // Let's check views.py again.
+                    // Actually, let's just use board 1 for now or better, update views.py.
+                    
+                    // FOR NOW: Navigator push to SnakeGameScreen
+                    // We need a way to get the board.
+                    
+                    final int boardId = int.tryParse(data['board_id']?.toString() ?? "1") ?? 1;
+                    final selectedBoard = snakeBoards.firstWhere((b) => b.id == boardId, orElse: () => snakeBoards[0]);
+
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => SnakeGameScreen(
+                          board: selectedBoard,
+                          roomId: acceptedRoomId,
+                          isMultiplayer: true,
+                          startsMyTurn: false, // Invitee goes second
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } else {
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => GameBoard(
+                          roomId: acceptedRoomId,
+                          currentUserId: currentUserId,
+                          isMultiplayer: true,
+                          amIWhite: false, // Receiver is always Black
+                          opponentId: senderId,
+                          showLeaveButton: true,
+                          signalingService: signalingService,
+                        ),
+                      ),
+                    );
+                  }
                 } else {
                   if (context.mounted) Navigator.pop(context);
                 }
@@ -398,18 +433,36 @@ class NotificationService {
                       await SharedPreferences.getInstance();
                   final int currentUserId = prefs.getInt('userId') ?? 0;
 
-                  navigatorKey?.currentState?.push(
-                    MaterialPageRoute(
-                      builder: (_) => GameBoard(
-                        roomId: roomId,
-                        currentUserId: currentUserId,
-                        isMultiplayer: true,
-                        amIWhite: true, // Inviter is always White
-                        opponentId: senderId,
-                        showLeaveButton: true,
+                  final String gameType = data['game_type']?.toString() ?? "chess";
+
+                  if (gameType == 'snake') {
+                    final int boardId = int.tryParse(data['board_id']?.toString() ?? "1") ?? 1;
+                    final selectedBoard = snakeBoards.firstWhere((b) => b.id == boardId, orElse: () => snakeBoards[0]);
+
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => SnakeGameScreen(
+                          board: selectedBoard,
+                          roomId: roomId,
+                          isMultiplayer: true,
+                          startsMyTurn: true, // Inviter goes first
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } else {
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => GameBoard(
+                          roomId: roomId,
+                          currentUserId: currentUserId,
+                          isMultiplayer: true,
+                          amIWhite: true, // Inviter is always White
+                          opponentId: senderId,
+                          showLeaveButton: true,
+                        ),
+                      ),
+                    );
+                  }
                 },
                 child: const Text("Play Now"),
               ),

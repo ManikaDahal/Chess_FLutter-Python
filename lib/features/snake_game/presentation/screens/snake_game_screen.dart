@@ -1,9 +1,15 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
-import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
+import 'package:chess_game_manika/features/call/services/signaling_service.dart';
+import 'package:chess_game_manika/features/call/services/recording_service.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
+import 'package:chess_game_manika/core/utils/const.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 
@@ -12,7 +18,17 @@ import 'package:chess_game_manika/features/snake_game/presentation/providers/sna
 
 class SnakeGameScreen extends ConsumerStatefulWidget {
   final SnakeBoard board;
-  const SnakeGameScreen({super.key, required this.board});
+  final int? roomId;
+  final bool isMultiplayer;
+  final bool startsMyTurn;
+
+  const SnakeGameScreen({
+    super.key,
+    required this.board,
+    this.roomId,
+    this.isMultiplayer = false,
+    this.startsMyTurn = true,
+  });
 
   @override
   ConsumerState<SnakeGameScreen> createState() => _SnakeGameScreenState();
@@ -20,6 +36,22 @@ class SnakeGameScreen extends ConsumerStatefulWidget {
 
 class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     with TickerProviderStateMixin {
+  final RecordingService _recordingService = RecordingService();
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+
+  SignalingService? _signalingService;
+  bool _isRendererReady = false;
+
+  // Cleanup subscriptions
+  StreamSubscription? _signalingConnSub;
+  StreamSubscription? _incomingCallSub;
+  StreamSubscription? _customMessageSub;
+  StreamSubscription? _peerJoinedSub;
+  StreamSubscription? _onHangupSub;
+  StreamSubscription? _onCallAcceptedSub;
+  Timer? _handshakePulseTimer;
+  Timer? _callTimeoutTimer;
   // Game constants
   static const int gridSize = 10;
   static const int totalSquares = gridSize * gridSize;
@@ -29,11 +61,266 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     super.initState();
     // Initialize provider with board data
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authState = ref.read(authProvider).value;
+      final currentUserId = authState?.userId ?? 1;
+
       ref.read(snakeGameProvider.notifier).initBoard(
         widget.board.snakes,
         widget.board.ladders,
+        roomId: widget.roomId,
+        isMultiplayer: widget.isMultiplayer,
+        myUserId: currentUserId,
+        startsMyTurn: widget.startsMyTurn,
       );
+
+      if (widget.isMultiplayer && widget.roomId != null) {
+        _initRenderers().catchError((e) {
+          debugPrint("SnakeGame: Error initializing renderers: $e");
+        });
+
+        _setupEmbeddedCall();
+
+        // Sync context to callProvider
+        ref.read(callProvider.notifier).setSnakeContext(
+          roomId: widget.roomId,
+          currentUserId: currentUserId,
+          opponentId: null, // We'll update this if we know it
+        );
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _signalingConnSub?.cancel();
+    _incomingCallSub?.cancel();
+    _customMessageSub?.cancel();
+    _peerJoinedSub?.cancel();
+    _onHangupSub?.cancel();
+    _onCallAcceptedSub?.cancel();
+    _handshakePulseTimer?.cancel();
+    _callTimeoutTimer?.cancel();
+
+    _signalingService?.localStreamNotifier.removeListener(_onLocalStreamChanged);
+    _signalingService?.remoteStreamNotifier.removeListener(_onRemoteStreamChanged);
+    _signalingService?.remoteMediaTypeNotifier.removeListener(_onRemoteMediaTypeChanged);
+
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initRenderers() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
+    if (mounted) {
+      setState(() {
+        _isRendererReady = true;
+      });
+      _onLocalStreamChanged();
+      _onRemoteStreamChanged();
+    }
+  }
+
+  void _setupEmbeddedCall() {
+    final String callRoomId = "snake_call_${widget.roomId}";
+    _signalingService = SignalingService();
+
+    _incomingCallSub = _signalingService!.onIncomingCallStream.listen((_) {
+      if (!mounted) return;
+      _showIncomingCallDialog();
+    });
+
+    _customMessageSub = _signalingService!.onCustomMessageStream.listen((data) {
+      final notifier = ref.read(snakeGameProvider.notifier);
+      if (data['action'] == 'toggle_mute') {
+        notifier.setRemoteAudioMuted(data['isMuted']);
+      } else if (data['action'] == 'toggle_video') {
+        notifier.setRemoteVideoEnabled(data['isVideoEnabled']);
+      } else if (data['action'] == 'local_silence_toggle') {
+        notifier.setAmISilencedByOpponent(data['isSilenced']);
+      } else if (data['action'] == 'room_ready') {
+        if (widget.startsMyTurn && !ref.read(snakeGameProvider).isCallStarted) {
+          _startCallConnection();
+        }
+      }
+    });
+
+    _signalingService!.onPeerJoinedStream.listen((_) {
+      if (widget.startsMyTurn && !ref.read(snakeGameProvider).isCallStarted) {
+        _startCallConnection();
+      }
+    });
+
+    _onHangupSub = _signalingService!.onHangupStream.listen((_) {
+      final notifier = ref.read(snakeGameProvider.notifier);
+      notifier.setCallStarted(false);
+      notifier.setCallStatus("Disconnected");
+      notifier.setRemoteVideoEnabled(false);
+      _callTimeoutTimer?.cancel();
+      _signalingService!.endCall(sendSignal: false);
+    });
+
+    _signalingService!.localStreamNotifier.addListener(_onLocalStreamChanged);
+    _signalingService!.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
+    _signalingService!.remoteMediaTypeNotifier.addListener(_onRemoteMediaTypeChanged);
+
+    _signalingService!.onConnectionStateChange = (state) {
+      if (!mounted) return;
+      final notifier = ref.read(snakeGameProvider.notifier);
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+        notifier.setCallStatus("Connecting...");
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        notifier.setCallStatus("Connected");
+      }
+    };
+
+    _connectToSignaling(callRoomId);
+  }
+
+  void _connectToSignaling(String callRoomId) {
+    _signalingService!.connect(Constants.wsBaseUrl, callRoomId).then((_) {
+      if (!mounted) return;
+      _startHandshakeSequence();
+    });
+  }
+
+  void _startHandshakeSequence() {
+    _handshakePulseTimer?.cancel();
+    _handshakePulseTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (!mounted || ref.read(snakeGameProvider).callStatus == "Connected") {
+        timer.cancel();
+        return;
+      }
+      _signalingService!.sendCustomMessage({'action': 'room_ready'});
+    });
+    _signalingService!.sendCustomMessage({'action': 'room_ready'});
+    ref.read(snakeGameProvider.notifier).setCallStatus(
+      widget.startsMyTurn ? "Handshaking..." : "Waiting for offer..."
+    );
+  }
+
+  void _startCallConnection() {
+    ref.read(snakeGameProvider.notifier).setCallStarted(true);
+    _signalingService!.startCall(isVideo: ref.read(snakeGameProvider).isLocalVideoEnabled);
+    ref.read(snakeGameProvider.notifier).setCallStatus("Starting call...");
+
+    _onCallAcceptedSub = _signalingService!.onCallAcceptedStream.listen((_) {
+      ref.read(snakeGameProvider.notifier).setCallStatus("Handshaking...");
+    });
+  }
+
+  void _showIncomingCallDialog() {
+    _signalingService!.acceptCall(isVideo: ref.read(snakeGameProvider).isLocalVideoEnabled);
+    ref.read(snakeGameProvider.notifier).setCallStarted(true);
+    ref.read(snakeGameProvider.notifier).setCallStatus("Connected");
+  }
+
+  void _onLocalStreamChanged() {
+    if (!_isRendererReady) return;
+    setState(() {
+      _localRenderer.srcObject = _signalingService?.localStreamNotifier.value;
+    });
+  }
+
+  void _onRemoteStreamChanged() {
+    if (!_isRendererReady) return;
+    final remoteStream = _signalingService?.remoteStreamNotifier.value;
+    if (mounted && remoteStream != null) {
+      setState(() {
+        _remoteRenderer.srcObject = remoteStream;
+      });
+      ref.read(snakeGameProvider.notifier).setCallStatus("Connected");
+      final videoTracks = remoteStream.getVideoTracks();
+      ref.read(snakeGameProvider.notifier).setRemoteVideoEnabled(
+        videoTracks.isNotEmpty && videoTracks.any((t) => t.enabled)
+      );
+      _startCallRecording();
+    }
+  }
+
+  bool _recordingDialogShown = false;
+
+  void _startCallRecording() async {
+    if (_recordingDialogShown) return;
+    _recordingDialogShown = true;
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: Colors.black87,
+          title: const Row(
+            children: [
+              Icon(Icons.fiber_manual_record, color: Colors.red),
+              SizedBox(width: 10),
+              Text("Recording Started", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ],
+          ),
+          content: const Text(
+            "Your voice and video is being recorded for security and quality purposes.",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final size = MediaQuery.of(context).size;
+                final roomId = "snake_${widget.roomId}";
+
+                Navigator.pop(dialogContext);
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Preparing recording...",
+                      ),
+                      backgroundColor: Colors.blueAccent,
+                      duration: Duration(seconds: 4),
+                    ),
+                  );
+                }
+
+                Future.delayed(const Duration(milliseconds: 3000), () async {
+                  await _recordingService.startRecording(
+                    roomId,
+                    width: size.width.toInt(),
+                    height: size.height.toInt(),
+                  );
+                });
+              },
+              child: const Text(
+                "OK",
+                style: TextStyle(color: Colors.blueAccent),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _onRemoteMediaTypeChanged() {
+    final mediaType = _signalingService?.remoteMediaTypeNotifier.value;
+    if (mounted && mediaType != null) {
+      ref.read(snakeGameProvider.notifier).setRemoteVideoEnabled(mediaType == 'video');
+    }
+  }
+
+  void _toggleLocalAudio() {
+    final notifier = ref.read(snakeGameProvider.notifier);
+    final isMuted = !ref.read(snakeGameProvider).isLocalAudioMuted;
+    notifier.setLocalAudioMuted(isMuted);
+    _signalingService?.toggleMute(isMuted);
+  }
+
+  void _toggleLocalVideo() {
+    final notifier = ref.read(snakeGameProvider.notifier);
+    final isVideo = !ref.read(snakeGameProvider).isLocalVideoEnabled;
+    notifier.setLocalVideoEnabled(isVideo);
+    _signalingService?.toggleVideo(isVideo);
+    _onLocalStreamChanged();
   }
 
   // Color Palette - Exact Reference Sequence
@@ -58,6 +345,10 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
       return Colors.white;
     }
     return Colors.black87;
+  }
+
+  void _startCallStatusRecording() async {
+    // This is a placeholder if we want to add the recording dialog later
   }
 
   void _showResetConfirmation() {
@@ -144,6 +435,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
   }
 
 
+  @override
   Widget build(BuildContext context) {
     ref.listen(snakeGameProvider, (previous, next) {
       if (next.playerPosition == totalSquares &&
@@ -171,6 +463,12 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
         backgroundColor: const Color(0xFF2C3E50),
         elevation: 4,
         actions: [
+          if (widget.isMultiplayer && !ref.watch(snakeGameProvider).isCallStarted)
+            IconButton(
+              onPressed: _startCallConnection,
+              icon: const Icon(Icons.videocam, color: Colors.greenAccent),
+              tooltip: "Start Video Call",
+            ),
           IconButton(
             onPressed: _showResetConfirmation,
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -179,7 +477,13 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
       ),
       body: Column(
         children: [
-          const Spacer(flex: 1),
+          if (widget.isMultiplayer &&
+              ref.watch(snakeGameProvider).isCallStarted &&
+              _signalingService != null)
+            Expanded(flex: 3, child: _buildCallFrame()),
+          
+          if (!ref.watch(snakeGameProvider).isCallStarted)
+            const Spacer(flex: 1),
           // Board Area - Maximum Width
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4.0),
@@ -297,45 +601,94 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
                           builder: (context) {
                             final gameState = ref.watch(snakeGameProvider);
                             Offset p = getCoord(gameState.playerPosition);
-                            return AnimatedPositioned(
-                              duration: const Duration(milliseconds: 350),
-                              curve: Curves.easeInOut,
-                              left: p.dx * cellSize,
-                              top: p.dy * cellSize,
-                              child: SizedBox(
-                                width: cellSize,
-                                height: cellSize,
-                                child: Center(
-                                  child: Opacity(
-                                    opacity: gameState.playerPosition == 0 ? 0.3 : 1.0,
-                                    child: Container(
-                                      width: cellSize * 0.7,
-                                      height: cellSize * 0.7,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black45,
-                                            blurRadius: 5,
+                            Offset op = getCoord(gameState.opponentPosition);
+
+                            return Stack(
+                              children: [
+                                // Opponent Token
+                                if (gameState.isMultiplayer)
+                                  AnimatedPositioned(
+                                    duration: const Duration(milliseconds: 350),
+                                    curve: Curves.easeInOut,
+                                    left: op.dx * cellSize,
+                                    top: op.dy * cellSize,
+                                    child: SizedBox(
+                                      width: cellSize,
+                                      height: cellSize,
+                                      child: Center(
+                                        child: Opacity(
+                                          opacity: gameState.opponentPosition == 0 ? 0.3 : 1.0,
+                                          child: Container(
+                                            width: cellSize * 0.6,
+                                            height: cellSize * 0.6,
+                                            decoration: BoxDecoration(
+                                              color: Colors.redAccent,
+                                              shape: BoxShape.circle,
+                                              boxShadow: [
+                                                const BoxShadow(
+                                                  color: Colors.black45,
+                                                  blurRadius: 5,
+                                                ),
+                                              ],
+                                              border: Border.all(
+                                                color: Colors.black,
+                                                width: 1.5,
+                                              ),
+                                            ),
+                                            child: const Center(
+                                              child: Icon(
+                                                Icons.person,
+                                                size: 14,
+                                                color: Colors.white,
+                                              ),
+                                            ),
                                           ),
-                                        ],
-                                        border: Border.all(
-                                          color: Colors.black,
-                                          width: 2,
                                         ),
                                       ),
-                                      child: const Center(
-                                        child: Icon(
-                                          Icons.stars,
-                                          size: 20,
-                                          color: Colors.orange,
+                                    ),
+                                  ),
+                                // My Token
+                                AnimatedPositioned(
+                                  duration: const Duration(milliseconds: 350),
+                                  curve: Curves.easeInOut,
+                                  left: p.dx * cellSize,
+                                  top: p.dy * cellSize,
+                                  child: SizedBox(
+                                    width: cellSize,
+                                    height: cellSize,
+                                    child: Center(
+                                      child: Opacity(
+                                        opacity: gameState.playerPosition == 0 ? 0.3 : 1.0,
+                                        child: Container(
+                                          width: cellSize * 0.7,
+                                          height: cellSize * 0.7,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              const BoxShadow(
+                                                color: Colors.black45,
+                                                blurRadius: 5,
+                                              ),
+                                            ],
+                                            border: Border.all(
+                                              color: Colors.black,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: const Center(
+                                            child: Icon(
+                                              Icons.stars,
+                                              size: 20,
+                                              color: Colors.orange,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
+                              ],
                             );
                           },
                         ),
@@ -474,6 +827,271 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
       ),
     );
   }
+
+  // Helper widget to build the embedded call frame
+  Widget _buildCallFrame() {
+    final gameState = ref.watch(snakeGameProvider);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white10, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildVideoContainer(
+                notifier: _signalingService!.localStreamNotifier,
+                renderer: _localRenderer,
+                isEnabled: gameState.isLocalVideoEnabled,
+                label: "You",
+                isLocal: true,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildVideoContainer(
+                notifier: _signalingService!.remoteStreamNotifier,
+                renderer: _remoteRenderer,
+                isEnabled: gameState.isRemoteVideoEnabled,
+                label: "Opponent",
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoContainer({
+    required ValueListenable<MediaStream?> notifier,
+    required RTCVideoRenderer renderer,
+    required bool isEnabled,
+    required String label,
+    bool isLocal = false,
+  }) {
+    final gameState = ref.watch(snakeGameProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black38,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          ValueListenableBuilder<MediaStream?>(
+            valueListenable: notifier,
+            builder: (context, stream, _) {
+              if (stream != null &&
+                  stream.getVideoTracks().isNotEmpty &&
+                  isEnabled) {
+                return RTCVideoView(
+                  renderer,
+                  mirror: isLocal,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                );
+              }
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.white10,
+                      child: Icon(
+                        isLocal ? Icons.person : Icons.person_outline,
+                        color: Colors.white24,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      label + (isEnabled ? "" : " (Camera Off)"),
+                      style: const TextStyle(
+                        color: Colors.white24,
+                        fontSize: 10,
+                      ),
+                    ),
+                    if (!isLocal && stream == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          gameState.callStatus,
+                          style: const TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          // Bottom Controls and Indicators
+          Positioned(
+            bottom: 6,
+            left: 6,
+            right: 6,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Call Status Icons (Mic/Video)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLocal)
+                      _buildOverlayIconButton(
+                        icon: gameState.isLocalAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: gameState.isLocalAudioMuted
+                            ? Colors.redAccent
+                            : Colors.white,
+                        onPressed: _toggleLocalAudio,
+                      )
+                    else
+                      _buildOverlayIndicator(
+                        icon: gameState.isRemoteAudioMuted ? Icons.mic_off : Icons.mic,
+                        color: gameState.isRemoteAudioMuted
+                            ? Colors.redAccent
+                            : Colors.greenAccent,
+                      ),
+                    const SizedBox(width: 4),
+                    if (isLocal)
+                      _buildOverlayIconButton(
+                        icon: gameState.isLocalVideoEnabled
+                            ? Icons.videocam
+                            : Icons.videocam_off,
+                        color: gameState.isLocalVideoEnabled
+                            ? Colors.blue
+                            : Colors.white70,
+                        onPressed: _toggleLocalVideo,
+                      )
+                    else
+                      _buildOverlayIndicator(
+                        icon: gameState.isRemoteVideoEnabled
+                            ? Icons.videocam
+                            : Icons.videocam_off,
+                        color: gameState.isRemoteVideoEnabled
+                            ? Colors.blue
+                            : Colors.white24,
+                      ),
+                  ],
+                ),
+
+                // Audio Output / Silence Indicator
+                if (!isLocal)
+                  _buildOverlayIconButton(
+                    icon: gameState.isOpponentLocallySilenced
+                        ? Icons.volume_off
+                        : Icons.volume_up,
+                    color: gameState.isOpponentLocallySilenced
+                        ? Colors.redAccent
+                        : Colors.white,
+                    onPressed: () {
+                      ref.read(snakeGameProvider.notifier).setOpponentLocallySilenced(!gameState.isOpponentLocallySilenced);
+                    },
+                    label: gameState.isOpponentLocallySilenced ? "Silenced" : null,
+                  )
+                else if (gameState.amISilencedByOpponent)
+                  _buildOverlayIndicator(
+                    icon: Icons.volume_off,
+                    color: Colors.redAccent,
+                    label: "Silenced",
+                  ),
+              ],
+            ),
+          ),
+          
+          if (isLocal)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: _buildOverlayIconButton(
+                icon: Icons.call_end,
+                color: Colors.red,
+                onPressed: () {
+                   _signalingService?.endCall();
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverlayIconButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+    String? label,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            if (label != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverlayIndicator({
+    required IconData icon,
+    required Color color,
+    String? label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 16),
+          if (label != null) ...[
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class RetroBoardLinesPainter extends CustomPainter {
@@ -516,7 +1134,7 @@ class RetroBoardLinesPainter extends CustomPainter {
       Offset p1 = getC(s);
       Offset p2 = getC(e);
       double dx = p2.dx - p1.dx, dy = p2.dy - p1.dy;
-      double len = sqrt(dx * dx + dy * dy);
+      double len = math.sqrt(dx * dx + dy * dy);
       Offset perp = Offset(-dy / len, dx / len) * (cell * 0.2);
 
       canvas.drawLine(p1 - perp, p2 - perp, railPaint);
@@ -633,7 +1251,7 @@ class RetroBoardLinesPainter extends CustomPainter {
     // 3. Realistic Illustrator Head
     ui.Tangent? tangent = pathMetric.getTangentForOffset(0);
     if (tangent != null) {
-      double angle = atan2(tangent.vector.dy, tangent.vector.dx) + pi;
+      double angle = math.atan2(tangent.vector.dy, tangent.vector.dx) + math.pi;
       double headScale = (cellSize / 38).clamp(0.5, 0.85); // More slender head
 
       canvas.save();

@@ -273,8 +273,11 @@ class ApiService {
 
   /// INVITES
   
-  Future<int?> sendInvite(int toUserId) async {
-    final response = await post('/api/send-invite/', {"to_user": toUserId}, base: ApiBase.render);
+  Future<int?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {
+    final Map<String, dynamic> body = {"to_user": toUserId, "game_type": gameType};
+    if (boardId != null) body['board_id'] = boardId;
+
+    final response = await post('/api/send-invite/', body, base: ApiBase.render);
     if (response.statusCode == 201) {
       return response.data['room_id'];
     }

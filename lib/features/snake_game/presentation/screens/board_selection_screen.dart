@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import '../../models/snake_board.dart';
 import '../../data/snake_boards_data.dart';
 import 'snake_game_screen.dart';
+import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
 import 'dart:math';
 
-class BoardSelectionScreen extends StatefulWidget {
-  const BoardSelectionScreen({super.key});
+class BoardSelectionScreen extends ConsumerStatefulWidget {
+  final bool isMultiplayer;
+  const BoardSelectionScreen({super.key, this.isMultiplayer = false});
 
   @override
-  State<BoardSelectionScreen> createState() => _BoardSelectionScreenState();
+  ConsumerState<BoardSelectionScreen> createState() => _BoardSelectionScreenState();
 }
 
-class _BoardSelectionScreenState extends State<BoardSelectionScreen> {
+class _BoardSelectionScreenState extends ConsumerState<BoardSelectionScreen> {
   final PageController _pageController = PageController(viewportFraction: 0.85);
   double _currentPage = 0.0;
 
@@ -72,12 +76,30 @@ class _BoardSelectionScreenState extends State<BoardSelectionScreen> {
             child: ElevatedButton(
               onPressed: () {
                 final selectedBoard = snakeBoards[_currentPage.round()];
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => SnakeGameScreen(board: selectedBoard),
-                  ),
-                );
+                if (widget.isMultiplayer) {
+                  final authState = ref.read(authProvider).value;
+                  final currentUserId = authState?.userId ?? 1;
+
+                  // Navigate to UserList to invite a friend for THIS board
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserList(
+                        currentUserId: currentUserId,
+                        isSnakeGame: true,
+                        selectedSnakeBoard: selectedBoard,
+                        showBackButton: true,
+                      ),
+                    ),
+                  );
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SnakeGameScreen(board: selectedBoard),
+                    ),
+                  );
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orangeAccent,

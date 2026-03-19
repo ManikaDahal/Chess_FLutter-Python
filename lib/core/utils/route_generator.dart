@@ -13,6 +13,7 @@ import 'package:chess_game_manika/features/game/presentation/screens/chess_board
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/board_selection_screen.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
+import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 
 import 'package:flutter/material.dart';
 
@@ -82,11 +83,19 @@ class RouteGenerator {
         return MaterialPageRoute(builder: (_) => const SelfChatScreen());
 
       case Routes.snakeBoardSelectionRoute:
-        return MaterialPageRoute(builder: (_) => const BoardSelectionScreen());
+        final bool isMultiplayer = settings.arguments as bool? ?? false;
+        return MaterialPageRoute(
+          builder: (_) => BoardSelectionScreen(isMultiplayer: isMultiplayer),
+        );
 
       case Routes.snakeGameRoute:
         final board = settings.arguments as SnakeBoard;
         return MaterialPageRoute(builder: (_) => SnakeGameScreen(board: board));
+
+      case Routes.snakeLandingPageRoute:
+        return MaterialPageRoute(
+          builder: (_) => const LandingPage(isSnakeMode: true),
+        );
 
       default:
         return MaterialPageRoute(

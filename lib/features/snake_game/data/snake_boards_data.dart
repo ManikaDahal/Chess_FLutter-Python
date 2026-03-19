@@ -2,7 +2,7 @@ import '../models/snake_board.dart';
 
 final List<SnakeBoard> snakeBoards = [
   SnakeBoard(
-    id: "board1",
+    id: 1,
     name: "BOARD 1",
     description: "The original race of luck and setbacks.",
     imagePath: "assets/images/snake1.png",
@@ -10,7 +10,7 @@ final List<SnakeBoard> snakeBoards = [
     ladders: {9: 27, 18: 37, 25: 54, 28: 51, 56: 64, 68: 88, 76: 97, 79: 100},
   ),
   SnakeBoard(
-    id: "board2",
+    id: 2,
     name: "BOARD 2",
     description: "Climb the ladders; dodge the slides",
     imagePath: "assets/images/snake2.png",
@@ -18,7 +18,7 @@ final List<SnakeBoard> snakeBoards = [
     ladders: {4: 56, 12: 50, 14: 55, 22: 58, 41: 79, 54: 88},
   ),
   SnakeBoard(
-    id: "board3",
+    id: 3,
     name: "BOARD 3",
     description: "A single roll changes everything.",
     imagePath: "assets/images/snake3.png",
@@ -26,7 +26,7 @@ final List<SnakeBoard> snakeBoards = [
     ladders: {4: 25, 21: 38, 26: 67, 43: 76, 59: 80, 71: 89},
   ),
   SnakeBoard(
-    id: "board4",
+    id: 4,
     name: "BOARD 4",
     description: "First to the top wins it all",
     imagePath: "assets/images/snake4.png",
@@ -55,7 +55,7 @@ final List<SnakeBoard> snakeBoards = [
     },
   ),
   SnakeBoard(
-    id: "board5",
+    id: 5,
     name: "BOARD 5",
     description: "Quick turns, big leaps, and sudden drops",
     imagePath: "assets/images/snake5.png",
@@ -63,7 +63,7 @@ final List<SnakeBoard> snakeBoards = [
     ladders: {4: 25, 13: 46, 42: 63, 50: 69, 62: 81, 74: 92},
   ),
   SnakeBoard(
-    id: "board6",
+    id: 6,
     name: "BOARD 6",
     description: "Master the board and reach the summit",
     imagePath: "assets/images/snake6.png",

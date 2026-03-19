@@ -1,12 +1,10 @@
 import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/utils/route_const.dart';
-import 'package:chess_game_manika/core/utils/route_generator.dart';
-import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
-import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
+import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:chess_game_manika/features/invites/presentation/screens/invite_waiting_screen.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 import 'package:flutter/material.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +12,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class UserList extends ConsumerStatefulWidget {
   final int currentUserId;
-  const UserList({super.key, required this.currentUserId});
+  final bool isSnakeGame;
+  final SnakeBoard? selectedSnakeBoard;
+
+  final bool showBackButton;
+
+  const UserList({
+    super.key,
+    required this.currentUserId,
+    this.isSnakeGame = false,
+    this.selectedSnakeBoard,
+    this.showBackButton = false,
+  });
 
   @override
   ConsumerState<UserList> createState() => _UserListState();
@@ -75,6 +84,63 @@ class _UserListState extends ConsumerState<UserList> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEnteringChat = false;
+        });
+      }
+    }
+  }
+
+  void _playSnake(int targetUserId, String targetUserName) async {
+    if (_isEnteringChat) return;
+
+    setState(() {
+      _isEnteringChat = true;
+    });
+
+    try {
+      final inviteService = InviteService();
+      final int? roomId = await inviteService.sendInvite(
+        targetUserId,
+        gameType: 'snake',
+        boardId: widget.selectedSnakeBoard?.id,
+      );
+
+      if (roomId != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Invitation sent! Waiting for opponent to accept..."),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InviteWaitingScreen(
+              targetUserId: targetUserId,
+              targetUserName: targetUserName,
+              roomId: roomId,
+            ),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to send invitation. Please try again."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print("Error starting snake game: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        );
       }
     } finally {
       if (mounted) {
@@ -162,12 +228,12 @@ class _UserListState extends ConsumerState<UserList> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: whiteColor),
-          onPressed: () {
-            RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
-          },
-        ),
+        leading: widget.showBackButton
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: whiteColor),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
         title: const Text("Users"),
         centerTitle: true,
         backgroundColor: backgroundColor,
@@ -230,12 +296,14 @@ class _UserListState extends ConsumerState<UserList> {
                           onPressed: () => _startCall(callRoomId, true),
                         ),
                         IconButton(
-                          icon: const Icon(
-                            Icons.grid_4x4,
-                            color: Colors.orange,
+                          icon: Icon(
+                            widget.isSnakeGame ? Icons.gesture_rounded : Icons.grid_4x4,
+                            color: widget.isSnakeGame ? Colors.green : Colors.orange,
                           ),
-                          tooltip: "Play Chess",
-                          onPressed: () => _playChess(targetUserId, username),
+                          tooltip: widget.isSnakeGame ? "Play Snake & Ladder" : "Play Chess",
+                          onPressed: () => widget.isSnakeGame 
+                              ? _playSnake(targetUserId, username)
+                              : _playChess(targetUserId, username),
                         ),
                       ],
                     ),

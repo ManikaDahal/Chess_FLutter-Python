@@ -9,7 +9,8 @@ import 'package:chess_game_manika/core/api/api_services.dart';
 
 class LandingPage extends StatefulWidget {
   final Function(int)? onTabChange;
-  const LandingPage({super.key, this.onTabChange});
+  final bool isSnakeMode;
+  const LandingPage({super.key, this.onTabChange, this.isSnakeMode = false});
 
   @override
   State<LandingPage> createState() => _LandingPageState();
@@ -208,12 +209,21 @@ class _LandingPageState extends State<LandingPage> {
       child: Column(
         children: [
           _buildMainModeButton(
-            title: "PLAY WITH FRIENDS",
-            subtitle: "Challenge and chat with your buddies",
-            icon: Icons.people_alt_rounded,
-            color: accentGreen,
+            title: widget.isSnakeMode ? "PLAY WITH FRIENDS" : "PLAY WITH FRIENDS",
+            subtitle: widget.isSnakeMode 
+                ? "Challenge friends to a Snake & Ladder match"
+                : "Challenge and chat with your buddies",
+            icon: widget.isSnakeMode ? Icons.emoji_people_rounded : Icons.people_alt_rounded,
+            color: widget.isSnakeMode ? Colors.orangeAccent : accentGreen,
             onTap: () {
-              if (widget.onTabChange != null) {
+              if (widget.isSnakeMode) {
+                // Navigate to Board Selection for multiplayer
+                RouteGenerator.navigateToPage(
+                  context,
+                  Routes.snakeBoardSelectionRoute,
+                  arguments: true, // true signals multiplayer intent
+                );
+              } else if (widget.onTabChange != null) {
                 widget.onTabChange!(1);
               }
             },
@@ -223,34 +233,50 @@ class _LandingPageState extends State<LandingPage> {
             children: [
               Expanded(
                 child: _buildSecondaryModeButton(
-                  title: "PRACTICE",
-                  icon: Icons.psychology_rounded,
+                  title: widget.isSnakeMode ? "SELECT BOARD" : "PRACTICE",
+                  icon: widget.isSnakeMode ? Icons.grid_view_rounded : Icons.psychology_rounded,
                   color: Colors.blueAccent,
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const GameBoard(
-                          currentUserId: 1,
-                          roomId: 1,
-                          isMultiplayer: false,
+                    if (widget.isSnakeMode) {
+                      RouteGenerator.navigateToPage(
+                        context,
+                        Routes.snakeBoardSelectionRoute,
+                      );
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const GameBoard(
+                            currentUserId: 1,
+                            roomId: 1,
+                            isMultiplayer: false,
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    }
                   },
                 ),
               ),
               const SizedBox(width: 15),
               Expanded(
                 child: _buildSecondaryModeButton(
-                  title: "SNAKE GAME",
-                  icon: Icons.gesture_rounded,
-                  color: Colors.orangeAccent,
+                  title: widget.isSnakeMode ? "CHESS GAME" : "SNAKE GAME",
+                  icon: widget.isSnakeMode ? Icons.grid_4x4_rounded : Icons.gesture_rounded,
+                  color: widget.isSnakeMode ? Colors.purpleAccent : Colors.orangeAccent,
                   onTap: () {
-                    RouteGenerator.navigateToPage(
-                      context,
-                      Routes.snakeBoardSelectionRoute,
-                    );
+                    if (widget.isSnakeMode) {
+                      // Return to Main (Chess) Landing Page
+                      RouteGenerator.navigateToPageWithoutStack(
+                        context,
+                        Routes.bottomNavBarRoute,
+                      );
+                    } else {
+                      // Navigate to Snake Landing Page
+                      RouteGenerator.navigateToPage(
+                        context,
+                        Routes.snakeLandingPageRoute,
+                      );
+                    }
                   },
                 ),
               ),

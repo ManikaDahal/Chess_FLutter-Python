@@ -1,5 +1,5 @@
 class SnakeBoard {
-  final String id;
+  final int id;
   final String name;
   final Map<int, int> snakes;
   final Map<int, int> ladders;

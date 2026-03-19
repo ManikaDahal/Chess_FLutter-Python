@@ -11,6 +11,7 @@ class CallState {
   final bool isMinimized;
   final String? activeRoomId;
   final int? activeChessRoomId;
+  final int? activeSnakeRoomId;
   final int? currentUserId;
   final int? opponentId;
   final bool amIWhite;
@@ -21,6 +22,7 @@ class CallState {
     this.isMinimized = false,
     this.activeRoomId,
     this.activeChessRoomId,
+    this.activeSnakeRoomId,
     this.currentUserId,
     this.opponentId,
     this.amIWhite = true,
@@ -32,6 +34,7 @@ class CallState {
     bool? isMinimized,
     String? activeRoomId,
     int? activeChessRoomId,
+    int? activeSnakeRoomId,
     int? currentUserId,
     int? opponentId,
     bool? amIWhite,
@@ -39,12 +42,14 @@ class CallState {
     bool? isVideoEnabled,
     bool clearActiveRoom = false,
     bool clearChessRoom = false,
+    bool clearSnakeRoom = false,
     bool clearOpponent = false,
   }) {
     return CallState(
       isMinimized: isMinimized ?? this.isMinimized,
       activeRoomId: clearActiveRoom ? null : (activeRoomId ?? this.activeRoomId),
       activeChessRoomId: clearChessRoom ? null : (activeChessRoomId ?? this.activeChessRoomId),
+      activeSnakeRoomId: clearSnakeRoom ? null : (activeSnakeRoomId ?? this.activeSnakeRoomId),
       currentUserId: currentUserId ?? this.currentUserId,
       opponentId: clearOpponent ? null : (opponentId ?? this.opponentId),
       amIWhite: amIWhite ?? this.amIWhite,
@@ -91,6 +96,20 @@ class CallNotifier extends Notifier<CallState> {
 
   void clearChessContext() {
     state = state.copyWith(clearChessRoom: true, clearOpponent: true);
+  }
+
+  void setSnakeContext({int? roomId, int? currentUserId, int? opponentId}) {
+    state = state.copyWith(
+      activeSnakeRoomId: roomId,
+      clearSnakeRoom: roomId == null,
+      currentUserId: currentUserId,
+      opponentId: opponentId,
+      clearOpponent: opponentId == null,
+    );
+  }
+
+  void clearSnakeContext() {
+    state = state.copyWith(clearSnakeRoom: true, clearOpponent: true);
   }
 
   void setMuted(bool val) => state = state.copyWith(isMuted: val);
@@ -238,7 +257,7 @@ class CallNotifier extends Notifier<CallState> {
                     isInitialVideo: isVideo,
                     signalingService: serviceToUse,
                     currentUserId: state.currentUserId,
-                    canMinimize: state.activeChessRoomId != null,
+                    canMinimize: state.activeChessRoomId != null || state.activeSnakeRoomId != null,
                   ),
                 ),
               );
