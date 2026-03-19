@@ -1,27 +1,31 @@
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class ChatPage extends StatefulWidget {
+
+
+class ChatPage extends ConsumerStatefulWidget {
   final int roomId;
   final int currentUserId;
-  final bool showBackButton; // New parameter
+  final bool showBackButton;
 
   const ChatPage({
     required this.roomId,
     required this.currentUserId,
-    this.showBackButton = true, // Default to true
+    this.showBackButton = true,
     super.key,
   });
 
   @override
-  State<ChatPage> createState() => _ChatPageState();
+  ConsumerState<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+
+class _ChatPageState extends ConsumerState<ChatPage> {
+
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -42,18 +46,21 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     print("ChatPage: initState called for Room ${widget.roomId}");
     // Ensure the provider is initialized for THIS specific room
-    final provider = Provider.of<ChatProvider>(context, listen: false);
-    provider.init(widget.roomId, widget.currentUserId);
-    provider.resetUnreadCount(widget.roomId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = ref.read(chatProvider);
+      provider.init(widget.roomId, widget.currentUserId);
+      provider.resetUnreadCount(widget.roomId);
+    });
   }
+
 
   @override
   void dispose() {
     print("ChatPage: dispose called for Room ${widget.roomId}");
-    final provider = Provider.of<ChatProvider>(context, listen: false);
-    provider.clearActiveRoom();
+    ref.read(chatProvider).clearActiveRoom();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -76,8 +83,9 @@ class _ChatPageState extends State<ChatPage> {
                 },
               )
             : null, // Hide back button if not needed
-        title: Consumer<ChatProvider>(
-          builder: (_, provider, __) {
+        title: Consumer(
+          builder: (context, ref, child) {
+            final provider = ref.watch(chatProvider);
             final messages = provider.getMessages(widget.roomId);
             return Column(
               children: [
@@ -96,6 +104,7 @@ class _ChatPageState extends State<ChatPage> {
             );
           },
         ),
+
         backgroundColor: backgroundColor,
         foregroundColor: whiteColor,
         centerTitle: true,
@@ -106,9 +115,11 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: Consumer<ChatProvider>(
-              builder: (_, provider, __) {
+            child: Consumer(
+              builder: (context, ref, child) {
+                final provider = ref.watch(chatProvider);
                 final messages = provider.getMessages(widget.roomId);
+
                 print(
                   "ChatPage [Room ${widget.roomId}]: Rebuilding. Messages: ${messages.length}",
                 );
@@ -241,10 +252,8 @@ class _ChatPageState extends State<ChatPage> {
                       final text = _controller.text.trim();
                       if (text.isEmpty) return;
 
-                      Provider.of<ChatProvider>(
-                        context,
-                        listen: false,
-                      ).send(widget.roomId, text);
+                      ref.read(chatProvider).send(widget.roomId, text);
+
 
                       _controller.clear();
                       _scrollToBottom();

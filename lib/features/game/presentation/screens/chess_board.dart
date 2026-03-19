@@ -8,18 +8,20 @@ import 'package:chess_game_manika/features/call/services/recording_service.dart'
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/game/presentation/widgets/square_widget.dart';
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
 import 'package:chess_game_manika/helper/helper.dart';
 import 'package:chess_game_manika/features/game/data/models/chess_piece.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 
-class GameBoard extends StatefulWidget {
+class GameBoard extends ConsumerStatefulWidget {
   final int roomId;
   final int currentUserId;
   final bool isMultiplayer;
@@ -40,11 +42,13 @@ class GameBoard extends StatefulWidget {
   });
 
   @override
-  State<GameBoard> createState() => _GameBoardState();
+  ConsumerState<GameBoard> createState() => _GameBoardState();
 }
 
-class _GameBoardState extends State<GameBoard>
+
+class _GameBoardState extends ConsumerState<GameBoard>
     with AutomaticKeepAliveClientMixin {
+
   late List<List<ChessPiece?>> board;
   ChessPiece? selectedPiece;
   int selectedRow = -1;
@@ -642,11 +646,13 @@ class _GameBoardState extends State<GameBoard>
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          Provider.of<ChatProvider>(
-            context,
-            listen: false,
-          ).init(widget.roomId, widget.currentUserId, setAsActive: true);
+          ref.read(chatProvider).init(
+            widget.roomId,
+            widget.currentUserId,
+            setAsActive: true,
+          );
         });
+
       }
     } catch (e, st) {
       print("GameBoard FATAL ERROR in initState: $e\n$st");
@@ -1478,8 +1484,9 @@ class _GameBoardState extends State<GameBoard>
           ),
 
           // Message Button
-          Consumer<ChatProvider>(
-            builder: (_, provider, __) {
+          Consumer(
+            builder: (context, ref, _) {
+              final provider = ref.watch(chatProvider);
               final int unreadCount = provider.getUnreadCount(widget.roomId);
               return GestureDetector(
                 onTap: () {
@@ -1494,6 +1501,7 @@ class _GameBoardState extends State<GameBoard>
                     ),
                   );
                 },
+
                 child: badges.Badge(
                   badgeContent: Text(
                     unreadCount.toString(),

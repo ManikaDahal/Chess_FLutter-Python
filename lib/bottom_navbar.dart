@@ -1,31 +1,34 @@
 import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/call/presentation/screens/video_gallery_screen.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
-import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/features/profile/presentation/screens/profile_page.dart';
 import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
+
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:provider/provider.dart';
+
 import 'package:badges/badges.dart' as badges;
 
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/global_callhandler.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
+
 import 'package:chess_game_manika/core/widgets/connectivity_banner.dart';
 
-class BottomNavBarWrapper extends StatefulWidget {
+class BottomNavBarWrapper extends ConsumerStatefulWidget {
   const BottomNavBarWrapper({super.key});
 
   @override
-  State<BottomNavBarWrapper> createState() => _BottomNavBarWrapperState();
+  ConsumerState<BottomNavBarWrapper> createState() => _BottomNavBarWrapperState();
 }
 
-class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
+class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
     with WidgetsBindingObserver {
+
   int _currentIndex = 0;
   late final PageController _pageController;
   int? _currentUserId;
@@ -155,13 +158,14 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
     // 6. Initialize ChatProvider - Final stagger
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    chatProvider.clearActiveRoom();
+    final chatProviderRef = ref.read(chatProvider);
+    chatProviderRef.clearActiveRoom();
     try {
-      chatProvider.init(roomId, userId, setAsActive: false);
+      chatProviderRef.init(roomId, userId, setAsActive: false);
     } catch (e) {
       print("ChatProvider init error: $e");
     }
+
   }
 
   void _handleInitializationError(Object e) {
@@ -252,9 +256,11 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
     }
 
     return ConnectivityBanner(
-      child: Consumer<ChatProvider>(
-        builder: (context, chatProvider, _) {
+      child: Consumer(
+        builder: (context, ref, _) {
+          final chatProviderRef = ref.watch(chatProvider);
           return Scaffold(
+
             body: PageView(
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
@@ -282,17 +288,19 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
                     print(
                       "BottomNavBar: Tab 3 (Chat) clicked, setting active room to $_currentRoomId",
                     );
-                    chatProvider.resetUnreadCount(_currentRoomId!);
+                    chatProviderRef.resetUnreadCount(_currentRoomId!);
                     // Re-init general room if we were previously in a private one
                     print("BottomNavBar: Returning to General Room 1");
-                    chatProvider.init(_currentRoomId!, _currentUserId!);
+                    chatProviderRef.init(_currentRoomId!, _currentUserId!);
+
                   }
                 } else {
                   // If leaving the chat tab, clear the active room so notifications can happen
                   print(
                     "BottomNavBar: Tab $index clicked (NOT Chat), clearing active room",
                   );
-                  chatProvider.clearActiveRoom();
+                  chatProviderRef.clearActiveRoom();
+
                 }
               },
               items: [
@@ -310,11 +318,12 @@ class _BottomNavBarWrapperState extends State<BottomNavBarWrapper>
                 ),
                 BottomNavigationBarItem(
                   icon: badges.Badge(
-                    showBadge: chatProvider.totalUnreadCount > 0,
+                    showBadge: chatProviderRef.totalUnreadCount > 0,
                     badgeContent: Text(
-                      chatProvider.totalUnreadCount.toString(),
+                      chatProviderRef.totalUnreadCount.toString(),
                       style: const TextStyle(color: Colors.white, fontSize: 10),
                     ),
+
                     child: const Icon(Icons.chat),
                   ),
                   label: "Chat",

@@ -1,10 +1,11 @@
 
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class ChatIcon extends StatelessWidget {
+
+class ChatIcon extends ConsumerWidget {
   final int roomId;
   final int currentUserId;
 
@@ -15,9 +16,9 @@ class ChatIcon extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<ChatProvider>(
-      builder: (_, provider, __) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final provider = ref.watch(chatProvider);
+
         return Stack(
           children: [
             IconButton(
@@ -47,7 +48,6 @@ class ChatIcon extends StatelessWidget {
               ),
           ],
         );
-      },
-    );
   }
 }
+

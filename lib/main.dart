@@ -6,8 +6,10 @@ import 'package:chess_game_manika/core/permission/permission_service.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -89,8 +91,14 @@ Future<void> main() async {
     print("8. User data loaded: loggedIn=$loggedIn, userId=$userId");
 
     print("9. Calling runApp...");
-    runApp(MyApp(autoLogin: loggedIn && userId != null));
+    runApp(
+      ProviderScope(
+        child: MyApp(autoLogin: loggedIn && userId != null),
+      ),
+    );
+
   } catch (e, stack) {
+
     print("!!! CONFIGURATION ERROR IN main(): $e !!!");
     print(stack);
     // Even if config fails, try to show something so it doesn't just go black
@@ -104,20 +112,18 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => ChatProvider())],
-      child: MaterialApp(
-        navigatorKey: Constants.navigatorKey,
-        debugShowCheckedModeBanner: false,
-        title: 'Chess App',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        ),
-        builder: (context, child) {
-          return child ?? const SizedBox.shrink();
-        },
-        home: autoLogin ? BottomNavBarWrapper() : Login(),
+    return MaterialApp(
+      navigatorKey: Constants.navigatorKey,
+      debugShowCheckedModeBanner: false,
+      title: 'Chess App',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
+      builder: (context, child) {
+        return child ?? const SizedBox.shrink();
+      },
+      home: autoLogin ? BottomNavBarWrapper() : Login(),
     );
+
   }
 }

@@ -6,20 +6,22 @@ import 'package:chess_game_manika/features/call/presentation/screens/call_screen
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:chess_game_manika/features/invites/presentation/screens/invite_waiting_screen.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
-import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class UserList extends StatefulWidget {
+
+class UserList extends ConsumerStatefulWidget {
   final int currentUserId;
   const UserList({super.key, required this.currentUserId});
 
   @override
-  State<UserList> createState() => _UserListState();
+  ConsumerState<UserList> createState() => _UserListState();
 }
 
-class _UserListState extends State<UserList> {
+class _UserListState extends ConsumerState<UserList> {
+
   final ApiService _apiService = ApiService();
   late Future<List<dynamic>> _usersFuture;
   bool _isEnteringChat = false;
@@ -49,9 +51,8 @@ class _UserListState extends State<UserList> {
 
       if (roomId != null && mounted) {
         // Initialize the chat provider for this specific room
-        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-        // chatProvider.clear(); // REMOVED: Destructive and unnecessary
-        chatProvider.init(roomId, widget.currentUserId);
+        ref.read(chatProvider).init(roomId, widget.currentUserId);
+
 
         // Navigate to ChatPage
         Navigator.push(

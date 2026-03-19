@@ -7,18 +7,20 @@ import 'package:chess_game_manika/core/widgets/custom_elevatedbutton.dart';
 import 'package:chess_game_manika/features/auth/services/auth_services.dart';
 import 'package:chess_game_manika/features/chat/services/chat_websocket_service.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
-import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
+import 'package:chess_game_manika/core/providers/global_providers.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class ProfilePage extends StatefulWidget {
+
+class ProfilePage extends ConsumerStatefulWidget {
   const ProfilePage({super.key});
 
   @override
-  State<ProfilePage> createState() => _ProfilePageState();
+  ConsumerState<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends ConsumerState<ProfilePage> {
+
   final ApiService api = ApiService();
   Map<String, dynamic>? profileData;
   @override
@@ -37,8 +39,8 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!mounted) return;
 
     // 1. Stop services and clear providers
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    chatProvider.clear();
+    ref.read(chatProvider).clear();
+
     ChatWebsocketService().disconnectAll();
 
     // 2. Perform centralized logout
