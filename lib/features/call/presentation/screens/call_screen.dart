@@ -215,7 +215,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // Use broadcast streams instead of direct callbacks to avoid listener hijacking
     _acceptSubscription = _signalingService.onCallAcceptedStream.listen((_) {
       if (mounted) {
-        setState(() => _status = "Connected");
+        _logs.add('📶 Peer accepted via signaling. Waiting for ICE...');
       }
     });
 
@@ -242,11 +242,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final stream = _signalingService.remoteStreamNotifier.value;
     if (mounted && stream != null) {
       debugPrint(
-        'CallScreen: [STATUS_SYNC] Remote stream detected (${stream.id}), setting status to Connected',
+        'CallScreen: [STATUS_SYNC] Remote stream detected (${stream.id}), attaching to renderer.',
       );
 
       setState(() {
-        _status = "Connected";
         _remoteRenderer.srcObject = stream;
       });
 
@@ -258,7 +257,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       });
 
       _logs.add('📹 Remote renderer set');
-      _startCallRecording();
+      // DO NOT set _status = "Connected" or trigger _startCallRecording here.
+      // Wait for the actual RTCPeerConnectionStateConnected event to fire for that.
     }
   }
 

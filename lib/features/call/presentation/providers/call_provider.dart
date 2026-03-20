@@ -120,9 +120,7 @@ class CallNotifier extends Notifier<CallState> {
     _initialized = true;
 
     generalSignalingService?.disconnect();
-    userSignalingService?.disconnect();
     generalSignalingService = null;
-    userSignalingService = null;
 
     const homeRoom = "chess_room_1";
 
@@ -236,9 +234,9 @@ class CallNotifier extends Notifier<CallState> {
               Vibration.cancel();
               Navigator.pop(context);
               if (roomId.startsWith('user_')) {
-                userSignalingService?.disconnect();
+                userSignalingService?.endCall(sendSignal: true);
               } else {
-                generalSignalingService?.disconnect();
+                generalSignalingService?.endCall(sendSignal: true);
               }
             },
             child: const Text("Decline", style: TextStyle(color: Colors.red)),

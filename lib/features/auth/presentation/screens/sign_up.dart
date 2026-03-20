@@ -16,14 +16,17 @@ import 'package:chess_game_manika/features/auth/presentation/screens/set_passwor
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/features/auth/services/auth_services.dart';
 
-class Signup extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
+
+class Signup extends ConsumerStatefulWidget {
   const Signup({super.key});
 
   @override
-  State<Signup> createState() => _SignupState();
+  ConsumerState<Signup> createState() => _SignupState();
 }
 
-class _SignupState extends State<Signup> {
+class _SignupState extends ConsumerState<Signup> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailAddressController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -72,6 +75,10 @@ class _SignupState extends State<Signup> {
           loader = false;
         });
 
+        // Update Riverpod auth state
+        final userId = result['user']['id'];
+        ref.read(authProvider.notifier).login(userId, googleUser.email);
+
         if (result['is_new_user'] == true) {
           Navigator.pushReplacement(
             context,
@@ -119,7 +126,25 @@ class _SignupState extends State<Signup> {
       });
 
       if (success) {
+        // Save auth data
+        final prefs = await SharedPreferences.getInstance();
+        final email = _emailAddressController.text.trim();
+        await prefs.setString('email', email);
+        await prefs.setBool('loggedIn', true);
+
+        int finalUserId = 0;
+        try {
+          final profile = await ApiService().getProfile();
+          finalUserId = profile['id'] ?? 0;
+          await prefs.setInt('userId', finalUserId);
+        } catch (e) {
+          print("Signup: WARNING - Could not fetch profile to get userId: $e");
+        }
+
         if (mounted) {
+          // Update Riverpod
+          ref.read(authProvider.notifier).login(finalUserId, email);
+
           DisplaySnackbar.show(context, signupSuccessfullStr);
           RouteGenerator.navigateToPage(context, Routes.bottomNavBarRoute);
         }

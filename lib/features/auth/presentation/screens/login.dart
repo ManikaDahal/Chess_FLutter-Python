@@ -17,15 +17,17 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 
-class Login extends StatefulWidget {
+class Login extends ConsumerStatefulWidget {
   const Login({super.key});
 
   @override
-  State<Login> createState() => _LoginState();
+  ConsumerState<Login> createState() => _LoginState();
 }
 
-class _LoginState extends State<Login> {
+class _LoginState extends ConsumerState<Login> {
   final BiometricAuth _biometricAuth = BiometricAuth();
   final LocalAuthentication auth = LocalAuthentication();
   final TextEditingController _emailController = TextEditingController();
@@ -74,6 +76,10 @@ class _LoginState extends State<Login> {
         setState(() {
           loader = false;
         });
+
+        // Update Riverpod auth state
+        final userId = result['user']['id'];
+        ref.read(authProvider.notifier).login(userId, googleUser.email);
 
         if (result['is_new_user'] == true) {
           Navigator.pushReplacement(
@@ -158,18 +164,22 @@ class _LoginState extends State<Login> {
         await prefs.setString('email', email);
         await prefs.setBool('loggedIn', true);
 
+        int finalUserId = 0;
         // Fetch real user ID from backend profile API
         try {
           final profile = await ApiService().getProfile();
-          final int realUserId = profile['id'] ?? 0;
-          await prefs.setInt('userId', realUserId);
-          print("Login: Saved real userId=$realUserId from profile API");
+          finalUserId = profile['id'] ?? 0;
+          await prefs.setInt('userId', finalUserId);
+          print("Login: Saved real userId=$finalUserId from profile API");
         } catch (e) {
           print("Login: WARNING - Could not fetch profile to get userId: $e");
           // userId will be 0 as fallback — game features will fail
         }
 
         if (mounted) {
+          // Update Riverpod auth state
+          ref.read(authProvider.notifier).login(finalUserId, email);
+
           WidgetsBinding.instance.addPostFrameCallback((_) {
             Navigator.pushReplacement(
               context,
@@ -337,6 +347,12 @@ class _LoginState extends State<Login> {
                       try {
                         bool ok = await _biometricAuth.loginWithBiometrics();
                         if (ok) {
+                          // Biometrics succeeded, read cached data and update provider
+                          final prefs = await SharedPreferences.getInstance();
+                          final int userId = prefs.getInt('userId') ?? 0;
+                          final String email = prefs.getString('email') ?? '';
+                          ref.read(authProvider.notifier).login(userId, email);
+
                           RouteGenerator.navigateToPage(
                             context,
                             Routes.bottomNavBarRoute,

@@ -4,17 +4,23 @@ import 'package:chess_game_manika/features/game/presentation/screens/chess_board
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
+import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
 
 class InviteWaitingScreen extends StatefulWidget {
   final int targetUserId;
   final String targetUserName;
   final int roomId;
+  final String gameType;
+  final int? boardId;
 
   const InviteWaitingScreen({
     super.key,
     required this.targetUserId,
     required this.targetUserName,
     required this.roomId,
+    this.gameType = 'chess',
+    this.boardId,
   });
 
   @override
@@ -83,20 +89,38 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
 
     // Use pushReplacement to ENSURE the waiting screen (the loader) is gone
     // and replaced by the game board in the navigation stack.
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => GameBoard(
-          roomId: widget.roomId,
-          currentUserId: currentUserId,
-          isMultiplayer: true,
-          amIWhite: true,
-          opponentId: widget.targetUserId,
-          showLeaveButton: true,
-          signalingService: _signalingService,
+
+    if (widget.gameType == 'snake') {
+      final int bId = widget.boardId ?? 1;
+      final selectedBoard = snakeBoards.firstWhere((b) => b.id == bId, orElse: () => snakeBoards[0]);
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SnakeGameScreen(
+            board: selectedBoard,
+            roomId: widget.roomId,
+            isMultiplayer: true,
+            startsMyTurn: true, // Inviter goes first
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GameBoard(
+            roomId: widget.roomId,
+            currentUserId: currentUserId,
+            isMultiplayer: true,
+            amIWhite: true,
+            opponentId: widget.targetUserId,
+            showLeaveButton: true,
+            signalingService: _signalingService,
+          ),
+        ),
+      );
+    }
   }
 
   @override

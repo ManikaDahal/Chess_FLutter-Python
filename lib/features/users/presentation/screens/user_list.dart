@@ -124,6 +124,8 @@ class _UserListState extends ConsumerState<UserList> {
               targetUserId: targetUserId,
               targetUserName: targetUserName,
               roomId: roomId,
+              gameType: 'snake',
+              boardId: widget.selectedSnakeBoard?.id,
             ),
           ),
         );
