@@ -149,6 +149,16 @@ class _GameBoardState extends ConsumerState<GameBoard>
       }
     };
 
+    _signalingService!.onIceConnectionStateChange = (state) {
+      if (!mounted) return;
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        print("[GAME CALL] 🧊 ICE connected (${state.name})...");
+        ref.read(chessProvider.notifier).setCallStatus("Connected");
+        _startCallRecording();
+      }
+    };
+
     _signalingService!.onLog = (msg) {
       if (mounted) {
         print("[GAME CALL_LOG] $msg");
@@ -238,7 +248,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
       print(
         "[GAME CALL] 🏢 Remote video enabled: $videoEnabled (${videoTracks.length} tracks)",
       );
-      _startCallRecording();
     }
   }
 

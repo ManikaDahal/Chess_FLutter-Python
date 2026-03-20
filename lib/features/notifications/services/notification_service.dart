@@ -134,9 +134,11 @@ class NotificationService {
         dataPayload['trackingId'] = trackingId;
       }
 
-      // If it is a game response, we want to handle the transition immediately in the foreground
+      // If it is a game response or a NEW invitation, handle transition/dialog immediately in foreground
       if (dataPayload['type'] == 'invite_accepted' ||
-          dataPayload['type'] == 'invite_declined') {
+          dataPayload['type'] == 'invite_declined' ||
+          dataPayload['type'] == 'chess_invite' ||
+          dataPayload['type'] == 'snake_invite') {
         _handleFcmPayload(dataPayload);
       }
 

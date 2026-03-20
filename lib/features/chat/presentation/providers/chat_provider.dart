@@ -144,11 +144,12 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
         newRoomMsgs[msgRoomId] = merged;
 
         state = state.copyWith(roomMessages: newRoomMsgs);
-      } else if (data['type'] == 'chess_invite') {
+      } else if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite') {
         if (_lifecycleState == AppLifecycleState.resumed) {
+          final String title = data['type'] == 'snake_invite' ? "Snake & Ladder Invite" : "Chess Invite";
           NotificationService.showNotification(
-            title: "Chess Invite",
-            body: data['message'] ?? "You have been invited to play chess!",
+            title: title,
+            body: data['message'] ?? "You have been invited to play!",
             payload: Map<String, dynamic>.from(data),
           );
         }

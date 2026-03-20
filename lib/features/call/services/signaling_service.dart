@@ -162,6 +162,9 @@ class SignalingService {
       _readyCompleter!.completeError('Aborted by new connection attempt');
     }
     _readyCompleter = Completer<void>();
+    _suppressReconnectOffer = false;
+    _ignoreCallsTimer?.cancel();
+    _ignoreCallsTimer = null;
 
     try {
       if (_isConnected && !_isReconnecting) {

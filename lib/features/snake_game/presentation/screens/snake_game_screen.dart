@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:chess_game_manika/features/call/services/recording_service.dart';
 import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
@@ -86,6 +85,9 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
           currentUserId: currentUserId,
           opponentId: null, // We'll update this if we know it
         );
+
+        // Reset the recording flag for every fresh game instance
+        _recordingService.hasShownRecordingPopup = false;
       }
     });
   }
@@ -165,13 +167,14 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     _signalingService!.remoteStreamNotifier.addListener(_onRemoteStreamChanged);
     _signalingService!.remoteMediaTypeNotifier.addListener(_onRemoteMediaTypeChanged);
 
-    _signalingService!.onConnectionStateChange = (state) {
+    _signalingService!.onIceConnectionStateChange = (state) {
       if (!mounted) return;
       final notifier = ref.read(snakeGameProvider.notifier);
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
-        notifier.setCallStatus("Connecting...");
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        debugPrint("[SNAKE CALL] 🧊 ICE connected (${state.name})...");
         notifier.setCallStatus("Connected");
+        _startCallRecording();
       }
     };
 
@@ -235,7 +238,6 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
       ref.read(snakeGameProvider.notifier).setRemoteVideoEnabled(
         videoTracks.isNotEmpty && videoTracks.any((t) => t.enabled)
       );
-      _startCallRecording();
     }
   }
 

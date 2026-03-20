@@ -97,6 +97,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _setupSignalingListeners();
         _setupRecordingStatusListener(); // Listen for recording changes
 
+        // Reset the recording flag for every fresh call screen instance
+        _recordingService.hasShownRecordingPopup = false;
+
         // NOTE: We do NOT stop the StickyNotificationService here anymore.
         // It will be stopped once the user confirms recording in the dialog.
         // An early stop here was causing a double-stop bug.
