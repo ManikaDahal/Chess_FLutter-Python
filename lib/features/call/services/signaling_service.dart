@@ -83,6 +83,8 @@ class SignalingService {
   @Deprecated('Use onCallAcceptedStream')
   Function()? onCallAccepted;
 
+  Function(RTCIceConnectionState)? onIceConnectionStateChange;
+
   // Callback for when peer hangs up
   @Deprecated('Use onHangupStream')
   Function()? onHangup;
@@ -398,6 +400,7 @@ class SignalingService {
 
       _peerConnection!.onIceConnectionState = (state) {
         _log('🧊 ICE Connection State: ${state.name}');
+        onIceConnectionStateChange?.call(state);
         if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
           _startIceRestartTimer();
         } else if (state ==

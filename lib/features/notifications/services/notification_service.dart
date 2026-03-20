@@ -12,6 +12,7 @@ import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
@@ -190,6 +191,14 @@ class NotificationService {
 
     if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite') {
       _showInviteDialog(data);
+      return;
+    }
+
+    if (data['type'] == 'call_offer') {
+      final String roomId = data['room_id']?.toString() ?? '';
+      final bool isVideo = data['is_video'] == 'true' || data['media_type'] == 'video';
+      print("FCM [call_offer]: Triggering call dialog for room: $roomId (Video: $isVideo)");
+      CallNotifier.instance?.handleIncomingCall(roomId, isVideo: isVideo);
       return;
     }
 

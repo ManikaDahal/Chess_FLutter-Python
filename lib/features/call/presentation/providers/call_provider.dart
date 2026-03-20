@@ -60,6 +60,7 @@ class CallState {
 }
 
 class CallNotifier extends Notifier<CallState> {
+  static CallNotifier? instance;
   SignalingService? generalSignalingService;
   SignalingService? userSignalingService;
   SignalingService? activeCallService;
@@ -69,6 +70,7 @@ class CallNotifier extends Notifier<CallState> {
 
   @override
   CallState build() {
+    instance = this;
     return const CallState();
   }
 
@@ -208,6 +210,15 @@ class CallNotifier extends Notifier<CallState> {
     if (userId != null && userSignalingService != null && userSignalingService!.currentRoomId != "user_$userId") {
       debugPrint('🏠 Re-connecting user signaling to home room: user_$userId');
       userSignalingService!.connect(Constants.wsBaseUrl, "user_$userId");
+    }
+  }
+
+  void handleIncomingCall(String roomId, {bool isVideo = true}) {
+    final context = Constants.navigatorKey.currentContext;
+    if (context != null) {
+      _showIncomingCallDialog(context, roomId, isVideo: isVideo);
+    } else {
+      debugPrint('❌ handleIncomingCall: Cannot show dialog, context is null');
     }
   }
 
