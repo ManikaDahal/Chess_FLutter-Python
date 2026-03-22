@@ -321,31 +321,41 @@ class _GameBoardState extends ConsumerState<GameBoard>
       return;
     }
 
-    // Connect to signaling - this now waits for the websocket to actually be ready
-    _signalingService!
-        .connect(Constants.wsBaseUrl, callRoomId)
-        .then((_) async {
-          if (!mounted) return;
-          _startHandshakeSequence();
-        })
-        .catchError((e) {
-          print("[GAME CALL] ❌ Connection failed: $e");
-          if (mounted) {
-            ref.read(chessProvider.notifier).setCallStatus("Connection Error");
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("Call connection error: $e"),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-        });
+    _signalingService!.connect(Constants.wsBaseUrl, callRoomId).then((_) {
+      if (!mounted) return;
+      _startHandshakeSequence();
+    }).catchError((e) {
+      if (mounted) {
+        print("[GAME CALL] ❌ Signaling connection error: $e");
+        ref.read(chessProvider.notifier).setCallStatus("Connection Error: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Call connection error: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    });
+  }
+
+  void _retryCall() {
+    print("[GAME CALL] 🔄 Manually retrying call connection...");
+    ref.read(chessProvider.notifier).setCallStatus("Retrying...");
+    _startCallConnection();
+  }
+
+  void _manualSyncBoard() {
+    print("[GAME BOARD] 🔄 Manually resyncing board...");
+    ref.read(chessProvider.notifier).resyncHistory(widget.roomId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Resyncing board state...", style: TextStyle(color: Colors.white)), backgroundColor: Colors.orange),
+    );
   }
 
   void _startHandshakeSequence() {
     if (!mounted) return;
 
-    // NEW: Ensure Pulse timer starts even if already initialized (for reconnects/edge cases)
+    // Pulse room_ready every 2s until Connected
     _handshakePulseTimer?.cancel();
     _handshakePulseTimer = Timer.periodic(const Duration(milliseconds: 2000), (
       timer,
@@ -355,26 +365,16 @@ class _GameBoardState extends ConsumerState<GameBoard>
         return;
       }
 
-      // Continue pulsing until the call is actually CONNECTED
-      // This ensures that if signaling drops and comes back, the handshake is resumed
-      if (ref.read(chessProvider).callStatus != "Connected") {
+      final state = ref.read(chessProvider);
+      if (state.callStatus != "Connected") {
         if (_signalingService!.isConnected) {
-          print(
-            "[GAME CALL] 💓 Sending periodic room_ready pulse (Status: ${ref.read(chessProvider).callStatus})...",
-          );
+          debugPrint("[GAME CALL] 💓 Sending periodic room_ready pulse (Status: ${state.callStatus})...");
           _signalingService!.sendCustomMessage({'action': 'room_ready'});
-
-          if (!ref.read(chessProvider).isCallStarted && ref.read(chessProvider).callStatus == "Handshake started...") {
-            ref.read(chessProvider.notifier).setCallStatus("Waiting for peer...");
-          }
         } else {
-          // If not connected to WS yet, show different status
-          if (ref.read(chessProvider).callStatus != "Connecting to signaling...") {
-            ref.read(chessProvider.notifier).setCallStatus("Connecting to signaling...");
-          }
+          debugPrint("[GAME CALL] ⚠️ Pulse skipped: Signaling not connected.");
         }
       } else {
-        print("[GAME CALL] ✅ Call connected, stopping room_ready pulse.");
+        debugPrint("[GAME CALL] 🛑 Pulse stopped: Call is Connected.");
         timer.cancel();
       }
     });
@@ -410,24 +410,10 @@ class _GameBoardState extends ConsumerState<GameBoard>
     final bool currentSilenced = ref.read(chessProvider).isOpponentLocallySilenced;
     ref.read(chessProvider.notifier).setOpponentLocallySilenced(!currentSilenced);
 
-    // Mute/Unmute the remote audio tracks locally so the opponent cannot be heard.
-    final remoteStream = _signalingService!.remoteStreamNotifier.value;
-    if (remoteStream != null) {
-      for (var track in remoteStream.getAudioTracks()) {
-        track.enabled = currentSilenced;
-      }
-    }
-
-    // Notify peer so they see the "Silenced" indicator
-    _signalingService!.sendCustomMessage({
-      'action': 'local_silence_toggle',
-      'isSilenced': !currentSilenced,
-    });
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ref.read(chessProvider).isOpponentLocallySilenced
+          !currentSilenced
               ? "Opponent silenced locally"
               : "Opponent unsilenced locally",
         ),
@@ -524,6 +510,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
             connected ? "Game Server Connected" : "Game Server Disconnected",
             color: connected ? Colors.green : Colors.red,
           );
+          if (connected) {
+            _gameService.sendJoin(widget.roomId, widget.currentUserId);
+          }
         });
 
         _signalingConnSub = _signalingService!.connectionStream.listen((
@@ -948,6 +937,27 @@ class _GameBoardState extends ConsumerState<GameBoard>
                     ),
                   ),
                 ],
+                const SizedBox(width: 12),
+                // NEW: Manual Action Buttons for Sync and Retry
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (ref.watch(chessProvider).callStatus != "Connected")
+                      _buildHeaderSmallAction(
+                        icon: Icons.refresh,
+                        onPressed: _retryCall,
+                        tooltip: "Retry Call",
+                        color: Colors.orangeAccent,
+                      ),
+                    const SizedBox(width: 8),
+                    _buildHeaderSmallAction(
+                      icon: Icons.sync,
+                      onPressed: _manualSyncBoard,
+                      tooltip: "Sync Board",
+                      color: Colors.greenAccent,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -994,6 +1004,29 @@ class _GameBoardState extends ConsumerState<GameBoard>
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderSmallAction({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required String tooltip,
+    required Color color,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.5), width: 1),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
       ),
     );
   }

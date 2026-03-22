@@ -219,9 +219,6 @@ class SignalingService {
           '📍 URI Components: scheme=${uri.scheme}, host=${uri.host}, port=${uri.port}, path=${uri.path}',
         );
 
-        // diagnostics probe as before
-        await ApiService().probe(ApiBase.render);
-
         _channel = WebSocketChannel.connect(uri);
       }
 
@@ -308,14 +305,14 @@ class SignalingService {
 
         // NOW actually wait for the connection to be ready before returning
         await _readyCompleter!.future.timeout(
-          const Duration(seconds: 60), // Increased to handle Render wake-up
+          const Duration(seconds: 30), // 30s is enough for Render wake-up
           onTimeout: () {
-            _log('❌ Connection ready timeout after 60 seconds');
+            _log('❌ Connection ready timeout after 30 seconds');
             if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
               _readyCompleter!.completeError('Timeout');
             }
             throw Exception(
-              'WebSocket connection failed to establish within 15 seconds',
+              'WebSocket connection failed to establish within 30 seconds',
             );
           },
         );

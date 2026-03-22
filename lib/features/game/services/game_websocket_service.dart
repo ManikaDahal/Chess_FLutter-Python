@@ -25,9 +25,9 @@ class GameWebsocketService {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
-  Future<void> connect(int roomId) async {
-    // If it's already the same room, do nothing
-    if (_isConnected && _currentRoomId == roomId) {
+  Future<void> connect(int roomId, {bool forceReconnect = false}) async {
+    // If it's already the same room and not forced, do nothing
+    if (!forceReconnect && _isConnected && _currentRoomId == roomId) {
       print("GameWebsocketService [Room $roomId]: Already connected.");
       return;
     }
@@ -52,8 +52,8 @@ class GameWebsocketService {
     _reconnectTimer?.cancel();
 
     try {
-      // Wake up the server before connecting
-      await ApiService().probe(ApiBase.vercel);
+      // Wake up the server before connecting (Render sleeps on free tier)
+      await ApiService().probe(ApiBase.render);
 
       var uri = Uri.parse(url);
       // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
@@ -188,6 +188,11 @@ class GameWebsocketService {
       "to_col": toCol,
     };
     _channel!.sink.add(jsonEncode(data));
+  }
+
+  void sendJoin(int roomId, int userId) {
+    if (_channel == null || !_isConnected) return;
+    _channel!.sink.add(jsonEncode({"type": "join", "room_id": roomId, "user_id": userId}));
   }
 
   void sendLeave(int roomId, int userId) {

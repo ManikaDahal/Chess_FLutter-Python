@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
+import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 
 class SnakeGameState {
   final int playerPosition;
@@ -107,11 +108,14 @@ class SnakeGameState {
 
 class SnakeGameNotifier extends Notifier<SnakeGameState> {
   StreamSubscription? _socketSubscription;
+  StreamSubscription? _socketConnSub;
+  SignalingService? _signalingService;
 
   @override
   SnakeGameState build() {
     ref.onDispose(() {
       _socketSubscription?.cancel();
+      _socketConnSub?.cancel();
     });
     return SnakeGameState();
   }
@@ -123,14 +127,27 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
     bool isMultiplayer = false,
     int? myUserId,
     bool startsMyTurn = true,
+    SignalingService? signalingService,
   }) {
-    state = state.copyWith(
+    _signalingService = signalingService;
+    _signalingService?.onCustomMessageStream.listen((data) {
+      if (data['action'] == 'local_silence_toggle') {
+        state = state.copyWith(amISilencedByOpponent: data['isSilenced']);
+      }
+    });
+
+    // Reset everything to defaults first to ensure a clean board
+    state = SnakeGameState(
       snakes: snakes,
       ladders: ladders,
       roomId: roomId,
       isMultiplayer: isMultiplayer,
       myUserId: myUserId,
       isMyTurn: !isMultiplayer || startsMyTurn,
+      // Preserve call info if it was already connecting? 
+      // Usually initBoard is called once per screen entry
+      callStatus: state.callStatus,
+      isCallStarted: state.isCallStarted,
     );
 
     if (isMultiplayer && roomId != null) {
@@ -140,8 +157,16 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
 
   void _connectSocket(int roomId) {
     _socketSubscription?.cancel();
+    _socketConnSub?.cancel();
     final socketService = GameWebsocketService();
-    socketService.connect(roomId);
+    // Force reconnect if we are entering the board fresh, even if the room_id is the same (rematch)
+    socketService.connect(roomId, forceReconnect: true);
+
+    _socketConnSub = socketService.connectionStream.listen((connected) {
+      if (connected && state.myUserId != null) {
+        socketService.sendJoin(roomId, state.myUserId!);
+      }
+    });
 
     _socketSubscription = socketService.stream.listen((data) {
       if (data['type'] == 'move') {
@@ -297,7 +322,23 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
   void setLocalVideoEnabled(bool val) => state = state.copyWith(isLocalVideoEnabled: val);
   void setRemoteAudioMuted(bool val) => state = state.copyWith(isRemoteAudioMuted: val);
   void setRemoteVideoEnabled(bool val) => state = state.copyWith(isRemoteVideoEnabled: val);
-  void setOpponentLocallySilenced(bool val) => state = state.copyWith(isOpponentLocallySilenced: val);
+  void setOpponentLocallySilenced(bool val) {
+    state = state.copyWith(isOpponentLocallySilenced: val);
+
+    // 1. Mute/Unmute the remote audio tracks locally
+    final remoteStream = _signalingService?.remoteStreamNotifier.value;
+    if (remoteStream != null) {
+      for (var track in remoteStream.getAudioTracks()) {
+        track.enabled = !val; // Track enabled = NOT silenced
+      }
+    }
+
+    // 2. Notify peer via signaling
+    _signalingService?.sendCustomMessage({
+      'action': 'local_silence_toggle',
+      'isSilenced': val,
+    });
+  }
   void setAmISilencedByOpponent(bool val) => state = state.copyWith(amISilencedByOpponent: val);
 
   void resetGame({bool remote = false}) {

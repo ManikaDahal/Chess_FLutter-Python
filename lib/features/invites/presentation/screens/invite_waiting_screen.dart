@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
 import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
+import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
 
 class InviteWaitingScreen extends StatefulWidget {
   final int targetUserId;
@@ -33,6 +34,8 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   final SignalingService _signalingService = SignalingService();
+  final GameWebsocketService _gameService = GameWebsocketService();
+  StreamSubscription? _gameWsSubscription;
   bool _isConnectingCall = false;
   String _statusMessage = "Waiting for opponent to accept...";
 
@@ -49,6 +52,26 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
     );
 
     _listenForInviteResponse();
+    _listenToWebsocket();
+  }
+
+  void _listenToWebsocket() {
+    // Attempt connection immediately to receive live opponent entry signal
+    _gameService.connect(widget.roomId, forceReconnect: true);
+    
+    _gameWsSubscription = _gameService.stream.listen((data) {
+      if (!mounted) return;
+      
+      int evRoomId = int.tryParse(data['room_id']?.toString() ?? "0") ?? 0;
+      int joinedUserId = int.tryParse(data['user_id']?.toString() ?? "0") ?? 0;
+
+      if (evRoomId == widget.roomId && data['type'] == 'player_joined' && joinedUserId == widget.targetUserId) {
+        debugPrint("[InviteWaiting] WebSocket event received: peer joined room!");
+        if (!_isConnectingCall) {
+          _handleInviteAccepted();
+        }
+      }
+    });
   }
 
   void _listenForInviteResponse() {
@@ -126,6 +149,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
   @override
   void dispose() {
     _fcmSubscription?.cancel();
+    _gameWsSubscription?.cancel();
     _pulseController.dispose();
     super.dispose();
   }

@@ -63,21 +63,25 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
       final authState = ref.read(authProvider).value;
       final currentUserId = authState?.userId ?? 1;
 
-      ref.read(snakeGameProvider.notifier).initBoard(
-        widget.board.snakes,
-        widget.board.ladders,
-        roomId: widget.roomId,
-        isMultiplayer: widget.isMultiplayer,
-        myUserId: currentUserId,
-        startsMyTurn: widget.startsMyTurn,
-      );
+      Future.microtask(() {
+        final notifier = ref.read(snakeGameProvider.notifier);
+        notifier.initBoard(
+          widget.board.snakes,
+          widget.board.ladders,
+          roomId: widget.roomId,
+          isMultiplayer: widget.isMultiplayer,
+          myUserId: currentUserId,
+          startsMyTurn: widget.startsMyTurn,
+          signalingService: _signalingService,
+        );
+      });
 
       if (widget.isMultiplayer && widget.roomId != null) {
+        _setupEmbeddedCall(); // Initialize SignalingService first
+        
         _initRenderers().catchError((e) {
           debugPrint("SnakeGame: Error initializing renderers: $e");
         });
-
-        _setupEmbeddedCall();
 
         // Sync context to callProvider
         ref.read(callProvider.notifier).setSnakeContext(
@@ -185,6 +189,11 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     _signalingService!.connect(Constants.wsBaseUrl, callRoomId).then((_) {
       if (!mounted) return;
       _startHandshakeSequence();
+    }).catchError((e) {
+      if (mounted) {
+        debugPrint("[SNAKE CALL] ❌ Signaling connection error: $e");
+        ref.read(snakeGameProvider.notifier).setCallStatus("Connection Error: $e");
+      }
     });
   }
 
@@ -244,6 +253,12 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
   bool _recordingDialogShown = false;
 
   void _startCallRecording() async {
+    final status = ref.read(snakeGameProvider).callStatus;
+    if (status != "Connected") {
+       print("[SNAKE RECORD] ⏳ Waiting for full connection before recording...");
+       _recordingDialogShown = false; 
+       return;
+    }
     if (_recordingDialogShown) return;
     _recordingDialogShown = true;
 

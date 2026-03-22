@@ -131,7 +131,14 @@ class ChessNotifier extends Notifier<ChessState> {
 
   void initGame(int roomId, int currentUserId, {SignalingService? signalingService}) {
     _signalingService = signalingService;
-    _gameService.connect(roomId);
+    _signalingService?.onCustomMessageStream.listen((data) {
+      if (data['action'] == 'local_silence_toggle') {
+        state = state.copyWith(amISilencedByOpponent: data['isSilenced']);
+      }
+    });
+
+    // Force reconnect if it's a new board entry, even if room matches (rematch case)
+    _gameService.connect(roomId, forceReconnect: true);
 
     _gameSubscription = _gameService.stream.listen((data) {
       final dynamic rawRoomId = data['room_id'];
@@ -143,12 +150,54 @@ class ChessNotifier extends Notifier<ChessState> {
         if (isMyMove && !state.isSyncing) return;
         handleRemoteMove(data);
       } else if (data['type'] == 'history') {
-        state = state.copyWith(isSyncing: true, board: ChessState.createInitialBoard(), whiteTurn: true, whiteKingPosition: [7,4], blackKingPosition: [0,4]);
         final List history = data['history'];
+        print("[GAME] 📜 Received history with ${history.length} moves. Atomic sync starting...");
+        
+        // Use a local board for atomic replay to avoid flickering and mid-sync desyncs
+        List<List<ChessPiece?>> syncBoard = ChessState.createInitialBoard();
+        bool syncWhiteTurn = true;
+        List<int> syncWhiteKing = [7, 4];
+        List<int> syncBlackKing = [0, 4];
+
         for (var move in history) {
-            handleRemoteMove(Map<String, dynamic>.from(move));
+          int? fR = int.tryParse(move['from_row']?.toString() ?? "");
+          int? fC = int.tryParse(move['from_col']?.toString() ?? "");
+          int? tR = int.tryParse(move['to_row']?.toString() ?? "");
+          int? tC = int.tryParse(move['to_col']?.toString() ?? "");
+          
+          if (fR != null && fC != null && tR != null && tC != null) {
+            final p = syncBoard[fR][fC];
+            if (p != null) {
+              // Apply move to syncBoard
+              syncBoard[tR][tC] = p;
+              syncBoard[fR][fC] = null;
+              
+              // Handle special cases (promotion, king tracking)
+              if (p.type == ChessPieceType.king) {
+                if (p.isWhite) syncWhiteKing = [tR, tC];
+                else syncBlackKing = [tR, tC];
+              }
+              if (p.type == ChessPieceType.pawn && (tR == 0 || tR == 7)) {
+                syncBoard[tR][tC] = ChessPiece(
+                  type: ChessPieceType.queen,
+                  isWhite: p.isWhite,
+                  imagePath: "assets/images/${p.isWhite ? 'white' : 'black'}/queen.png",
+                );
+              }
+              syncWhiteTurn = !syncWhiteTurn;
+            }
+          }
         }
-        state = state.copyWith(isSyncing: false);
+        
+        state = state.copyWith(
+          board: syncBoard,
+          whiteTurn: syncWhiteTurn,
+          whiteKingPosition: syncWhiteKing,
+          blackKingPosition: syncBlackKing,
+          isSyncing: false,
+          checkStatus: false, // will update on build or move
+        );
+        print("[GAME] ✅ History sync complete. Board state updated.");
       } else if (data['type'] == 'user_left') {
         if (data['user_id']?.toString() != currentUserId.toString()) {
            state = state.copyWith(isGameOver: true, winnerMessage: "Congratulations! Your opponent has left the game. You win!");
@@ -164,11 +213,16 @@ class ChessNotifier extends Notifier<ChessState> {
     int? fC = int.tryParse(data['from_col']?.toString() ?? "");
     int? tR = int.tryParse(data['to_row']?.toString() ?? "");
     int? tC = int.tryParse(data['to_col']?.toString() ?? "");
-    if (fR == null || fC == null || tR == null || tC == null) return;
+    if (fR == null || fC == null || tR == null || tC == null) {
+      print("[GAME] ⚠️ Invalid move data received: $data");
+      return;
+    }
     
     final piece = state.board[fR][fC];
     if (piece != null) {
         _applyMoveLocally(fR, fC, tR, tC, piece);
+    } else {
+        print("[GAME] ❌ Desync Detect: No piece at [$fR, $fC] for move to [$tR, $tC]");
     }
   }
 
@@ -409,8 +463,29 @@ class ChessNotifier extends Notifier<ChessState> {
   }
   void setRemoteAudioMuted(bool muted) => state = state.copyWith(isRemoteAudioMuted: muted);
   void setRemoteVideoEnabled(bool enabled) => state = state.copyWith(isRemoteVideoEnabled: enabled);
-  void setOpponentLocallySilenced(bool silenced) => state = state.copyWith(isOpponentLocallySilenced: silenced);
+  void setOpponentLocallySilenced(bool silenced) {
+    state = state.copyWith(isOpponentLocallySilenced: silenced);
+    
+    // 1. Mute/Unmute the remote audio tracks locally
+    final remoteStream = _signalingService?.remoteStreamNotifier.value;
+    if (remoteStream != null) {
+      for (var track in remoteStream.getAudioTracks()) {
+        track.enabled = !silenced; // Track enabled = NOT silenced
+      }
+    }
+
+    // 2. Notify peer via signaling
+    _signalingService?.sendCustomMessage({
+      'action': 'local_silence_toggle',
+      'isSilenced': silenced,
+    });
+  }
   void setAmISilencedByOpponent(bool silenced) => state = state.copyWith(amISilencedByOpponent: silenced);
+
+  void resyncHistory(int roomId) {
+    print("[GAME] 🔄 Manually triggering board resync...");
+    _gameService.connect(roomId, forceReconnect: true);
+  }
 
   void resetGame(int roomId) {
     _gameService.resetGame(roomId);
