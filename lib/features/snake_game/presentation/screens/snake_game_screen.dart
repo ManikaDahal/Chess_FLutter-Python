@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
@@ -111,6 +112,10 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     _signalingService?.remoteStreamNotifier.removeListener(_onRemoteStreamChanged);
     _signalingService?.remoteMediaTypeNotifier.removeListener(_onRemoteMediaTypeChanged);
 
+    _recordingService.stopRecording();
+    _signalingService?.endCall();
+    _signalingService?.disconnect();
+
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
@@ -147,14 +152,22 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
         notifier.setAmISilencedByOpponent(data['isSilenced']);
       } else if (data['action'] == 'room_ready') {
         if (widget.startsMyTurn && !ref.read(snakeGameProvider).isCallStarted) {
-          _startCallConnection();
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted && !ref.read(snakeGameProvider).isCallStarted) {
+              _startCallConnection();
+            }
+          });
         }
       }
     });
 
     _signalingService!.onPeerJoinedStream.listen((_) {
       if (widget.startsMyTurn && !ref.read(snakeGameProvider).isCallStarted) {
-        _startCallConnection();
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && !ref.read(snakeGameProvider).isCallStarted) {
+            _startCallConnection();
+          }
+        });
       }
     });
 
@@ -199,8 +212,9 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
 
   void _startHandshakeSequence() {
     _handshakePulseTimer?.cancel();
-    _handshakePulseTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (!mounted || ref.read(snakeGameProvider).callStatus == "Connected") {
+    _handshakePulseTimer = Timer.periodic(const Duration(milliseconds: 1500), (
+      timer,
+    ) { if (!mounted || ref.read(snakeGameProvider).callStatus == "Connected") {
         timer.cancel();
         return;
       }
@@ -368,40 +382,6 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     // This is a placeholder if we want to add the recording dialog later
   }
 
-  void _showResetConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Text(
-          "Restart Game?",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          "Your current progress will be lost.",
-          style: TextStyle(color: Colors.black54),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ref.read(snakeGameProvider.notifier).resetGame();
-            },
-            child: const Text(
-              "RESTART",
-              style: TextStyle(color: Colors.deepOrange),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showWinDialog() {
     showDialog(
       context: context,
@@ -451,6 +431,96 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     return Offset(col.toDouble(), row.toDouble());
   }
 
+  void _showLeaveDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C3E50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text(
+          "Resign Game?",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          "Are you sure you want to leave? If you leave now, your opponent will win the game.",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Keep Playing", style: TextStyle(color: Colors.white)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _recordingService.stopRecording();
+              _signalingService?.endCall();
+              _signalingService?.disconnect();
+
+              if (widget.isMultiplayer && widget.roomId != null) {
+                final authState = ref.read(authProvider).value;
+                final currentUserId = authState?.userId ?? 0;
+                GameWebsocketService().sendLeave(widget.roomId!, currentUserId);
+              }
+
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              "Leave (Resign)",
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showOpponentLeftDialog({bool isVictory = false}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C3E50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(
+          isVictory ? "YOU WIN!" : "Game Ended",
+          style: TextStyle(
+            color: isVictory ? Colors.yellowAccent : Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          isVictory
+              ? "Your opponent has left the game! You win by resignation."
+              : "Your opponent has left the board. The game has ended.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              _recordingService.stopRecording();
+              _signalingService?.endCall();
+              _signalingService?.disconnect();
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text("OK", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -459,14 +529,35 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
           (previous?.playerPosition ?? 0) != totalSquares) {
         _showWinDialog();
       }
+
+      if (next.gameStatus == "Opponent Resigned/Left board" &&
+          (previous?.gameStatus != "Opponent Resigned/Left board")) {
+        _showOpponentLeftDialog(isVictory: true);
+      }
     });
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFEEEEEE),
-      appBar: AppBar(
+    final bool isPractice = !widget.isMultiplayer;
+
+    return PopScope(
+      canPop: isPractice,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (!isPractice) {
+          _showLeaveDialog();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFEEEEEE),
+        appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (isPractice) {
+              Navigator.pop(context);
+            } else {
+              _showLeaveDialog();
+            }
+          },
         ),
         title: Text(
           widget.board.name.toUpperCase(),
@@ -479,18 +570,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
         centerTitle: true,
         backgroundColor: const Color(0xFF2C3E50),
         elevation: 4,
-        actions: [
-          if (widget.isMultiplayer && !ref.watch(snakeGameProvider).isCallStarted)
-            IconButton(
-              onPressed: _startCallConnection,
-              icon: const Icon(Icons.videocam, color: Colors.greenAccent),
-              tooltip: "Start Video Call",
-            ),
-          IconButton(
-            onPressed: _showResetConfirmation,
-            icon: const Icon(Icons.refresh, color: Colors.white),
-          ),
-        ],
+        actions: const [],
       ),
       body: Column(
         children: [
@@ -842,7 +922,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
           ),
         ],
       ),
-    );
+    ));
   }
 
   // Helper widget to build the embedded call frame
@@ -1026,19 +1106,6 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
               ],
             ),
           ),
-          
-          if (isLocal)
-            Positioned(
-              top: 6,
-              right: 6,
-              child: _buildOverlayIconButton(
-                icon: Icons.call_end,
-                color: Colors.red,
-                onPressed: () {
-                   _signalingService?.endCall();
-                },
-              ),
-            ),
         ],
       ),
     );

@@ -131,23 +131,43 @@ class ChessNotifier extends Notifier<ChessState> {
 
   void initGame(int roomId, int currentUserId, {SignalingService? signalingService}) {
     _signalingService = signalingService;
+    
+    // Reset state to avoid showing pieces from a previous board/game session
+    state = ChessState(
+      board: ChessState.createInitialBoard(),
+      isSyncing: true,
+      whiteTurn: true,
+      whiteKingPosition: const [7, 4],
+      blackKingPosition: const [0, 4],
+      isGameOver: false,
+      winnerMessage: null,
+      // Maintain media preferences if already toggled
+      isLocalAudioMuted: state.isLocalAudioMuted,
+      isLocalVideoEnabled: state.isLocalVideoEnabled,
+      isCallStarted: state.isCallStarted,
+      callStatus: state.callStatus,
+    );
+
     _signalingService?.onCustomMessageStream.listen((data) {
       if (data['action'] == 'local_silence_toggle') {
         state = state.copyWith(amISilencedByOpponent: data['isSilenced']);
       }
     });
 
-    // Force reconnect if it's a new board entry, even if room matches (rematch case)
-    _gameService.connect(roomId, forceReconnect: true);
+    // IMPORTANT: Cancel any existing subscription to avoid duplicate listeners
+    // on the shared broadcast stream when starting/joining a new match.
+    _gameSubscription?.cancel();
 
     _gameSubscription = _gameService.stream.listen((data) {
-      final dynamic rawRoomId = data['room_id'];
-      final int? moveRoomId = rawRoomId is int ? rawRoomId : int.tryParse(rawRoomId?.toString() ?? "");
-      if (moveRoomId != null && moveRoomId != roomId) return;
-
+      print("[GAME] Received socket event: ${data['type']} for User $currentUserId. Data: $data");
+      
       if (data['type'] == 'move') {
         final bool isMyMove = data['sender_id']?.toString() == currentUserId.toString();
-        if (isMyMove && !state.isSyncing) return;
+        if (isMyMove && !state.isSyncing) {
+             print("[GAME] Ignoring echoed move from self (sender_id: ${data['sender_id']})");
+             return;
+        }
+        print("[GAME] Moving to target handling logic...");
         handleRemoteMove(data);
       } else if (data['type'] == 'history') {
         final List history = data['history'];
@@ -198,12 +218,19 @@ class ChessNotifier extends Notifier<ChessState> {
           checkStatus: false, // will update on build or move
         );
         print("[GAME] ✅ History sync complete. Board state updated.");
-      } else if (data['type'] == 'user_left') {
+      } else if (data['type'] == 'user_left' || data['type'] == 'player_left') {
         if (data['user_id']?.toString() != currentUserId.toString()) {
-           state = state.copyWith(isGameOver: true, winnerMessage: "Congratulations! Your opponent has left the game. You win!");
+           state = state.copyWith(isGameOver: true, winnerMessage: "Opponent left! You win by resignation.");
         }
       } else if (data['type'] == 'reset') {
-         state = state.copyWith(board: ChessState.createInitialBoard(), whiteTurn: true, whiteKingPosition: [7,4], blackKingPosition: [0,4]);
+         state = state.copyWith(
+           board: ChessState.createInitialBoard(), 
+           whiteTurn: true, 
+           whiteKingPosition: [7,4], 
+           blackKingPosition: [0,4],
+           isGameOver: false,
+           winnerMessage: null,
+         );
       }
     });
   }
@@ -220,9 +247,10 @@ class ChessNotifier extends Notifier<ChessState> {
     
     final piece = state.board[fR][fC];
     if (piece != null) {
+        print("[GAME] ✅ Applying remote move: $piece from [$fR, $fC] to [$tR, $tC]");
         _applyMoveLocally(fR, fC, tR, tC, piece);
     } else {
-        print("[GAME] ❌ Desync Detect: No piece at [$fR, $fC] for move to [$tR, $tC]");
+        print("[GAME] ❌ Desync Detect: No piece at [$fR, $fC] (Target: [$tR, $tC]) Content: ${state.board[fR][fC]}");
     }
   }
 
@@ -320,20 +348,24 @@ class ChessNotifier extends Notifier<ChessState> {
       ChessPiece? targetP = state.board[endR][endC];
       List<int> oldKingPos = piece.isWhite ? [...state.whiteKingPosition] : [...state.blackKingPosition];
 
-      // Simulate
+      // Simulate on a temporary board clone to avoid mutating state
+      final tempBoard = List<List<ChessPiece?>>.from(state.board.map((r) => List<ChessPiece?>.from(r)));
+      
       if (piece.type == ChessPieceType.king) {
           if (piece.isWhite) state = state.copyWith(whiteKingPosition: [endR, endC]);
           else state = state.copyWith(blackKingPosition: [endR, endC]);
       }
-      final tempBoard = state.board[endR][endC];
-      state.board[endR][endC] = piece;
-      state.board[row][col] = null;
+      
+      tempBoard[endR][endC] = piece;
+      tempBoard[row][col] = null;
 
+      // Temporary context for check detection
+      final wasBoard = state.board;
+      state = state.copyWith(board: tempBoard);
       bool inCheck = isKingInCheck(piece.isWhite);
 
       // Undo
-      state.board[row][col] = piece;
-      state.board[endR][endC] = tempBoard;
+      state = state.copyWith(board: wasBoard);
       if (piece.type == ChessPieceType.king) {
           if (piece.isWhite) state = state.copyWith(whiteKingPosition: oldKingPos);
           else state = state.copyWith(blackKingPosition: oldKingPos);

@@ -10,6 +10,7 @@ import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dar
 
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
@@ -321,14 +322,18 @@ class NotificationService {
                     // or maybe it's already in the FCM payload?
                     // I updated pending_invites but not FCM payload in views.py.
                     // Let's check views.py again.
-                    // Actually, let's just use board 1 for now or better, update views.py.
-                    
-                    // FOR NOW: Navigator push to SnakeGameScreen
-                    // We need a way to get the board.
-                    
                     final int boardId = int.tryParse(data['board_id']?.toString() ?? "1") ?? 1;
+                    // In a real scenario, you might retrieve the board list via provider,
+                    // but for now, we'll try to use a default or fetch it early if possible.
+                    // Assuming snakeBoards is available globally or we route to a loader first.
+                    // We'll proceed with snakeBoards[0] as a fallback.
                     final selectedBoard = snakeBoards.firstWhere((b) => b.id == boardId, orElse: () => snakeBoards[0]);
 
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => const LandingPage(),
+                      ),
+                    );
                     navigatorKey?.currentState?.push(
                       MaterialPageRoute(
                         builder: (_) => SnakeGameScreen(
@@ -342,11 +347,16 @@ class NotificationService {
                   } else {
                     navigatorKey?.currentState?.push(
                       MaterialPageRoute(
+                        builder: (_) => const LandingPage(),
+                      ),
+                    );
+                    navigatorKey?.currentState?.push(
+                      MaterialPageRoute(
                         builder: (_) => GameBoard(
                           roomId: acceptedRoomId,
                           currentUserId: currentUserId,
                           isMultiplayer: true,
-                          amIWhite: false, // Receiver is always Black
+                          amIWhite: false, // Receiver is Black
                           opponentId: senderId,
                           showLeaveButton: true,
                           signalingService: signalingService,

@@ -71,21 +71,14 @@ class _GameBoardState extends ConsumerState<GameBoard>
   void _setupEmbeddedCall() {
     final String callRoomId = "game_call_${widget.roomId}";
 
-    // Reuse external service if provided, otherwise create new one
-    if (widget.signalingService != null) {
-      print("[GAME CALL] Using externally provided SignalingService.");
-      _signalingService = widget.signalingService!;
-      // Sync initial state from the service's notifiers to ChessProvider
-      ref.read(chessProvider.notifier).setRemoteAudioMuted(_signalingService!.isRemoteMuted.value);
-      ref.read(chessProvider.notifier).setRemoteVideoEnabled(_signalingService!.isRemoteVideoEnabled.value);
-    } else {
-      _signalingService = SignalingService();
-    }
+    // Always create a fresh SignalingService instance for the game board
+    // to ensure a clean state and reliable WebRTC handshake.
+    _signalingService = SignalingService();
 
     // Listen for incoming calls (Invitee side)
     _incomingCallSub = _signalingService!.onIncomingCallStream.listen((_) {
       if (!mounted) return;
-      _showIncomingCallDialog();
+      _handleIncomingCall();
     });
 
     // Listen for remote mute state changes
@@ -97,9 +90,13 @@ class _GameBoardState extends ConsumerState<GameBoard>
       } else if (data['action'] == 'local_silence_toggle') {
         ref.read(chessProvider.notifier).setAmISilencedByOpponent(data['isSilenced']);
       } else if (data['action'] == 'room_ready') {
-        print("[GAME CALL] 🏢 Peer signaled room_ready!");
+        print("[GAME CALL] 🏢 Peer signaled room_ready! (Status: ${ref.read(chessProvider).callStatus})");
         if (widget.amIWhite && !ref.read(chessProvider).isCallStarted) {
-          _startCallConnection();
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted && !ref.read(chessProvider).isCallStarted) {
+              _startCallConnection();
+            }
+          });
         }
       }
     });
@@ -110,7 +107,11 @@ class _GameBoardState extends ConsumerState<GameBoard>
         "[GAME CALL] 👥 Peer joined! isWhite: ${widget.amIWhite}",
       );
       if (widget.amIWhite && !ref.read(chessProvider).isCallStarted) {
-        _startCallConnection();
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && !ref.read(chessProvider).isCallStarted) {
+            _startCallConnection();
+          }
+        });
       }
     });
 
@@ -181,7 +182,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
     ref.read(chessProvider.notifier).setCallStatus("Starting call...");
 
     _callTimeoutTimer?.cancel();
-    _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
+    _callTimeoutTimer = Timer(const Duration(seconds: 12), () {
       if (mounted && ref.read(chessProvider).callStatus == "Starting call...") {
         print("[GAME CALL] ⚠️ Call connection timeout. Resetting...");
         ref.read(chessProvider.notifier).setCallStarted(false);
@@ -589,7 +590,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
     _callTimeoutTimer = null;
   }
 
-  void _showIncomingCallDialog() {
+  void _handleIncomingCall() {
     print("[GAME CALL] Incoming call received. Auto-accepting...");
     _signalingService!.acceptCall(isVideo: ref.read(chessProvider).isLocalVideoEnabled);
     ref.read(chessProvider.notifier).setCallStarted(true);
@@ -728,6 +729,17 @@ class _GameBoardState extends ConsumerState<GameBoard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+
+    // Listen for game over or opponent departure to show celebration dialog
+    ref.listen(chessProvider, (previous, next) {
+      if (next.isGameOver && !(previous?.isGameOver ?? false)) {
+        debugPrint("[GAME] 🏁 Game Over detected: ${next.winnerMessage}");
+        _showGameOverDialog(
+          next.winnerMessage ?? "Game Over",
+          isVictory: next.winnerMessage?.toLowerCase().contains("win") ?? false,
+        );
+      }
+    });
 
     try {
       final bool isPractice = !widget.isMultiplayer;
@@ -938,26 +950,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
                   ),
                 ],
                 const SizedBox(width: 12),
-                // NEW: Manual Action Buttons for Sync and Retry
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (ref.watch(chessProvider).callStatus != "Connected")
-                      _buildHeaderSmallAction(
-                        icon: Icons.refresh,
-                        onPressed: _retryCall,
-                        tooltip: "Retry Call",
-                        color: Colors.orangeAccent,
-                      ),
-                    const SizedBox(width: 8),
-                    _buildHeaderSmallAction(
-                      icon: Icons.sync,
-                      onPressed: _manualSyncBoard,
-                      tooltip: "Sync Board",
-                      color: Colors.greenAccent,
-                    ),
-                  ],
-                ),
               ],
             ),
           ),

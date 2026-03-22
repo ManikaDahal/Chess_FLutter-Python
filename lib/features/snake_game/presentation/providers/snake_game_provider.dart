@@ -173,6 +173,11 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
         _handleOpponentMove(data);
       } else if (data['type'] == 'reset') {
         resetGame(remote: true);
+      } else if (data['type'] == 'user_left' || data['type'] == 'player_left') {
+        state = state.copyWith(
+          gameStatus: "Opponent Resigned/Left board",
+          isMyTurn: false,
+        );
       }
     });
   }
@@ -190,6 +195,7 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       gameStatus: "Opponent rolled $diceValue!",
     );
 
+    print("[SNAKE SYNC] Applying remote move: Dice=$diceValue, TargetPos=$targetPos, OldOpponentPos=${state.opponentPosition}");
     // Update opponent position
     _moveOpponent(targetPos);
   }
@@ -237,25 +243,14 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
   }
 
   Future<void> handleGameLogic(int roll) async {
+    int startPos = state.playerPosition;
     if (!state.hasStarted) {
-      if (roll == 1) {
-        state = state.copyWith(
-          isMoving: true,
-          hasStarted: true,
-          playerPosition: 1,
-          gameStatus: "Warming up on Square 1!",
-        );
-        await Future.delayed(const Duration(milliseconds: 800));
-        await checkSquareEffect();
-      } else {
-        state = state.copyWith(gameStatus: "Almost! Roll a 1 to start.");
-      }
-      return;
+        state = state.copyWith(hasStarted: true);
     }
-    await movePlayerSequence(roll);
+    await movePlayerSequence(roll, startPos);
   }
 
-  Future<void> movePlayerSequence(int steps) async {
+  Future<void> movePlayerSequence(int steps, int startPos) async {
     state = state.copyWith(isMoving: true);
     int target = state.playerPosition + steps;
     if (target > 100) {
@@ -263,18 +258,18 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
         gameStatus: "Too far! Need exact roll.",
         isMoving: false,
       );
+      _finalizeTurn(startPos, state.playerPosition);
       return;
     }
     for (int i = 0; i < steps; i++) {
       await Future.delayed(const Duration(milliseconds: 300));
       state = state.copyWith(playerPosition: state.playerPosition + 1);
     }
-    await checkSquareEffect();
+    await checkSquareEffect(startPos);
   }
 
-  Future<void> checkSquareEffect() async {
+  Future<void> checkSquareEffect(int startPos) async {
     state = state.copyWith(isMoving: true);
-    final int oldPos = state.playerPosition; // Capture position before effect
     await Future.delayed(const Duration(milliseconds: 500));
 
     if (state.snakes.containsKey(state.playerPosition)) {
@@ -298,6 +293,10 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
     }
     state = state.copyWith(isMoving: false);
 
+    _finalizeTurn(startPos, state.playerPosition);
+  }
+
+  void _finalizeTurn(int oldPos, int newPos) {
     if (state.isMultiplayer && state.isMyTurn) {
       // Send move to opponent
       final socketService = GameWebsocketService();
@@ -307,11 +306,13 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
           state.myUserId!,
           state.diceValue, // from_row
           oldPos, // from_col (Need to capture oldPos)
-          state.playerPosition, // to_row
+          newPos, // to_row
           0, // to_col
         );
         state = state.copyWith(isMyTurn: false, gameStatus: "Waiting for opponent...");
       }
+    } else {
+        state = state.copyWith(isMyTurn: false, gameStatus: "Turn ended.");
     }
   }
 
