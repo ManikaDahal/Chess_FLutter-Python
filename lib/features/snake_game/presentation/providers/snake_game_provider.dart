@@ -99,12 +99,13 @@ class SnakeGameState {
       isLocalVideoEnabled: isLocalVideoEnabled ?? this.isLocalVideoEnabled,
       isRemoteAudioMuted: isRemoteAudioMuted ?? this.isRemoteAudioMuted,
       isRemoteVideoEnabled: isRemoteVideoEnabled ?? this.isRemoteVideoEnabled,
-      isOpponentLocallySilenced: isOpponentLocallySilenced ?? this.isOpponentLocallySilenced,
-      amISilencedByOpponent: amISilencedByOpponent ?? this.amISilencedByOpponent,
+      isOpponentLocallySilenced:
+          isOpponentLocallySilenced ?? this.isOpponentLocallySilenced,
+      amISilencedByOpponent:
+          amISilencedByOpponent ?? this.amISilencedByOpponent,
     );
   }
 }
-
 
 class SnakeGameNotifier extends Notifier<SnakeGameState> {
   StreamSubscription? _socketSubscription;
@@ -144,7 +145,7 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       isMultiplayer: isMultiplayer,
       myUserId: myUserId,
       isMyTurn: !isMultiplayer || startsMyTurn,
-      // Preserve call info if it was already connecting? 
+      // Preserve call info if it was already connecting?
       // Usually initBoard is called once per screen entry
       callStatus: state.callStatus,
       isCallStarted: state.isCallStarted,
@@ -174,12 +175,20 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
         _handleOpponentMove(data);
       } else if (data['type'] == 'reset') {
         resetGame(remote: true);
-      } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast') {
-        print("[SNAKE SYNC] Opponent left detected: $data");
-        state = state.copyWith(
-          gameStatus: "Opponent Resigned/Left board",
-          isMyTurn: false,
+      } else if (data['type'] == 'user_left' ||
+          data['type'] == 'player_left' ||
+          data['type'] == 'user_left_broadcast' ||
+          data['type'] == 'leave') {
+        print(
+          "[SNAKE SYNC] Opponent left detected (message: ${data['type']}): $data",
         );
+        final senderId = data['user_id']?.toString();
+        if (senderId == null || senderId != state.myUserId?.toString()) {
+          state = state.copyWith(
+            gameStatus: "Opponent Resigned/Left board",
+            isMyTurn: false,
+          );
+        }
       }
     });
   }
@@ -197,7 +206,9 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       gameStatus: "Opponent rolled $diceValue!",
     );
 
-    print("[SNAKE SYNC] Applying remote move: Dice=$diceValue, TargetPos=$targetPos, OldOpponentPos=${state.opponentPosition}");
+    print(
+      "[SNAKE SYNC] Applying remote move: Dice=$diceValue, TargetPos=$targetPos, OldOpponentPos=${state.opponentPosition}",
+    );
     // Update opponent position
     _moveOpponent(targetPos);
   }
@@ -206,10 +217,11 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
     if (state.opponentPosition == targetPos) return;
 
     state = state.copyWith(isMoving: true);
-    
+
     // Animate movement if it's a normal move (optional, but better)
     // For now, let's at least handle it step by step if it's forward
-    if (targetPos > state.opponentPosition && targetPos - state.opponentPosition <= 6) {
+    if (targetPos > state.opponentPosition &&
+        targetPos - state.opponentPosition <= 6) {
       int steps = targetPos - state.opponentPosition;
       for (int i = 0; i < steps; i++) {
         await Future.delayed(const Duration(milliseconds: 300));
@@ -219,7 +231,7 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       // Jump for snakes/ladders or if too far
       state = state.copyWith(opponentPosition: targetPos);
     }
-    
+
     state = state.copyWith(isMoving: false);
   }
 
@@ -230,10 +242,7 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       return;
     }
 
-    state = state.copyWith(
-      isRolling: true,
-      gameStatus: "Waiting for luck...",
-    );
+    state = state.copyWith(isRolling: true, gameStatus: "Waiting for luck...");
 
     for (int i = 0; i < 12; i++) {
       await Future.delayed(const Duration(milliseconds: 70));
@@ -247,7 +256,7 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
   Future<void> handleGameLogic(int roll) async {
     int startPos = state.playerPosition;
     if (!state.hasStarted) {
-        state = state.copyWith(hasStarted: true);
+      state = state.copyWith(hasStarted: true);
     }
     await movePlayerSequence(roll, startPos);
   }
@@ -311,20 +320,27 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
           newPos, // to_row
           0, // to_col
         );
-        state = state.copyWith(isMyTurn: false, gameStatus: "Waiting for opponent...");
+        state = state.copyWith(
+          isMyTurn: false,
+          gameStatus: "Waiting for opponent...",
+        );
       }
     } else {
-        state = state.copyWith(isMyTurn: false, gameStatus: "Turn ended.");
+      state = state.copyWith(isMyTurn: false, gameStatus: "Turn ended.");
     }
   }
 
   // Call management methods
   void setCallStarted(bool val) => state = state.copyWith(isCallStarted: val);
   void setCallStatus(String val) => state = state.copyWith(callStatus: val);
-  void setLocalAudioMuted(bool val) => state = state.copyWith(isLocalAudioMuted: val);
-  void setLocalVideoEnabled(bool val) => state = state.copyWith(isLocalVideoEnabled: val);
-  void setRemoteAudioMuted(bool val) => state = state.copyWith(isRemoteAudioMuted: val);
-  void setRemoteVideoEnabled(bool val) => state = state.copyWith(isRemoteVideoEnabled: val);
+  void setLocalAudioMuted(bool val) =>
+      state = state.copyWith(isLocalAudioMuted: val);
+  void setLocalVideoEnabled(bool val) =>
+      state = state.copyWith(isLocalVideoEnabled: val);
+  void setRemoteAudioMuted(bool val) =>
+      state = state.copyWith(isRemoteAudioMuted: val);
+  void setRemoteVideoEnabled(bool val) =>
+      state = state.copyWith(isRemoteVideoEnabled: val);
   void setOpponentLocallySilenced(bool val) {
     state = state.copyWith(isOpponentLocallySilenced: val);
 
@@ -342,7 +358,9 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
       'isSilenced': val,
     });
   }
-  void setAmISilencedByOpponent(bool val) => state = state.copyWith(amISilencedByOpponent: val);
+
+  void setAmISilencedByOpponent(bool val) =>
+      state = state.copyWith(amISilencedByOpponent: val);
 
   void resetGame({bool remote = false}) {
     state = state.copyWith(
@@ -361,6 +379,8 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
   }
 }
 
-final snakeGameProvider = NotifierProvider<SnakeGameNotifier, SnakeGameState>(() {
-  return SnakeGameNotifier();
-});
+final snakeGameProvider = NotifierProvider<SnakeGameNotifier, SnakeGameState>(
+  () {
+    return SnakeGameNotifier();
+  },
+);

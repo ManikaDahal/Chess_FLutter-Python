@@ -53,7 +53,10 @@ class GameWebsocketService {
 
     try {
       // Wake up the server before connecting (Render sleeps on free tier)
-      await ApiService().probe(ApiBase.render);
+      // We don't await this to avoid blocking the actual WebSocket connection attempt
+      ApiService().probe(ApiBase.render).catchError((e) {
+        print("GameWebsocketService: Probe failed (non-critical): $e");
+      });
 
       var uri = Uri.parse(url);
       // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)

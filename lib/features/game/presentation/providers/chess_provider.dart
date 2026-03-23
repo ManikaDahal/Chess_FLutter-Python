@@ -165,9 +165,12 @@ class ChessNotifier extends Notifier<ChessState> {
           print("[CHESS SYNC] Move received: $data (isMyMove: $isMyMove)");
           if (isMyMove && !state.isSyncing) return;
           handleRemoteMove(data);
-        } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast') {
-          print("[CHESS SYNC] Opponent left detected: $data");
-          if (data['user_id']?.toString() != currentUserId.toString()) {
+        } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast' || data['type'] == 'leave') {
+          print("[CHESS SYNC] Opponent left detected (message: ${data['type']}): $data");
+          final senderId = data['user_id']?.toString();
+          // If we know the user who left is NOT us, then it must be the opponent.
+          // If we don't know who left (null), we assume it's the opponent to be safe.
+          if (senderId == null || senderId != currentUserId.toString()) {
              state = state.copyWith(isGameOver: true, winnerMessage: "Opponent left! You win by resignation.");
           }
         } else if (data['type'] == 'history') {
