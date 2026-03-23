@@ -424,6 +424,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
   }
 
   void _showLeaveDialog() {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -662,6 +663,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
 
   void _showGameOverDialog(String message, {bool isVictory = false}) {
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -732,6 +734,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
     // Listen for game over or opponent departure to show celebration dialog
     ref.listen(chessProvider, (previous, next) {
+      if (!mounted) return;
       if (next.isGameOver && !(previous?.isGameOver ?? false)) {
         debugPrint("[GAME] 🏁 Game Over detected: ${next.winnerMessage}");
         _showGameOverDialog(

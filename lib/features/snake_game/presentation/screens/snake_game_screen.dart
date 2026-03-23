@@ -383,6 +383,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
   }
 
   void _showWinDialog() {
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -481,6 +482,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
   }
 
   void _showOpponentLeftDialog({bool isVictory = false}) {
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -525,6 +527,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
   @override
   Widget build(BuildContext context) {
     ref.listen(snakeGameProvider, (previous, next) {
+      if (!mounted) return;
       if (next.playerPosition == totalSquares &&
           (previous?.playerPosition ?? 0) != totalSquares) {
         _showWinDialog();

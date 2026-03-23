@@ -170,10 +170,12 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
 
     _socketSubscription = socketService.stream.listen((data) {
       if (data['type'] == 'move') {
+        print("[SNAKE SYNC] Move received: $data");
         _handleOpponentMove(data);
       } else if (data['type'] == 'reset') {
         resetGame(remote: true);
-      } else if (data['type'] == 'user_left' || data['type'] == 'player_left') {
+      } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast') {
+        print("[SNAKE SYNC] Opponent left detected: $data");
         state = state.copyWith(
           gameStatus: "Opponent Resigned/Left board",
           isMyTurn: false,

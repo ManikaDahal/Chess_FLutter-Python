@@ -159,78 +159,74 @@ class ChessNotifier extends Notifier<ChessState> {
     _gameSubscription?.cancel();
 
     _gameSubscription = _gameService.stream.listen((data) {
-      print("[GAME] Received socket event: ${data['type']} for User $currentUserId. Data: $data");
-      
-      if (data['type'] == 'move') {
-        final bool isMyMove = data['sender_id']?.toString() == currentUserId.toString();
-        if (isMyMove && !state.isSyncing) {
-             print("[GAME] Ignoring echoed move from self (sender_id: ${data['sender_id']})");
-             return;
-        }
-        print("[GAME] Moving to target handling logic...");
-        handleRemoteMove(data);
-      } else if (data['type'] == 'history') {
-        final List history = data['history'];
-        print("[GAME] 📜 Received history with ${history.length} moves. Atomic sync starting...");
-        
-        // Use a local board for atomic replay to avoid flickering and mid-sync desyncs
-        List<List<ChessPiece?>> syncBoard = ChessState.createInitialBoard();
-        bool syncWhiteTurn = true;
-        List<int> syncWhiteKing = [7, 4];
-        List<int> syncBlackKing = [0, 4];
-
-        for (var move in history) {
-          int? fR = int.tryParse(move['from_row']?.toString() ?? "");
-          int? fC = int.tryParse(move['from_col']?.toString() ?? "");
-          int? tR = int.tryParse(move['to_row']?.toString() ?? "");
-          int? tC = int.tryParse(move['to_col']?.toString() ?? "");
+      try {
+        if (data['type'] == 'move') {
+          final bool isMyMove = data['sender_id']?.toString() == currentUserId.toString();
+          print("[CHESS SYNC] Move received: $data (isMyMove: $isMyMove)");
+          if (isMyMove && !state.isSyncing) return;
+          handleRemoteMove(data);
+        } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast') {
+          print("[CHESS SYNC] Opponent left detected: $data");
+          if (data['user_id']?.toString() != currentUserId.toString()) {
+             state = state.copyWith(isGameOver: true, winnerMessage: "Opponent left! You win by resignation.");
+          }
+        } else if (data['type'] == 'history') {
+          final List history = data['history'];
+          print("[GAME] 📜 Received history with ${history.length} moves. Atomic sync starting...");
           
-          if (fR != null && fC != null && tR != null && tC != null) {
-            final p = syncBoard[fR][fC];
-            if (p != null) {
-              // Apply move to syncBoard
-              syncBoard[tR][tC] = p;
-              syncBoard[fR][fC] = null;
-              
-              // Handle special cases (promotion, king tracking)
-              if (p.type == ChessPieceType.king) {
-                if (p.isWhite) syncWhiteKing = [tR, tC];
-                else syncBlackKing = [tR, tC];
+          List<List<ChessPiece?>> syncBoard = ChessState.createInitialBoard();
+          bool syncWhiteTurn = true;
+          List<int> syncWhiteKing = [7, 4];
+          List<int> syncBlackKing = [0, 4];
+
+          for (var move in history) {
+            int? fR = int.tryParse(move['from_row']?.toString() ?? "");
+            int? fC = int.tryParse(move['from_col']?.toString() ?? "");
+            int? tR = int.tryParse(move['to_row']?.toString() ?? "");
+            int? tC = int.tryParse(move['to_col']?.toString() ?? "");
+            
+            if (fR != null && fC != null && tR != null && tC != null) {
+              final piece = syncBoard[fR][fC];
+              if (piece != null) {
+                syncBoard[tR][tC] = piece;
+                syncBoard[fR][fC] = null;
+                if (piece.type == ChessPieceType.king) {
+                  if (piece.isWhite) syncWhiteKing = [tR, tC];
+                  else syncBlackKing = [tR, tC];
+                }
+                if (piece.type == ChessPieceType.pawn && (tR == 0 || tR == 7)) {
+                  syncBoard[tR][tC] = ChessPiece(
+                    type: ChessPieceType.queen,
+                    isWhite: piece.isWhite,
+                    imagePath: "assets/images/${piece.isWhite ? 'white' : 'black'}/queen.png",
+                  );
+                }
+                syncWhiteTurn = !syncWhiteTurn;
               }
-              if (p.type == ChessPieceType.pawn && (tR == 0 || tR == 7)) {
-                syncBoard[tR][tC] = ChessPiece(
-                  type: ChessPieceType.queen,
-                  isWhite: p.isWhite,
-                  imagePath: "assets/images/${p.isWhite ? 'white' : 'black'}/queen.png",
-                );
-              }
-              syncWhiteTurn = !syncWhiteTurn;
             }
           }
+          
+          state = state.copyWith(
+            board: syncBoard,
+            whiteTurn: syncWhiteTurn,
+            whiteKingPosition: syncWhiteKing,
+            blackKingPosition: syncBlackKing,
+            isSyncing: false,
+            checkStatus: false,
+          );
+          print("[GAME] ✅ History sync complete.");
+        } else if (data['type'] == 'reset') {
+           state = state.copyWith(
+             board: ChessState.createInitialBoard(), 
+             whiteTurn: true, 
+             whiteKingPosition: [7,4], 
+             blackKingPosition: [0,4],
+             isGameOver: false,
+             winnerMessage: null,
+           );
         }
-        
-        state = state.copyWith(
-          board: syncBoard,
-          whiteTurn: syncWhiteTurn,
-          whiteKingPosition: syncWhiteKing,
-          blackKingPosition: syncBlackKing,
-          isSyncing: false,
-          checkStatus: false, // will update on build or move
-        );
-        print("[GAME] ✅ History sync complete. Board state updated.");
-      } else if (data['type'] == 'user_left' || data['type'] == 'player_left') {
-        if (data['user_id']?.toString() != currentUserId.toString()) {
-           state = state.copyWith(isGameOver: true, winnerMessage: "Opponent left! You win by resignation.");
-        }
-      } else if (data['type'] == 'reset') {
-         state = state.copyWith(
-           board: ChessState.createInitialBoard(), 
-           whiteTurn: true, 
-           whiteKingPosition: [7,4], 
-           blackKingPosition: [0,4],
-           isGameOver: false,
-           winnerMessage: null,
-         );
+      } catch (e) {
+        print("[CHESS SYNC] ❌ Error processing socket message: $e\nData: $data");
       }
     });
   }
@@ -247,10 +243,10 @@ class ChessNotifier extends Notifier<ChessState> {
     
     final piece = state.board[fR][fC];
     if (piece != null) {
-        print("[GAME] ✅ Applying remote move: $piece from [$fR, $fC] to [$tR, $tC]");
+        print("[CHESS SYNC] ✅ Applying remote move: $piece from [$fR, $fC] to [$tR, $tC]");
         _applyMoveLocally(fR, fC, tR, tC, piece);
     } else {
-        print("[GAME] ❌ Desync Detect: No piece at [$fR, $fC] (Target: [$tR, $tC]) Content: ${state.board[fR][fC]}");
+        print("[CHESS SYNC] ❌ Desync Detect: No piece at [$fR, $fC] (Target: [$tR, $tC]) Board State: ${state.board[fR][fC]}");
     }
   }
 
@@ -272,6 +268,7 @@ class ChessNotifier extends Notifier<ChessState> {
 
       // Send via socket
       if (isMultiplayer) {
+         print("[CHESS SYNC] 📤 Sending move to Room $roomId from User $currentUserId: [$fromR, $fromC] -> [$row, $col]");
          _gameService.sendMove(roomId, currentUserId, fromR, fromC, row, col);
       }
       return;
