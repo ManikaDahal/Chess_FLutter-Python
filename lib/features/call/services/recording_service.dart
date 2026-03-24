@@ -8,7 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 
 
-enum RecordingStatus { idle, starting, recording, stopping, saved, failed }
+enum RecordingStatus { idle, starting, recording, stopping, saved, failed, uploading }
 
 class RecordingService {
   static final RecordingService _instance = RecordingService._internal();
@@ -174,7 +174,13 @@ class RecordingService {
   Future<void> _uploadRecording(String filePath, String roomId) async {
     try {
       final File file = File(filePath);
-      if (!await file.exists()) return;
+      if (!await file.exists()) {
+        debugPrint('❌ Upload error: File not found at $filePath');
+        return;
+      }
+
+      statusNotifier.value = RecordingStatus.uploading;
+      debugPrint('RecordingService: Uploading $filePath to room $roomId...');
 
       final response = await _apiService.multipartPost(
         '/api/call/upload/',
@@ -185,13 +191,19 @@ class RecordingService {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('✅ Upload successful');
+        statusNotifier.value = RecordingStatus.saved;
+        
+        // Show success snackbar if possible via global context or just log
+        // The UI listener will handle the success message
       } else {
         debugPrint(
           '❌ Upload failed: ${response.statusCode} - ${response.data}',
         );
+        statusNotifier.value = RecordingStatus.failed;
       }
     } catch (e) {
       debugPrint('❌ Upload error: $e');
+      statusNotifier.value = RecordingStatus.failed;
     }
   }
 }

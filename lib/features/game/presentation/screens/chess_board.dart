@@ -10,10 +10,7 @@ import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.d
 import 'package:chess_game_manika/features/game/presentation/widgets/square_widget.dart';
 import 'package:chess_game_manika/features/game/presentation/providers/chess_provider.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
-import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
-import 'package:chess_game_manika/helper/helper.dart';
-import 'package:chess_game_manika/features/game/data/models/chess_piece.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:chess_game_manika/core/widgets/blinking_dot.dart';
 
 class GameBoard extends ConsumerStatefulWidget {
   final int roomId;
@@ -544,7 +542,8 @@ class _GameBoardState extends ConsumerState<GameBoard>
             setAsActive: true,
           );
         });
-
+        
+        _setupRecordingListener();
       }
     } catch (e, st) {
       print("GameBoard FATAL ERROR in initState: $e\n$st");
@@ -606,6 +605,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
         _onRemoteStreamChanged,
       );
     }
+    _recordingService.statusNotifier.removeListener(_onRecordingStatusChanged);
     _gameConnSub?.cancel();
     _signalingConnSub?.cancel();
     _incomingCallSub?.cancel();
@@ -888,6 +888,63 @@ class _GameBoardState extends ConsumerState<GameBoard>
                 size: 20,
               ),
             ),
+          ),
+
+          // Recording Indicator (Center-Left)
+          ValueListenableBuilder<RecordingStatus>(
+            valueListenable: _recordingService.statusNotifier,
+            builder: (context, status, _) {
+              if (status == RecordingStatus.idle) return const SizedBox.shrink();
+              
+              Color iconColor = Colors.red;
+              String label = "REC";
+              bool isAnimated = true;
+              
+              if (status == RecordingStatus.uploading) {
+                iconColor = Colors.blueAccent;
+                label = "UPLOADING...";
+                isAnimated = true;
+              } else if (status == RecordingStatus.stopping) {
+                label = "SAVING...";
+                isAnimated = false;
+              } else if (status == RecordingStatus.starting) {
+                label = "PREPARING...";
+                isAnimated = false;
+              } else if (status == RecordingStatus.recording) {
+                label = "REC";
+                isAnimated = true;
+              } else {
+                return const SizedBox.shrink();
+              }
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: iconColor.withOpacity(0.5), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isAnimated)
+                      BlinkingDot(color: iconColor)
+                    else
+                      Icon(Icons.fiber_manual_record, color: iconColor, size: 10),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
 
           // Turn Indicator
@@ -1262,5 +1319,36 @@ class _GameBoardState extends ConsumerState<GameBoard>
         );
       },
     );
+  }
+
+  void _setupRecordingListener() {
+    _recordingService.statusNotifier.addListener(_onRecordingStatusChanged);
+  }
+
+  void _onRecordingStatusChanged() {
+    if (!mounted) return;
+    final status = _recordingService.statusNotifier.value;
+    
+    // Only show snackbars for terminal or transition states to avoid cluttering the game board
+    if (status == RecordingStatus.saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(" Game Recording Uploaded Successfully!"),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } else if (status == RecordingStatus.failed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(" Recording Upload Failed (Check connection)"),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+    
+    // Trigger rebuild to update header indicator
+    setState(() {});
   }
 }

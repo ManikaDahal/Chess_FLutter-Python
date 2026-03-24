@@ -141,28 +141,28 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 },
               ),
             ),
-            Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              margin: const EdgeInsets.symmetric(vertical: 10),
-              child: ListTile(
-                leading: const Icon(Icons.videogame_asset, color: Colors.green),
-                title: const Text(
-                  "Play Snake Game",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                ),
-                subtitle: const Text("Classic Grid Game"),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                onTap: () {
-                  RouteGenerator.navigateToPage(
-                    context,
-                    Routes.snakeBoardSelectionRoute,
-                  );
-                },
-              ),
-            ),
+            // Card(
+            //   elevation: 3,
+            //   shape: RoundedRectangleBorder(
+            //     borderRadius: BorderRadius.circular(12),
+            //   ),
+            //   margin: const EdgeInsets.symmetric(vertical: 10),
+            //   child: ListTile(
+            //     leading: const Icon(Icons.videogame_asset, color: Colors.green),
+            //     title: const Text(
+            //       "Play Snake Game",
+            //       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            //     ),
+            //     subtitle: const Text("Classic Grid Game"),
+            //     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            //     onTap: () {
+            //       RouteGenerator.navigateToPage(
+            //         context,
+            //         Routes.snakeBoardSelectionRoute,
+            //       );
+            //     },
+            //   ),
+            // ),
 
             const SizedBox(height: 20),
 

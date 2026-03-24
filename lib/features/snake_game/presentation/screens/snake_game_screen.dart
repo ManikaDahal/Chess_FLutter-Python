@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
+import 'package:chess_game_manika/core/widgets/blinking_dot.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/providers/snake_game_provider.dart';
@@ -94,6 +95,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
 
         // Reset the recording flag for every fresh game instance
         _recordingService.hasShownRecordingPopup = false;
+        _setupRecordingListener();
       }
     });
   }
@@ -113,6 +115,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
     _signalingService?.remoteStreamNotifier.removeListener(_onRemoteStreamChanged);
     _signalingService?.remoteMediaTypeNotifier.removeListener(_onRemoteMediaTypeChanged);
 
+    _recordingService.statusNotifier.removeListener(_onRecordingStatusChanged);
     _recordingService.stopRecording();
     _signalingService?.endCall();
     _signalingService?.disconnect();
@@ -582,7 +585,48 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
         centerTitle: true,
         backgroundColor: const Color(0xFF2C3E50),
         elevation: 4,
-        actions: const [],
+        actions: [
+          ValueListenableBuilder<RecordingStatus>(
+            valueListenable: _recordingService.statusNotifier,
+            builder: (context, status, _) {
+              if (status == RecordingStatus.idle) return const SizedBox.shrink();
+              
+              Color iconColor = Colors.red;
+              String label = "REC";
+              
+              if (status == RecordingStatus.uploading) {
+                iconColor = Colors.blueAccent;
+                label = "UPLOADING...";
+              } else if (status == RecordingStatus.stopping) {
+                label = "SAVING...";
+              } else if (status == RecordingStatus.starting) {
+                label = "PREPARING...";
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(right: 16.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (status == RecordingStatus.recording || status == RecordingStatus.uploading)
+                      BlinkingDot(color: iconColor, size: 8)
+                    else
+                      Icon(Icons.fiber_manual_record, color: iconColor, size: 8),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -1187,6 +1231,34 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
         ],
       ),
     );
+  }
+
+  void _setupRecordingListener() {
+    _recordingService.statusNotifier.addListener(_onRecordingStatusChanged);
+  }
+
+  void _onRecordingStatusChanged() {
+    if (!mounted) return;
+    final status = _recordingService.statusNotifier.value;
+    
+    if (status == RecordingStatus.saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ Game Recording Uploaded Successfully!"),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } else if (status == RecordingStatus.failed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ Recording Upload Failed"),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+    setState(() {});
   }
 }
 
