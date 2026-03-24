@@ -185,21 +185,11 @@ class _SignupState extends ConsumerState<Signup> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Premium Gradient Background
+          // Solid minimal background like Instagram/Facebook
           Container(
             height: MediaQuery.of(context).size.height,
             width: MediaQuery.of(context).size.width,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  const Color(0xFFE3F2FD), // Light blue tint
-                  Colors.white,
-                  Colors.white,
-                ],
-              ),
-            ),
+            color: Colors.white,
           ),
           ui(),
           loader ? Loader.backdropFilter(context) : const SizedBox(),
@@ -242,11 +232,12 @@ class _SignupState extends ConsumerState<Signup> {
               Center(
                 child: CustomText(
                   data: createAccountStr,
-                  fontSize: 25,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
+                  color: primaryColor,
                 ),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 24),
               CustomText(
                 data: nameStr,
                 fontSize: 20,
@@ -361,26 +352,30 @@ class _SignupState extends ConsumerState<Signup> {
                 ],
               ),
               SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CustomElevatedbutton(
-                    onPressed: _handleGoogleSignIn,
-                    width: MediaQuery.of(context).size.width * 0.25,
-                    backgroundColor: Colors.white,
-                    child: Image.asset("assets/images/google_logo.png"),
-                  ),
-                  SizedBox(width: 30),
-                  CustomElevatedbutton(
-                    onPressed: () {},
-                    width: MediaQuery.of(context).size.width * 0.25,
-                    backgroundColor: Colors.white,
-                    child: Image.asset(
-                      "assets/images/facebook_logo.png",
-                      height: 40,
+              SizedBox(height: 24),
+              // Enhanced Google Sign In (Full width like Facebook)
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _handleGoogleSignIn,
+                  icon: Image.asset("assets/images/google_logo.png", height: 24),
+                  label: const Text(
+                    "Continue with Google",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
                     ),
                   ),
-                ],
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.black12, width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
               ),
               SizedBox(height: 20),
               Row(

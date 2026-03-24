@@ -132,9 +132,10 @@ class ChessNotifier extends Notifier<ChessState> {
   void initGame(int roomId, int currentUserId, {SignalingService? signalingService}) {
     _signalingService = signalingService;
     
-    // Full reset — clear board, game-over flags, call state, and all mute/silence state.
-    // We deliberately do NOT carry over any previous call or media state, because
-    // the SignalingService is recreated fresh by GameBoard for each new match.
+    // Connect to the WebSocket room
+    _gameService.connect(roomId, forceReconnect: true);
+
+   
     state = ChessState(
       board: ChessState.createInitialBoard(),
       isSyncing: true,
