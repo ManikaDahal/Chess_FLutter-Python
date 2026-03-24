@@ -271,6 +271,16 @@ class ApiService {
     }
   }
 
+  Future<List<dynamic>> getChatRooms() async {
+    final response = await get('/api/chat/rooms/', base: ApiBase.render);
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      print("Failed to fetch chat rooms: ${response.data}");
+      return [];
+    }
+  }
+
   /// INVITES
   
   Future<int?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {

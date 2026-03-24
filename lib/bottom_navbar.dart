@@ -4,7 +4,7 @@ import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.d
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:chess_game_manika/features/profile/presentation/screens/profile_page.dart';
 import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
-import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
+import 'package:chess_game_manika/features/users/presentation/screens/friend_list.dart';
 
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:flutter/material.dart';
@@ -123,7 +123,7 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
           _pageController.jumpToPage(index);
         },
       ),
-      UserList(currentUserId: currentUserId),
+      FriendListScreen(currentUserId: currentUserId),
       const VideoGalleryScreen(),
       ChatPage(
         roomId: currentRoomId,
@@ -189,8 +189,8 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
                   label: "Home",
                 ),
                 const BottomNavigationBarItem(
-                  icon: Icon(Icons.people),
-                  label: "Players",
+                  icon: Icon(Icons.people_alt_rounded),
+                  label: "Social",
                 ),
                 const BottomNavigationBarItem(
                   icon: Icon(Icons.video_library), // Video Gallery Icon

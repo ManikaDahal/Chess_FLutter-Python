@@ -70,6 +70,7 @@ dependencies:
   google_sign_in: 6.2.1
   connectivity_plus: ^6.1.1
   flutter_launcher_icons: ^0.14.4
+  app_settings: ^7.0.0
 
 dev_dependencies:
   flutter_test:

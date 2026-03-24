@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
+import 'package:app_settings/app_settings.dart';
 
 class Login extends ConsumerStatefulWidget {
   const Login({super.key});
@@ -37,10 +38,12 @@ class _LoginState extends ConsumerState<Login> {
   bool rememberMe = false;
   final _formKey = GlobalKey<FormState>();
   bool loader = false;
+  bool _isHardwareSupported = false;
+  bool _isBiometricEnrolled = false;
+  bool _isBiometricAvailable =
+      false; // Backward compatibility with previous if check
 
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['email', 'profile'],
-  );
+  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
 
   Future<void> _handleGoogleSignIn() async {
     setState(() {
@@ -115,6 +118,86 @@ class _LoginState extends ConsumerState<Login> {
   void initState() {
     super.initState();
     _loadSavedCredentials();
+    _checkBiometricAvailability();
+  }
+
+  Future<void> _checkBiometricAvailability() async {
+    try {
+      final isSupported = await auth.isDeviceSupported();
+      final canCheck = await auth.canCheckBiometrics;
+      final availableBiometrics = await auth.getAvailableBiometrics();
+      if (mounted) {
+        setState(() {
+          _isHardwareSupported = isSupported && canCheck;
+          _isBiometricEnrolled = availableBiometrics.isNotEmpty;
+          _isBiometricAvailable = _isHardwareSupported && _isBiometricEnrolled;
+        });
+      }
+    } catch (e) {
+      print("Error checking biometrics: $e");
+    }
+  }
+
+  void _showBiometricSetupDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.fingerprint, color: Color(0xFF2196F3), size: 28),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                "Setup Biometrics",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          "Your phone supports biometrics, but you haven't set up any fingerprints or face data yet.\n\n"
+          "After clicking 'Go to Settings', please find the 'Biometrics' or 'Fingerprint' section in the Security menu to enroll yours.",
+          style: TextStyle(color: Colors.black54, fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              "Not Now",
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2196F3),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                // On some devices Security is broad, but it's the safest cross-platform type
+                AppSettings.openAppSettings(
+                  type: AppSettingsType.generalSettings,
+                );
+              },
+              child: const Text(
+                "Go to Settings",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -252,7 +335,7 @@ class _LoginState extends ConsumerState<Login> {
                       BoxShadow(
                         color: Colors.black.withOpacity(0.05),
                         blurRadius: 10,
-                      )
+                      ),
                     ],
                   ),
                   child: const Icon(Icons.arrow_back, color: Color(0xFF2196F3)),
@@ -322,49 +405,75 @@ class _LoginState extends ConsumerState<Login> {
                 ),
               ),
 
-              const SizedBox(height: 25),
-              Center(
-                child: Container(
-                  width: double.infinity,
-                  height: 55,
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
+              if (_isHardwareSupported) ...[
+                const SizedBox(height: 25),
+                Center(
+                  child: Container(
+                    width: double.infinity,
+                    height: 55,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(
+                          color: Color(0xFF2196F3),
+                          width: 1.5,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        foregroundColor: const Color(0xFF2196F3),
                       ),
-                      foregroundColor: const Color(0xFF2196F3),
-                    ),
-                    onPressed: () async {
-                      try {
-                        bool ok = await _biometricAuth.loginWithBiometrics();
-                        if (ok) {
-                          // Biometrics succeeded, read cached data and update provider
-                          final prefs = await SharedPreferences.getInstance();
-                          final int userId = prefs.getInt('userId') ?? 0;
-                          final String email = prefs.getString('email') ?? '';
-                          ref.read(authProvider.notifier).login(userId, email);
+                      onPressed: () async {
+                        if (_isBiometricEnrolled) {
+                          try {
+                            bool ok = await _biometricAuth
+                                .loginWithBiometrics();
+                            if (ok) {
+                              final prefs =
+                                  await SharedPreferences.getInstance();
+                              final int userId = prefs.getInt('userId') ?? 0;
+                              final String email =
+                                  prefs.getString('email') ?? '';
+                              ref
+                                  .read(authProvider.notifier)
+                                  .login(userId, email);
 
-                          RouteGenerator.navigateToPage(
-                            context,
-                            Routes.bottomNavBarRoute,
-                          );
-                          DisplaySnackbar.show(context, loginSuccessfullStr);
+                              RouteGenerator.navigateToPage(
+                                context,
+                                Routes.bottomNavBarRoute,
+                              );
+                              DisplaySnackbar.show(
+                                context,
+                                loginSuccessfullStr,
+                              );
+                            } else {
+                              DisplaySnackbar.show(context, loginFailedStr);
+                            }
+                          } catch (e) {
+                            DisplaySnackbar.show(context, loginFailedStr);
+                          }
                         } else {
-                          DisplaySnackbar.show(context, loginFailedStr);
+                          _showBiometricSetupDialog();
                         }
-                      } catch (e) {
-                        DisplaySnackbar.show(context, loginFailedStr);
-                      }
-                    },
-                    icon: const Icon(Icons.fingerprint, size: 28),
-                    label: const Text(
-                      "Login with Biometrics",
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      },
+                      icon: Icon(
+                        _isBiometricEnrolled
+                            ? Icons.fingerprint
+                            : Icons.settings_applications_rounded,
+                        size: 28,
+                      ),
+                      label: Text(
+                        _isBiometricEnrolled
+                            ? "Login with Biometrics"
+                            : "Set up Biometrics",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
               const SizedBox(height: 10),
 
               Row(
@@ -425,7 +534,10 @@ class _LoginState extends ConsumerState<Login> {
                 height: 50,
                 child: OutlinedButton.icon(
                   onPressed: _handleGoogleSignIn,
-                  icon: Image.asset("assets/images/google_logo.png", height: 24),
+                  icon: Image.asset(
+                    "assets/images/google_logo.png",
+                    height: 24,
+                  ),
                   label: const Text(
                     "Continue with Google",
                     style: TextStyle(
