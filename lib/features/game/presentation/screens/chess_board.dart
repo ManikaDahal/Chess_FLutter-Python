@@ -706,22 +706,6 @@ class _GameBoardState extends ConsumerState<GameBoard>
             },
             child: const Text("Home", style: TextStyle(color: Colors.white70)),
           ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ref.read(chessProvider.notifier).resetGame(widget.roomId);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isVictory ? Colors.green : Colors.blue,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              "Play Again",
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
         ],
       ),
     );

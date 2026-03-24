@@ -177,7 +177,6 @@ class SnakeGameNotifier extends Notifier<SnakeGameState> {
         resetGame(remote: true);
       } else if (data['type'] == 'user_left' ||
           data['type'] == 'player_left' ||
-          data['type'] == 'user_left_broadcast' ||
           data['type'] == 'leave') {
         print(
           "[SNAKE SYNC] Opponent left detected (message: ${data['type']}): $data",

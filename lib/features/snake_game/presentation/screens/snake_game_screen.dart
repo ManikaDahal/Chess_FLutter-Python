@@ -10,7 +10,8 @@ import 'package:chess_game_manika/features/call/presentation/providers/call_prov
 import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:flutter/foundation.dart';
-
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -405,11 +406,16 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
           Center(
             child: TextButton(
               onPressed: () {
-                Navigator.pop(context);
-                ref.read(snakeGameProvider.notifier).resetGame();
+                _recordingService.stopRecording();
+                _signalingService?.endCall();
+                _signalingService?.disconnect();
+                RouteGenerator.navigateToPageWithoutStack(
+                  context,
+                  Routes.snakeLandingPageRoute,
+                );
               },
               child: const Text(
-                "NEW ADVENTURE",
+                "SNAKE",
                 style: TextStyle(
                   color: Colors.orange,
                   fontWeight: FontWeight.bold,
@@ -508,7 +514,10 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
               _recordingService.stopRecording();
               _signalingService?.endCall();
               _signalingService?.disconnect();
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              RouteGenerator.navigateToPageWithoutStack(
+                context,
+                Routes.snakeLandingPageRoute,
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blueAccent,
@@ -516,7 +525,7 @@ class _SnakeGameScreenState extends ConsumerState<SnakeGameScreen>
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text("OK", style: TextStyle(color: Colors.white)),
+            child: const Text("Home", style: TextStyle(color: Colors.white)),
           ),
         ],
       ),

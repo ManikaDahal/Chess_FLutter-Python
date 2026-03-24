@@ -132,7 +132,9 @@ class ChessNotifier extends Notifier<ChessState> {
   void initGame(int roomId, int currentUserId, {SignalingService? signalingService}) {
     _signalingService = signalingService;
     
-    // Reset state to avoid showing pieces from a previous board/game session
+    // Full reset — clear board, game-over flags, call state, and all mute/silence state.
+    // We deliberately do NOT carry over any previous call or media state, because
+    // the SignalingService is recreated fresh by GameBoard for each new match.
     state = ChessState(
       board: ChessState.createInitialBoard(),
       isSyncing: true,
@@ -141,11 +143,14 @@ class ChessNotifier extends Notifier<ChessState> {
       blackKingPosition: const [0, 4],
       isGameOver: false,
       winnerMessage: null,
-      // Maintain media preferences if already toggled
-      isLocalAudioMuted: state.isLocalAudioMuted,
-      isLocalVideoEnabled: state.isLocalVideoEnabled,
-      isCallStarted: state.isCallStarted,
-      callStatus: state.callStatus,
+      isCallStarted: false,
+      callStatus: "Initializing...",
+      isLocalAudioMuted: false,
+      isLocalVideoEnabled: false,
+      isRemoteAudioMuted: false,
+      isRemoteVideoEnabled: false,
+      isOpponentLocallySilenced: false,
+      amISilencedByOpponent: false,
     );
 
     _signalingService?.onCustomMessageStream.listen((data) {
@@ -165,7 +170,7 @@ class ChessNotifier extends Notifier<ChessState> {
           print("[CHESS SYNC] Move received: $data (isMyMove: $isMyMove)");
           if (isMyMove && !state.isSyncing) return;
           handleRemoteMove(data);
-        } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'user_left_broadcast' || data['type'] == 'leave') {
+        } else if (data['type'] == 'user_left' || data['type'] == 'player_left' || data['type'] == 'leave') {
           print("[CHESS SYNC] Opponent left detected (message: ${data['type']}): $data");
           final senderId = data['user_id']?.toString();
           // If we know the user who left is NOT us, then it must be the opponent.
