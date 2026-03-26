@@ -35,7 +35,7 @@ class NotificationService {
     if (_isLocalInit) return;
 
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@mipmap/launcher_icon');
 
     const InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
@@ -139,7 +139,8 @@ class NotificationService {
       if (dataPayload['type'] == 'invite_accepted' ||
           dataPayload['type'] == 'invite_declined' ||
           dataPayload['type'] == 'chess_invite' ||
-          dataPayload['type'] == 'snake_invite') {
+          dataPayload['type'] == 'snake_invite' ||
+          dataPayload['type'] == 'friend_invite') {
         _handleFcmPayload(dataPayload);
       }
 
@@ -192,7 +193,7 @@ class NotificationService {
   static void _handleFcmPayload(Map<String, dynamic> data) async {
     print("FCM: Handling payload details: $data");
 
-    if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite') {
+    if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite' || data['type'] == 'friend_invite') {
       _showInviteDialog(data);
       return;
     }
@@ -207,10 +208,14 @@ class NotificationService {
 
     if (data['type'] == 'invite_accepted') {
       print(
-        "FCM [invite_accepted]: Receiver accepted. Inviter should enter the board.",
+        "FCM [invite_accepted]: Receiver accepted.",
       );
       // Broadcast the event so the waiting screen can handle it smoothly
       _fcmEventController.add(data);
+
+      if (data['game_type'] == 'friend') {
+        _showStatusDialog(data, "Friend Request Accepted", Colors.green);
+      }
       return;
     }
 
@@ -257,16 +262,22 @@ class NotificationService {
         data['id']?.toString().replaceAll("invite_", "") ?? "0";
     final int inviteId = int.tryParse(inviteIdStr) ?? 0;
 
-    final String gameType = data['type'] == 'snake_invite' ? "Snake & Ladder" : "Chess";
+    String gameTypeDisplay = "Chess";
+    if (data['type'] == 'snake_invite') gameTypeDisplay = "Snake & Ladder";
+    if (data['type'] == 'friend_invite') gameTypeDisplay = "Friend";
+
     final bool isSnake = data['type'] == 'snake_invite';
+    final bool isFriend = data['type'] == 'friend_invite';
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text("Game Invitation"),
-          content: Text("$senderName invited you to play a $gameType game!"),
+          title: Text(isFriend ? "Friend Request" : "Game Invitation"),
+          content: Text(isFriend 
+              ? "$senderName invited you to be friends!" 
+              : "$senderName invited you to play a $gameTypeDisplay game!"),
           actions: [
             TextButton(
               onPressed: () async {
@@ -279,28 +290,37 @@ class NotificationService {
               onPressed: () async {
                 Navigator.pop(context); // Close invite dialog
 
-                // Show progress dialog
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) => const AlertDialog(
-                    content: Row(
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(width: 20),
-                        Text("Connecting to call..."),
-                      ],
+                // Show progress dialog only for game invites (not for friend requests)
+                if (!isFriend) {
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const AlertDialog(
+                      content: Row(
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(width: 20),
+                          Text("Connecting to game..."),
+                        ],
+                      ),
                     ),
-                  ),
-                );
+                  );
+                }
 
                 final int? acceptedRoomId = await InviteService().acceptInvites(
                   inviteId,
                 );
 
                 if (acceptedRoomId != null) {
-                  if (context.mounted)
+                  if (context.mounted && !isFriend)
                     Navigator.pop(context); // Close progress dialog
+
+                  if (isFriend) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Friend request accepted!")),
+                    );
+                    return; // No navigation for friend requests
+                  }
 
                   final SharedPreferences prefs =
                       await SharedPreferences.getInstance();
@@ -491,25 +511,59 @@ class NotificationService {
               TextButton(
                 onPressed: () async {
                   Navigator.pop(context);
-                  // Trigger re-invite if sender chooses
+                  
+                  final String gameType = data['game_type']?.toString() ?? "chess";
+                  
+                  if (gameType == 'friend') {
+                    // Just re-send friend request, no navigation to game board
+                    await InviteService().sendInvite(senderId, gameType: 'friend');
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Friend request sent again!")),
+                      );
+                    }
+                    return;
+                  }
+
+                  // Trigger re-invite if sender chooses for games
                   final SharedPreferences prefs =
                       await SharedPreferences.getInstance();
                   final int currentUserId = prefs.getInt('userId') ?? 0;
 
-                  navigatorKey?.currentState?.pushReplacement(
-                    MaterialPageRoute(
-                      builder: (_) => GameBoard(
-                        roomId: roomId,
-                        currentUserId: currentUserId,
-                        isMultiplayer: true,
-                        amIWhite: true, // Inviter stays White
-                        opponentId: senderId,
-                        showLeaveButton: true,
+                  if (gameType == 'snake') {
+                     final int boardId = int.tryParse(data['board_id']?.toString() ?? "1") ?? 1;
+                     final selectedBoard = snakeBoards.firstWhere((b) => b.id == boardId, orElse: () => snakeBoards[0]);
+
+                     navigatorKey?.currentState?.pushReplacement(
+                      MaterialPageRoute(
+                        builder: (_) => SnakeGameScreen(
+                          board: selectedBoard,
+                          roomId: roomId,
+                          isMultiplayer: true,
+                          startsMyTurn: true, 
+                        ),
                       ),
-                    ),
-                  );
-                  // Call sendInvite again
-                  await InviteService().sendInvite(senderId);
+                    );
+                  } else {
+                    final signalingService = SignalingService();
+                    navigatorKey?.currentState?.pushReplacement(
+                      MaterialPageRoute(
+                        builder: (_) => GameBoard(
+                          roomId: roomId,
+                          currentUserId: currentUserId,
+                          isMultiplayer: true,
+                          amIWhite: true, // Inviter stays White
+                          opponentId: senderId,
+                          showLeaveButton: true,
+                          signalingService: signalingService,
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  // Call sendInvite again (for the original game type)
+                  final int? boardId = (gameType == 'snake') ? int.tryParse(data['board_id']?.toString() ?? "1") : null;
+                  await InviteService().sendInvite(senderId, gameType: gameType, boardId: boardId);
                 },
                 child: const Text("Send Again"),
               ),

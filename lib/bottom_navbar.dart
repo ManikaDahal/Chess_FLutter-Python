@@ -118,6 +118,7 @@ class _BottomNavBarWrapperState extends ConsumerState<BottomNavBarWrapper>
 
     final pages = [
       LandingPage(
+        currentUserId: currentUserId,
         onTabChange: (index) {
           setState(() => _currentIndex = index);
           _pageController.jumpToPage(index);

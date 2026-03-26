@@ -283,23 +283,23 @@ class ApiService {
 
   /// INVITES
   
-  Future<int?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {
+  Future<Map<String, dynamic>?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {
     final Map<String, dynamic> body = {"to_user": toUserId, "game_type": gameType};
     if (boardId != null) body['board_id'] = boardId;
 
     final response = await post('/api/send-invite/', body, base: ApiBase.render);
     if (response.statusCode == 201) {
-      return response.data['room_id'];
+      return response.data; // Now returns {room_id, invite_id, ...}
     }
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> getPendingInvites() async {
+  Future<Map<String, dynamic>> getPendingInvites() async {
     final response = await get('/api/pending-invites/', base: ApiBase.render);
     if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(response.data);
+      return Map<String, dynamic>.from(response.data);
     }
-    return [];
+    return {"received": [], "sent": []};
   }
 
   Future<int?> acceptInvite(int inviteId) async {
@@ -312,6 +312,10 @@ class ApiService {
 
   Future<void> declineInvite(int inviteId) async {
     await post('/api/decline-invite/', {"invite_id": inviteId}, base: ApiBase.render);
+  }
+
+  Future<void> cancelInvite(int inviteId) async {
+    await post('/api/cancel-invite/', {"invite_id": inviteId}, base: ApiBase.render);
   }
 
   /// NOTIFICATIONS

@@ -4,7 +4,7 @@ import 'package:chess_game_manika/features/auth/presentation/providers/auth_prov
 import '../../models/snake_board.dart';
 import '../../data/snake_boards_data.dart';
 import 'snake_game_screen.dart';
-import 'package:chess_game_manika/features/users/presentation/screens/user_list.dart';
+import 'package:chess_game_manika/features/users/presentation/screens/friend_list.dart';
 import 'dart:math';
 
 class BoardSelectionScreen extends ConsumerStatefulWidget {
@@ -80,15 +80,14 @@ class _BoardSelectionScreenState extends ConsumerState<BoardSelectionScreen> {
                   final authState = ref.read(authProvider).value;
                   final currentUserId = authState?.userId ?? 1;
 
-                  // Navigate to UserList to invite a friend for THIS board
+                  // Navigate to FriendListScreen pre-configured for Snake invites
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => UserList(
+                      builder: (context) => FriendListScreen(
                         currentUserId: currentUserId,
-                        isSnakeGame: true,
+                        gameType: 'snake',
                         selectedSnakeBoard: selectedBoard,
-                        showBackButton: true,
                       ),
                     ),
                   );

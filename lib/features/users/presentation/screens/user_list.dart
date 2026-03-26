@@ -103,13 +103,15 @@ class _UserListState extends ConsumerState<UserList> {
 
     try {
       final inviteService = InviteService();
-      final int? roomId = await inviteService.sendInvite(
+      final response = await inviteService.sendInvite(
         targetUserId,
         gameType: 'snake',
         boardId: widget.selectedSnakeBoard?.id,
       );
 
-      if (roomId != null && mounted) {
+      if (response != null && mounted) {
+        final int roomId = response['room_id'];
+        final int inviteId = response['invite_id'];
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Invitation sent! Waiting for opponent to accept..."),
@@ -124,6 +126,7 @@ class _UserListState extends ConsumerState<UserList> {
               targetUserId: targetUserId,
               targetUserName: targetUserName,
               roomId: roomId,
+              inviteId: inviteId,
               gameType: 'snake',
               boardId: widget.selectedSnakeBoard?.id,
             ),
@@ -162,9 +165,11 @@ class _UserListState extends ConsumerState<UserList> {
 
     try {
       final inviteService = InviteService();
-      final int? roomId = await inviteService.sendInvite(targetUserId);
+      final response = await inviteService.sendInvite(targetUserId);
 
-      if (roomId != null && mounted) {
+      if (response != null && mounted) {
+        final int roomId = response['room_id'];
+        final int inviteId = response['invite_id'];
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Invitation sent! Waiting for opponent to accept..."),
@@ -179,6 +184,7 @@ class _UserListState extends ConsumerState<UserList> {
               targetUserId: targetUserId,
               targetUserName: targetUserName,
               roomId: roomId,
+              inviteId: inviteId,
             ),
           ),
         );

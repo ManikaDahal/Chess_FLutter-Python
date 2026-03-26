@@ -3,11 +3,11 @@ import 'package:chess_game_manika/core/api/api_services.dart';
 class InviteService {
   final ApiService _apiService = ApiService();
 
-  Future<int?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {
+  Future<Map<String, dynamic>?> sendInvite(int toUserId, {String gameType = 'chess', int? boardId}) async {
     return await _apiService.sendInvite(toUserId, gameType: gameType, boardId: boardId);
   }
 
-  Future<List<Map<String, dynamic>>> getPendingInvites() async {
+  Future<Map<String, dynamic>> getPendingInvites() async {
     return await _apiService.getPendingInvites();
   }
 
@@ -17,5 +17,9 @@ class InviteService {
 
   Future<void> declineInvite(int inviteId) async {
     await _apiService.declineInvite(inviteId);
+  }
+
+  Future<void> cancelInvite(int inviteId) async {
+    await _apiService.cancelInvite(inviteId);
   }
 }

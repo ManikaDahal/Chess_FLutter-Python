@@ -1,22 +1,35 @@
 import 'dart:ui';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
-import 'package:chess_game_manika/core/widgets/blinking_dot.dart';
-import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
 import 'package:chess_game_manika/features/call/presentation/screens/call_screen.dart';
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/features/chat/presentation/screens/chat_page.dart';
 import 'package:chess_game_manika/features/invites/presentation/screens/invite_waiting_screen.dart';
 import 'package:chess_game_manika/features/invites/services/invite_services.dart';
+import 'package:chess_game_manika/features/snake_game/models/snake_board.dart';
 import 'package:flutter/material.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
+import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
+import 'package:chess_game_manika/features/call/services/signaling_service.dart';
+
+import 'dart:async';
+import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 
 class FriendListScreen extends ConsumerStatefulWidget {
   final int currentUserId;
+  /// If set, tapping the game invite button will directly send an invite for
+  /// this game type instead of showing the picker.
+  final String? gameType;
+  /// Required when [gameType] is 'snake', so the board ID can be passed along.
+  final SnakeBoard? selectedSnakeBoard;
 
   const FriendListScreen({
     super.key,
     required this.currentUserId,
+    this.gameType,
+    this.selectedSnakeBoard,
   });
 
   @override
@@ -28,10 +41,12 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
   final ApiService _apiService = ApiService();
   final TextEditingController _searchController = TextEditingController();
   late TabController _tabController;
+  StreamSubscription? _fcmSubscription;
   
   List<dynamic> _allUsers = [];
   List<dynamic> _friends = [];
-  List<dynamic> _pendingInvites = [];
+  List<dynamic> _receivedInvites = [];
+  List<dynamic> _sentInvites = [];
   bool _isLoading = true;
   bool _isActionInProgress = false;
 
@@ -41,12 +56,27 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
     _tabController = TabController(length: 3, vsync: this);
     _refreshData();
     _searchController.addListener(() => setState(() {}));
+    
+    // Listen for real-time updates from FCM
+    _fcmSubscription = NotificationService.fcmEventStream.listen((data) {
+      final type = data['type'];
+      if (type == 'invite_accepted' || 
+          type == 'invite_declined' || 
+          type == 'invite_cancelled' ||
+          type == 'chess_invite' || 
+          type == 'snake_invite' || 
+          type == 'friend_invite') {
+        print("SocialScreen: Real-time update received ($type). Refreshing...");
+        _refreshData();
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _tabController.dispose();
+    _fcmSubscription?.cancel();
     super.dispose();
   }
 
@@ -61,7 +91,8 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
       
       if (mounted) {
         setState(() {
-          final freshFriends = results[1].map((room) => {
+          final List<dynamic> friendsRaw = results[1] as List<dynamic>;
+          final freshFriends = friendsRaw.map((room) => {
             ...room['other_user'],
             'room_id': room['room_id'],
             'last_message': room['last_message'],
@@ -70,10 +101,14 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
           final friendIds = freshFriends.map((f) => f['id']).toSet();
           
           _friends = freshFriends;
-          _allUsers = results[0]
+          final List<dynamic> usersRaw = results[0] as List<dynamic>;
+          _allUsers = usersRaw
               .where((u) => u['id'] != widget.currentUserId && !friendIds.contains(u['id']))
               .toList();
-          _pendingInvites = results[2];
+
+          final pendingData = results[2] as Map<String, dynamic>;
+          _receivedInvites = pendingData['received'] ?? [];
+          _sentInvites = pendingData['sent'] ?? [];
           _isLoading = false;
         });
       }
@@ -137,6 +172,12 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
   }
 
   void _playGame(int targetUserId, String username) {
+    // If opened from a specific game context, skip the picker and invite directly.
+    if (widget.gameType != null) {
+      _sendInvite(targetUserId, username, widget.gameType!);
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: backgroundColor,
@@ -209,9 +250,14 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
 
     try {
       final inviteService = InviteService();
-      final int? roomId = await inviteService.sendInvite(targetUserId, gameType: type);
+      // Pass boardId for snake invites so the invitee joins the correct board.
+      final int? boardId = (type == 'snake') ? widget.selectedSnakeBoard?.id : null;
+      final response = await inviteService.sendInvite(targetUserId, gameType: type, boardId: boardId);
 
-      if (roomId != null && mounted) {
+      if (response != null && mounted) {
+        final int roomId = response['room_id'];
+        final int inviteId = response['invite_id'];
+        
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -219,6 +265,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
               targetUserId: targetUserId,
               targetUserName: username,
               roomId: roomId,
+              inviteId: inviteId,
               gameType: type,
             ),
           ),
@@ -234,8 +281,8 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
     setState(() => _isActionInProgress = true);
 
     try {
-      final int? roomId = await InviteService().sendInvite(targetUserId, gameType: 'friend');
-      if (roomId != null && mounted) {
+      final response = await InviteService().sendInvite(targetUserId, gameType: 'friend');
+      if (response != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Friend request sent to $username!"), backgroundColor: accentGreen),
         );
@@ -245,9 +292,13 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
     }
   }
 
-  void _acceptRequest(int inviteId, String type) async {
+  void _acceptRequest(dynamic invite) async {
     if (_isActionInProgress) return;
     setState(() => _isActionInProgress = true);
+
+    final int inviteId = invite['id'];
+    final String type = invite['game_type'] ?? 'chess';
+    final int opponentId = invite['sender_id'];
 
     try {
       final roomId = await _apiService.acceptInvite(inviteId);
@@ -258,7 +309,44 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
             backgroundColor: accentGreen,
           ),
         );
-        _refreshData(); // Refresh list to reflect new friend or game start
+
+        if (type != 'friend') {
+          // Navigate to game
+          if (type == 'snake') {
+            final int boardId = invite['board_id'] ?? 1;
+            final selectedBoard = snakeBoards.firstWhere((b) => b.id == boardId, orElse: () => snakeBoards[0]);
+            
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SnakeGameScreen(
+                  board: selectedBoard,
+                  roomId: roomId,
+                  isMultiplayer: true,
+                  startsMyTurn: false, // Invitee goes second
+                ),
+              ),
+            );
+          } else {
+             final signalingService = SignalingService();
+             Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => GameBoard(
+                  roomId: roomId,
+                  currentUserId: widget.currentUserId,
+                  isMultiplayer: true,
+                  amIWhite: false, // Receiver is Black
+                  opponentId: opponentId,
+                  showLeaveButton: true,
+                  signalingService: signalingService,
+                ),
+              ),
+            );
+          }
+        }
+
+        _refreshData(); // Refresh list to reflect new friend
       }
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
@@ -389,13 +477,13 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text("REQUESTS"),
-                if (_pendingInvites.isNotEmpty)
+                if ((_receivedInvites.length + _sentInvites.length) > 0)
                   Container(
                     margin: const EdgeInsets.only(left: 8),
                     padding: const EdgeInsets.all(4),
                     decoration: const BoxDecoration(color: accentRed, shape: BoxShape.circle),
                     child: Text(
-                      _pendingInvites.length.toString(),
+                      (_receivedInvites.length + _sentInvites.length).toString(),
                       style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -440,7 +528,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
   Widget _buildRequestList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     
-    if (_pendingInvites.isEmpty) {
+    if (_receivedInvites.isEmpty && _sentInvites.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -453,46 +541,106 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
       );
     }
 
-    return ListView.separated(
+    return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      itemCount: _pendingInvites.length,
-      separatorBuilder: (context, index) => const Divider(color: Colors.white10, height: 30),
-      itemBuilder: (context, index) {
-        final invite = _pendingInvites[index];
-        final senderName = invite['sender_name'] ?? "Unknown";
-        final type = invite['game_type'] ?? "chess";
-        final displayType = type == 'friend' ? "Wants to be your friend" : "Invited you to play $type";
-
-        return Row(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: primaryColor.withOpacity(0.5),
-              child: Text(senderName[0].toUpperCase(), style: const TextStyle(color: primaryYellow)),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(senderName, style: const TextStyle(color: whiteColor, fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text(displayType, style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  _buildIconAction(Icons.check_rounded, accentGreen, () => _acceptRequest(invite['id'], type)),
-                  _buildIconAction(Icons.close_rounded, accentRed, () => _declineRequest(invite['id'])),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+      children: [
+        if (_receivedInvites.isNotEmpty) ...[
+          _buildSectionHeader("RECEIVED REQUESTS"),
+          ..._receivedInvites.map((invite) => _buildReceivedItem(invite)),
+          const SizedBox(height: 20),
+        ],
+        if (_sentInvites.isNotEmpty) ...[
+          _buildSectionHeader("SENT REQUESTS"),
+          ..._sentInvites.map((invite) => _buildSentItem(invite)),
+        ],
+      ],
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Text(
+        title,
+        style: const TextStyle(color: Colors.white24, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+      ),
+    );
+  }
+
+  Widget _buildReceivedItem(dynamic invite) {
+    final senderName = invite['sender_name'] ?? "Unknown";
+    final type = invite['game_type'] ?? "chess";
+    final displayType = type == 'friend' ? "Wants to be your friend" : "Invited you to play $type";
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: primaryColor.withOpacity(0.5),
+            child: Text(senderName[0].toUpperCase(), style: const TextStyle(color: primaryYellow)),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(senderName, style: const TextStyle(color: whiteColor, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(displayType, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              _buildIconAction(Icons.check_rounded, accentGreen, () => _acceptRequest(invite)),
+              _buildIconAction(Icons.close_rounded, accentRed, () => _declineRequest(invite['id'])),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSentItem(dynamic invite) {
+    final receiverName = invite['other_name'] ?? invite['receiver_name'] ?? "Unknown";
+    final type = invite['game_type'] ?? "chess";
+    final displayType = type == 'friend' ? "Friend request pending" : "Game invite pending ($type)";
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.white.withOpacity(0.05),
+            child: Text(receiverName[0].toUpperCase(), style: const TextStyle(color: Colors.white24)),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(receiverName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                Text(displayType, style: const TextStyle(color: Colors.white24, fontSize: 12)),
+              ],
+            ),
+          ),
+          _buildIconAction(Icons.close_rounded, Colors.white24, () => _cancelRequest(invite['id'])),
+        ],
+      ),
+    );
+  }
+
+  void _cancelRequest(int inviteId) async {
+    if (_isActionInProgress) return;
+    setState(() => _isActionInProgress = true);
+    try {
+      await _apiService.cancelInvite(inviteId);
+      await _refreshData();
+    } finally {
+      if (mounted) setState(() => _isActionInProgress = false);
+    }
   }
 
   Widget _buildUserItem(dynamic user, bool isFriend) {
@@ -502,18 +650,13 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
 
     return Row(
       children: [
-        Stack(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: primaryColor.withOpacity(0.5),
-              child: Text(
-                username.isNotEmpty ? username[0].toUpperCase() : "?",
-                style: const TextStyle(color: primaryYellow, fontWeight: FontWeight.bold),
-              ),
-            ),
-            const Positioned(right: 0, bottom: 2, child: BlinkingDot(color: Colors.green, size: 10)),
-          ],
+        CircleAvatar(
+          radius: 26,
+          backgroundColor: primaryColor.withOpacity(0.5),
+          child: Text(
+            username.isNotEmpty ? username[0].toUpperCase() : "?",
+            style: const TextStyle(color: primaryYellow, fontWeight: FontWeight.bold),
+          ),
         ),
         const SizedBox(width: 15),
         Expanded(
@@ -555,7 +698,20 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
   }
 
   Widget _buildDiscoverActions(int targetUserId, String username) {
-     return _buildIconAction(Icons.person_add_outlined, primaryYellow, () => _sendFriendRequest(targetUserId, username));
+    final bool isRequested = _sentInvites.any((invite) => invite['receiver_id'] == targetUserId && invite['game_type'] == 'friend');
+    
+    if (isRequested) {
+      final invite = _sentInvites.firstWhere((i) => i['receiver_id'] == targetUserId && i['game_type'] == 'friend');
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("Requested", style: TextStyle(color: Colors.white24, fontSize: 12)),
+          _buildIconAction(Icons.close_rounded, Colors.white24, () => _cancelRequest(invite['id'])),
+        ],
+      );
+    }
+    
+    return _buildIconAction(Icons.person_add_outlined, primaryYellow, () => _sendFriendRequest(targetUserId, username));
   }
 
   Widget _buildIconAction(IconData icon, Color color, VoidCallback onTap) {

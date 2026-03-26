@@ -1,17 +1,18 @@
 import 'dart:async';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+import 'package:chess_game_manika/features/invites/services/invite_services.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
 import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
 import 'package:chess_game_manika/features/game/services/game_websocket_service.dart';
-
 class InviteWaitingScreen extends StatefulWidget {
   final int targetUserId;
   final String targetUserName;
   final int roomId;
+  final int inviteId;
   final String gameType;
   final int? boardId;
 
@@ -20,6 +21,7 @@ class InviteWaitingScreen extends StatefulWidget {
     required this.targetUserId,
     required this.targetUserName,
     required this.roomId,
+    required this.inviteId,
     this.gameType = 'chess',
     this.boardId,
   });
@@ -36,8 +38,10 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
   final SignalingService _signalingService = SignalingService();
   final GameWebsocketService _gameService = GameWebsocketService();
   StreamSubscription? _gameWsSubscription;
+  Timer? _timeoutTimer;
   bool _isConnectingCall = false;
   String _statusMessage = "Waiting for opponent to accept...";
+  bool _isCancelled = false;
 
   @override
   void initState() {
@@ -53,6 +57,36 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
 
     _listenForInviteResponse();
     _listenToWebsocket();
+    _startTimeoutTimer();
+  }
+
+  void _startTimeoutTimer() {
+    _timeoutTimer = Timer(const Duration(seconds: 60), () {
+      if (mounted && !_isConnectingCall) {
+        _cancelInvite(isTimeout: true);
+      }
+    });
+  }
+
+  Future<void> _cancelInvite({bool isTimeout = false}) async {
+    if (_isCancelled) return;
+    _isCancelled = true;
+    _timeoutTimer?.cancel();
+
+    // Call API to remove invite from backend
+    await InviteService().cancelInvite(widget.inviteId);
+
+    if (mounted) {
+      if (isTimeout) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("${widget.targetUserName} did not respond. Try again later."),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      Navigator.pop(context);
+    }
   }
 
   void _listenToWebsocket() {
@@ -148,6 +182,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
 
   @override
   void dispose() {
+    _timeoutTimer?.cancel();
     _fcmSubscription?.cancel();
     _gameWsSubscription?.cancel();
     _pulseController.dispose();
@@ -238,7 +273,7 @@ class _InviteWaitingScreenState extends State<InviteWaitingScreen>
                     ),
                     elevation: 0,
                   ),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => _cancelInvite(),
                   child: const Text(
                     "Cancel Invitation",
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

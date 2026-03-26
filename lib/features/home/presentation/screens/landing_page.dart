@@ -3,6 +3,7 @@ import 'package:chess_game_manika/core/utils/color_utils.dart';
 import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
+import 'package:chess_game_manika/features/users/presentation/screens/friend_list.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
@@ -10,7 +11,8 @@ import 'package:chess_game_manika/core/api/api_services.dart';
 class LandingPage extends StatefulWidget {
   final Function(int)? onTabChange;
   final bool isSnakeMode;
-  const LandingPage({super.key, this.onTabChange, this.isSnakeMode = false});
+  final int currentUserId;
+  const LandingPage({super.key, this.onTabChange, this.isSnakeMode = false, this.currentUserId = 0});
 
   @override
   State<LandingPage> createState() => _LandingPageState();
@@ -223,8 +225,17 @@ class _LandingPageState extends State<LandingPage> {
                   Routes.snakeBoardSelectionRoute,
                   arguments: true, // true signals multiplayer intent
                 );
-              } else if (widget.onTabChange != null) {
-                widget.onTabChange!(1);
+              } else {
+                // Navigate directly to FriendList pre-set for chess invites
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FriendListScreen(
+                      currentUserId: widget.currentUserId,
+                      gameType: 'chess',
+                    ),
+                  ),
+                );
               }
             },
           ),
