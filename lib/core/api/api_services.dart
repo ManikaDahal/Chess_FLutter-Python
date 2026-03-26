@@ -351,6 +351,17 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> confirmPayment(String paymentIntentId) async {
+    final response = await post('/api/payments/confirm-payment/', {
+      'payment_intent_id': paymentIntentId,
+    });
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception(response.data?['error'] ?? "Failed to confirm payment");
+    }
+  }
+
   Future<Map<String, dynamic>> claimDailyGift() async {
     try {
       final response = await post('/api/claim-daily-gift/', {});

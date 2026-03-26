@@ -36,7 +36,10 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
       }
 
       final data = response.data;
-      final clientSecret = data['clientSecret'];
+      final clientSecret = data['clientSecret'] as String;
+
+      // Extract the PaymentIntent ID from the client secret (format: "pi_xxx_secret_yyy")
+      final paymentIntentId = clientSecret.split('_secret_').first;
 
       // 2. Initialize Payment Sheet
       await Stripe.instance.initPaymentSheet(
@@ -62,12 +65,20 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
       // 3. Present Payment Sheet
       await Stripe.instance.presentPaymentSheet();
 
-      // 4. Success
+      // 4. Confirm payment on backend → awards coins
+      final confirmResult = await ApiService().confirmPayment(paymentIntentId);
+      final int newCoinTotal = confirmResult['coins'] ?? 0;
+      final int coinsAwarded = confirmResult['coins_awarded'] ?? package['coins'];
+
+      // 5. Success
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Payment successful! Your coins will be added shortly."),
+          SnackBar(
+            content: Text(
+              "🎉 Payment successful! +$coinsAwarded coins added. You now have $newCoinTotal coins.",
+            ),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
           ),
         );
         Navigator.pop(context);
