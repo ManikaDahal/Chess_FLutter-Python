@@ -7,6 +7,7 @@ import 'package:chess_game_manika/features/users/presentation/screens/friend_lis
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
+import 'package:chess_game_manika/features/payment/presentation/screens/coin_store_screen.dart';
 
 class LandingPage extends StatefulWidget {
   final Function(int)? onTabChange;
@@ -153,28 +154,41 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   Widget _buildResourceItem(IconData icon, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 5),
-          Text(
-            value,
-            style: const TextStyle(
-              color: whiteColor,
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
+    return GestureDetector(
+      onTap: () {
+        // Navigate to Coin Store
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CoinStoreScreen(
+              currentUserId: widget.currentUserId,
             ),
           ),
-          const SizedBox(width: 4),
-          Icon(Icons.add_circle, color: color, size: 12),
-        ],
+        ).then((_) => _loadProfile()); // Refresh profile when returning
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.3), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 5),
+            Text(
+              value,
+              style: const TextStyle(
+                color: whiteColor,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.add_circle, color: color, size: 12),
+          ],
+        ),
       ),
     );
   }

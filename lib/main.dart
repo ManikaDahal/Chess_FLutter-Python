@@ -12,6 +12,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'dart:io';
 import 'dart:ui';
 
@@ -43,6 +44,10 @@ Future<void> main() async {
     // Initialize Mobile Ads
     await AdService().initialize();
     print("Ads initialized");
+
+    // Initialize Stripe
+    Stripe.publishableKey = "pk_test_51TFB8RK6P5b4mTJTc8M593ZOXEJN2voOuMk2MRODYA7DnnwZu4PgnBfGtU0Mzea4Jhrh1qL3r0hndG6LKlyK8pGw00RmxJo9g9";
+    await Stripe.instance.applySettings();
 
     // 2. Initialize Firebase early
     await Firebase.initializeApp();
