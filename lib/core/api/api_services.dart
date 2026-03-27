@@ -362,11 +362,21 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> verifyKhaltiPayment(String token, int amount, int coins) async {
-    final response = await post('/api/payments/khalti-verify/', {
-      'token': token,
+  Future<Map<String, dynamic>> initiateKhaltiPayment(int amount, int coins) async {
+    final response = await post('/api/payments/khalti-initiate/', {
       'amount': amount,
       'coins': coins,
+    });
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception(response.data?['error'] ?? "Failed to initiate Khalti payment");
+    }
+  }
+
+  Future<Map<String, dynamic>> verifyKhaltiPayment(String pidx) async {
+    final response = await post('/api/payments/khalti-verify/', {
+      'pidx': pidx,
     });
     if (response.statusCode == 200) {
       return response.data;

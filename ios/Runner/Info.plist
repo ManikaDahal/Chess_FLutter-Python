@@ -60,5 +60,18 @@
 			<string>cstr6suwn9.skadnetwork</string>
 		</dict>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.manikadahal.chessgame</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>chessmanika</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
-import 'package:khalti_flutter/khalti_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 
@@ -146,67 +146,101 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
     );
   }
 
-  void _startKhaltiPayment(Map<String, dynamic> package) {
-    // Khalti amounts are in paisa. So 99 cents -> Rs 99 -> 9900 paisa
+  void _startKhaltiPayment(Map<String, dynamic> package) async {
     final int amountInPaisa = (package['amount'] as int) * 100;
+    setState(() => _isLoading = true);
 
-    KhaltiScope.of(context).pay(
-      config: PaymentConfig(
-        amount: amountInPaisa,
-        productIdentity: package['id'],
-        productName: "${package['coins']} Coins",
-      ),
-      preferences: const [
-        PaymentPreference.khalti,
-        PaymentPreference.connectIPS,
-        PaymentPreference.eBanking,
-        PaymentPreference.mobileBanking,
-      ],
-      onSuccess: (successModel) async {
-        setState(() => _isLoading = true);
-        try {
-          final result = await ApiService().verifyKhaltiPayment(
-            successModel.token,
-            amountInPaisa,
-            package['coins']
+    try {
+      final initResponse = await ApiService().initiateKhaltiPayment(amountInPaisa, package['coins']);
+      final String paymentUrl = initResponse['payment_url'];
+      final String pidx = initResponse['pidx'];
+
+      final Uri uri = Uri.parse(paymentUrl);
+      if (await canLaunchUrl(uri)) {
+        // Change to externalApplication for better reliability (less likely to be killed)
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception("Could not launch payment URL");
+      }
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          bool verifying = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                backgroundColor: backgroundColor,
+                title: const Text("Complete Payment", style: TextStyle(color: Colors.white)),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "We've opened Khalti in your browser. Once you complete the payment, we'll try to redirect you back automatically.\n\nIf you're already back and your coins aren't updated, tap 'Verify Payment'.",
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    if (verifying) ...[
+                      const SizedBox(height: 20),
+                      const Center(child: CircularProgressIndicator(color: primaryYellow)),
+                    ]
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: verifying ? null : () {
+                      Navigator.pop(context);
+                    },
+                    child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                  ),
+                  ElevatedButton(
+                    onPressed: verifying ? null : () async {
+                      setDialogState(() => verifying = true);
+                      try {
+                        final verifyRes = await ApiService().verifyKhaltiPayment(pidx);
+                        if (mounted) {
+                          Navigator.pop(context);
+                          final int newCoinTotal = verifyRes['coins'] ?? 0;
+                          final int coinsAwarded = verifyRes['coins_awarded'] ?? package['coins'];
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text("🎉 Khalti Payment successful! +$coinsAwarded coins added. You now have $newCoinTotal coins."),
+                              backgroundColor: Colors.green,
+                              duration: const Duration(seconds: 4),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => verifying = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Verification failed: $e")),
+                          );
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    child: const Text("Verify Payment", style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              );
+            }
           );
-          final int newCoinTotal = result['coins'] ?? 0;
-          final int coinsAwarded = result['coins_awarded'] ?? package['coins'];
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("🎉 Khalti Payment successful! +$coinsAwarded coins added. You now have $newCoinTotal coins."),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Server verification failed: $e")),
-            );
-          }
-        } finally {
-          if (mounted) setState(() => _isLoading = false);
         }
-      },
-      onFailure: (failureModel) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Payment failed: ${failureModel.message}")),
-          );
-        }
-      },
-      onCancel: () {
-         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Payment cancelled by user")),
-          );
-        }
-      },
-    );
+      );
+
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not initiate Khalti: $e")),
+        );
+      }
+    }
   }
 
   @override

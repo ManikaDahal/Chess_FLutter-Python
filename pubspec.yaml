@@ -56,7 +56,7 @@ dependencies:
   firebase_messaging: ^16.1.1
   change_app_package_name: ^1.5.0
   intl: ^0.18.1
-  khalti_flutter: ^3.0.0
+  url_launcher: ^6.3.0
   video_player: ^2.9.2
   chewie: ^1.7.5
   record: ^6.2.0

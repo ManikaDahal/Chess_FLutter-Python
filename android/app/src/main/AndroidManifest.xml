@@ -39,6 +39,14 @@
             <meta-data
                 android:name="com.google.firebase.messaging.default_notification_channel_id"
                 android:value="chat_channel" />
+
+            <!-- Add this for Deep Linking (Payment Callbacks) -->
+            <intent-filter android:label="Chess Payment Callback">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="chessmanika" android:host="payment-callback" />
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
