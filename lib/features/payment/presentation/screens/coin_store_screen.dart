@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:khalti_flutter/khalti_flutter.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
 
@@ -102,6 +103,112 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
     }
   }
 
+  void _showPaymentMethodSelector(Map<String, dynamic> package) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  "Select Payment Method",
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.credit_card, color: Colors.blue),
+                title: const Text("Credit/Debit Card (Stripe)", style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _startPayment(package);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet, color: Colors.deepPurpleAccent),
+                title: const Text("Khalti", style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _startKhaltiPayment(package);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _startKhaltiPayment(Map<String, dynamic> package) {
+    // Khalti amounts are in paisa. So 99 cents -> Rs 99 -> 9900 paisa
+    final int amountInPaisa = (package['amount'] as int) * 100;
+
+    KhaltiScope.of(context).pay(
+      config: PaymentConfig(
+        amount: amountInPaisa,
+        productIdentity: package['id'],
+        productName: "${package['coins']} Coins",
+      ),
+      preferences: const [
+        PaymentPreference.khalti,
+        PaymentPreference.connectIPS,
+        PaymentPreference.eBanking,
+        PaymentPreference.mobileBanking,
+      ],
+      onSuccess: (successModel) async {
+        setState(() => _isLoading = true);
+        try {
+          final result = await ApiService().verifyKhaltiPayment(
+            successModel.token,
+            amountInPaisa,
+            package['coins']
+          );
+          final int newCoinTotal = result['coins'] ?? 0;
+          final int coinsAwarded = result['coins_awarded'] ?? package['coins'];
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("🎉 Khalti Payment successful! +$coinsAwarded coins added. You now have $newCoinTotal coins."),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Server verification failed: $e")),
+            );
+          }
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      },
+      onFailure: (failureModel) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Payment failed: ${failureModel.message}")),
+          );
+        }
+      },
+      onCancel: () {
+         if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Payment cancelled by user")),
+          );
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -179,7 +286,7 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
           style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
         ),
         trailing: ElevatedButton(
-          onPressed: _isLoading ? null : () => _startPayment(package),
+          onPressed: _isLoading ? null : () => _showPaymentMethodSelector(package),
           style: ElevatedButton.styleFrom(
             backgroundColor: package['color'],
             foregroundColor: Colors.white,

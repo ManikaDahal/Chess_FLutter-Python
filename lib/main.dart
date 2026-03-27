@@ -1,4 +1,5 @@
 import 'package:chess_game_manika/bottom_navbar.dart';
+import 'package:khalti_flutter/khalti_flutter.dart';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
@@ -110,17 +111,30 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return KhaltiScope(
+      publicKey: 'e9ee964fd28c46c9aed4ae348a270310',
       navigatorKey: Constants.navigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'Chess App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      builder: (context, child) {
-        return child ?? const SizedBox.shrink();
+      builder: (context, navigatorKey) {
+        return MaterialApp(
+          navigatorKey: navigatorKey, // Keep existing navigatorKey behavior
+          supportedLocales: const [
+            Locale('en', 'US'),
+            Locale('ne', 'NP'),
+          ],
+          localizationsDelegates: const [
+            KhaltiLocalizations.delegate,
+          ],
+          debugShowCheckedModeBanner: false,
+          title: 'Chess App',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          ),
+          builder: (context, child) {
+            return child ?? const SizedBox.shrink();
+          },
+          home: const AuthChecker(),
+        );
       },
-      home: const AuthChecker(),
     );
   }
 }

@@ -362,6 +362,19 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> verifyKhaltiPayment(String token, int amount, int coins) async {
+    final response = await post('/api/payments/khalti-verify/', {
+      'token': token,
+      'amount': amount,
+      'coins': coins,
+    });
+    if (response.statusCode == 200) {
+      return response.data;
+    } else {
+      throw Exception(response.data?['error'] ?? "Failed to verify Khalti payment");
+    }
+  }
+
   Future<Map<String, dynamic>> claimDailyGift() async {
     try {
       final response = await post('/api/claim-daily-gift/', {});
