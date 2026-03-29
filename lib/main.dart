@@ -2,6 +2,7 @@ import 'package:chess_game_manika/bottom_navbar.dart';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/features/auth/presentation/screens/login.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
+import 'package:chess_game_manika/features/notifications/services/sticky_notification_service.dart';
 import 'package:chess_game_manika/core/permission/permission_service.dart';
 import 'package:chess_game_manika/core/ads/ad_service.dart';
 import 'package:flutter/material.dart';
@@ -80,6 +81,15 @@ Future<void> main() async {
     // 3. Request permissions synchronously before service start
     await PermissionService.requestPermissionsOnce();
     print("5. Permissions requested");
+
+    // Start sticky notification service (Chess Tips)
+    try {
+      await StickyNotificationService.initService();
+      await StickyNotificationService.startService();
+      print("5.1 StickyNotificationService started");
+    } catch (e) {
+      print("!!! Error starting StickyNotificationService: $e !!!");
+    }
 
     // 4. Initialize singletons
     // Initialized features

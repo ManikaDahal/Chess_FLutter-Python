@@ -10,13 +10,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class ChatState {
   final Map<int, List<ChatMessage>> roomMessages;
   final Map<int, int> unreadCounts;
+  final Map<int, bool> loadingRooms;
+  final Map<int, String> roomParticipants;
   final int? currentUserId;
   final String? currentUserName;
   final int? activeRoomId;
-
+ 
   const ChatState({
     this.roomMessages = const {},
     this.unreadCounts = const {},
+    this.loadingRooms = const {},
+    this.roomParticipants = const {},
     this.currentUserId,
     this.currentUserName,
     this.activeRoomId,
@@ -29,6 +33,8 @@ class ChatState {
   ChatState copyWith({
     Map<int, List<ChatMessage>>? roomMessages,
     Map<int, int>? unreadCounts,
+    Map<int, bool>? loadingRooms,
+    Map<int, String>? roomParticipants,
     int? currentUserId,
     String? currentUserName,
     int? activeRoomId,
@@ -37,6 +43,8 @@ class ChatState {
     return ChatState(
       roomMessages: roomMessages ?? this.roomMessages,
       unreadCounts: unreadCounts ?? this.unreadCounts,
+      loadingRooms: loadingRooms ?? this.loadingRooms,
+      roomParticipants: roomParticipants ?? this.roomParticipants,
       currentUserId: currentUserId ?? this.currentUserId,
       currentUserName: currentUserName ?? this.currentUserName,
       activeRoomId: clearActiveRoom ? null : (activeRoomId ?? this.activeRoomId),
@@ -87,16 +95,20 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
       newRoomMsgs[roomId] = [];
     }
 
+    final newLoadingRooms = Map<int, bool>.from(state.loadingRooms);
+    newLoadingRooms[roomId] = true;
+ 
     state = state.copyWith(
       currentUserId: currentUserId,
       activeRoomId: setAsActive ? roomId : state.activeRoomId,
       roomMessages: newRoomMsgs,
+      loadingRooms: newLoadingRooms,
     );
-
+ 
     if (_subscription == null) {
       _listenToStream();
     }
-
+ 
     if (ChatWebsocketService().isRoomConnected(roomId)) {
       ChatWebsocketService().requestHistory(roomId);
     } else {
@@ -131,19 +143,40 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
         for (var m in historyMsgs) {
           if (m.id != null) idMap[m.id!] = m;
         }
-
+ 
+        // Update room participant name if found in history
+        String? otherName;
+        for (var m in historyMsgs) {
+          if (m.userId != state.currentUserId) {
+            otherName = m.senderName;
+            break;
+          }
+        }
+ 
+        final newRoomParticipants = Map<int, String>.from(state.roomParticipants);
+        if (otherName != null) {
+          newRoomParticipants[msgRoomId] = otherName;
+        }
+ 
         final List<ChatMessage> merged = idMap.values.toList();
         merged.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
-
+ 
         for (var optMsg in optimisticMsgs) {
           bool matched = historyMsgs.any((h) => h.message == optMsg.message && h.userId == optMsg.userId);
           if (!matched) merged.add(optMsg);
         }
-
+ 
         final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
         newRoomMsgs[msgRoomId] = merged;
-
-        state = state.copyWith(roomMessages: newRoomMsgs);
+ 
+        final newLoadingRooms = Map<int, bool>.from(state.loadingRooms);
+        newLoadingRooms[msgRoomId] = false;
+ 
+        state = state.copyWith(
+          roomMessages: newRoomMsgs,
+          loadingRooms: newLoadingRooms,
+          roomParticipants: newRoomParticipants,
+        );
       } else if (data['type'] == 'chess_invite' || data['type'] == 'snake_invite') {
         if (_lifecycleState == AppLifecycleState.resumed) {
           final String title = data['type'] == 'snake_invite' ? "Snake & Ladder Invite" : "Chess Invite";
@@ -153,6 +186,10 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
             payload: Map<String, dynamic>.from(data),
           );
         }
+      } else if (data['type'] == 'message_status') {
+        final int msgId = int.tryParse(data['message_id']?.toString() ?? '0') ?? 0;
+        final String status = data['status'] ?? 'sent';
+        _updateMessageStatus(msgId, status);
       } else {
         if (data['type'] == 'chat_message' || data.containsKey('message')) {
           final msg = ChatMessage.fromJson(data);
@@ -161,6 +198,38 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
       }
     } catch (e, st) {
       print("ChatNotifier: Error $e\n$st");
+    }
+  }
+
+  void _updateMessageStatus(int msgId, String status) {
+    bool found = false;
+    final newRoomMsgs = Map<int, List<ChatMessage>>.from(state.roomMessages);
+
+    for (var roomId in newRoomMsgs.keys) {
+      final messages = List<ChatMessage>.from(newRoomMsgs[roomId]!);
+      for (int i = 0; i < messages.length; i++) {
+        if (messages[i].id == msgId) {
+          messages[i] = ChatMessage(
+            id: messages[i].id,
+            message: messages[i].message,
+            userId: messages[i].userId,
+            roomId: messages[i].roomId,
+            senderName: messages[i].senderName,
+            timestamp: messages[i].timestamp,
+            status: status,
+          );
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        newRoomMsgs[roomId] = messages;
+        break;
+      }
+    }
+
+    if (found) {
+      state = state.copyWith(roomMessages: newRoomMsgs);
     }
   }
 
@@ -213,6 +282,7 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
           "user_id": msg.userId,
           "message": msg.message,
           "sender_name": msg.senderName,
+          "status": "delivered", // Mark as delivered when showing notification
           if (trackingId != null) "trackingId": trackingId,
         },
       );
@@ -251,6 +321,14 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
     newUnreadCounts[roomId] = 0;
     ChatNotifier.currentActiveRoomId = roomId;
     state = state.copyWith(unreadCounts: newUnreadCounts, activeRoomId: roomId);
+  }
+
+  /// Pre-seeds the display name for [roomId] so the header shows
+  /// the correct name immediately without waiting for message history.
+  void setRoomParticipant(int roomId, String name) {
+    final updated = Map<int, String>.from(state.roomParticipants);
+    updated[roomId] = name;
+    state = state.copyWith(roomParticipants: updated);
   }
 
   void clearActiveRoom() {

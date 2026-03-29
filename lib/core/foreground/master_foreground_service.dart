@@ -42,12 +42,18 @@ class MasterTaskHandler extends TaskHandler {
       FlutterForegroundTask.updateService(
         notificationTitle: '🔴 Recording in Progress',
         notificationText: 'Your screen and audio are being recorded.',
+        notificationIcon: const NotificationIcon(
+          metaDataName: 'com.manikadahal.chessgame.NOTIFICATION_ICON',
+        ),
       );
     } else {
       final String currentTip = _chessTips[_currentTipIndex];
       FlutterForegroundTask.updateService(
         notificationTitle: '🕐 $currentTime • Chess Daily',
         notificationText: currentTip,
+        notificationIcon: const NotificationIcon(
+          metaDataName: 'com.manikadahal.chessgame.NOTIFICATION_ICON',
+        ),
       );
     }
   }
@@ -121,9 +127,15 @@ class MasterForegroundService {
     }
 
     await FlutterForegroundTask.startService(
-      serviceTypes: [],
+      serviceTypes: [
+        ForegroundServiceTypes.dataSync,
+        ForegroundServiceTypes.specialUse,
+      ],
       notificationTitle: 'Chess App',
-      notificationText: 'Service is running',
+      notificationText: 'Preparing for daily tips...',
+      notificationIcon: const NotificationIcon(
+        metaDataName: 'com.manikadahal.chessgame.NOTIFICATION_ICON',
+      ),
       callback: masterStartCallback,
     );
   }

@@ -5,7 +5,8 @@ class ChatMessage {
   final int roomId;
   final String senderName;
   final String? timestamp;
-
+  final String status;
+ 
   ChatMessage({
     this.id,
     required this.message,
@@ -13,8 +14,9 @@ class ChatMessage {
     required this.roomId,
     required this.senderName,
     this.timestamp,
+    this.status = 'sent',
   });
-
+ 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     return ChatMessage(
       id: int.tryParse(json['id']?.toString() ?? ''),
@@ -23,6 +25,7 @@ class ChatMessage {
       roomId: int.tryParse(json['room_id']?.toString() ?? '0') ?? 0,
       senderName: json['sender_name'] ?? "Unknown",
       timestamp: json['timestamp'],
+      status: json['status'] ?? 'sent',
     );
   }
 }

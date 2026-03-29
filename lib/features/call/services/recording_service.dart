@@ -38,8 +38,9 @@ class RecordingService {
 
     try {
       debugPrint('RecordingService: Starting recording for room $roomId...');
-      // --- 1️⃣ Update sticky notification to recording state ---
-      await StickyNotificationService.setRecordingState(true);
+      
+      // --- 1️⃣ STOP sticky notification to avoid double notification during call ---
+      await StickyNotificationService.stopService();
 
       // --- 2️⃣ Request permissions ---
       if (Platform.isAndroid) {
@@ -134,8 +135,8 @@ class RecordingService {
       // Reset flag so subsequent calls can show the recording prompt
       hasShownRecordingPopup = false;
 
-      // --- 4️⃣ Revert sticky notification state ---
-      await StickyNotificationService.setRecordingState(false);
+      // --- 4️⃣ Restart sticky notification after call ends ---
+      await StickyNotificationService.startService();
     }
   }
 

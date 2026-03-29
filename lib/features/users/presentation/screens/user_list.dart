@@ -42,7 +42,7 @@ class _UserListState extends ConsumerState<UserList> {
     _usersFuture = Future.microtask(() => _apiService.getUsers());
   }
 
-  void _startChat(int targetUserId) async {
+  void _startChat(int targetUserId, String targetUserName) async {
     if (_isEnteringChat) return;
 
     setState(() {
@@ -68,7 +68,11 @@ class _UserListState extends ConsumerState<UserList> {
           context,
           MaterialPageRoute(
             builder: (_) =>
-                ChatPage(roomId: roomId, currentUserId: widget.currentUserId),
+                ChatPage(
+                  roomId: roomId,
+                  currentUserId: widget.currentUserId,
+                  recipientName: targetUserName,
+                ),
           ),
         );
       } else if (mounted) {
@@ -293,7 +297,7 @@ class _UserListState extends ConsumerState<UserList> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.chat, color: Colors.blue),
-                          onPressed: () => _startChat(targetUserId),
+                          onPressed: () => _startChat(targetUserId, username),
                         ),
                         IconButton(
                           icon: const Icon(Icons.phone, color: Colors.green),

@@ -11,11 +11,15 @@ class ChatPage extends ConsumerStatefulWidget {
   final int roomId;
   final int currentUserId;
   final bool showBackButton;
+  /// Optional: the other participant's display name.
+  /// When provided it is shown immediately without waiting for messages.
+  final String? recipientName;
 
   const ChatPage({
     required this.roomId,
     required this.currentUserId,
     this.showBackButton = true,
+    this.recipientName,
     super.key,
   });
 
@@ -45,11 +49,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void initState() {
     super.initState();
     print("ChatPage: initState called for Room ${widget.roomId}");
-    // Ensure the provider is initialized for THIS specific room
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = ref.read(chatProvider.notifier);
-      provider.init(widget.roomId, widget.currentUserId);
-      provider.resetUnreadCount(widget.roomId);
+      final notifier = ref.read(chatProvider.notifier);
+      // Seed the recipient name immediately if we already know it
+      if (widget.recipientName != null) {
+        notifier.setRoomParticipant(widget.roomId, widget.recipientName!);
+      }
+      notifier.init(widget.roomId, widget.currentUserId);
+      notifier.resetUnreadCount(widget.roomId);
     });
   }
 
@@ -61,6 +68,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.dispose();
   }
 
+  Widget _buildMessageStatus(String? status, {bool hasServerId = false}) {
+    // Messages confirmed by server (have an id) are at minimum 'delivered'
+    final effectiveStatus = (hasServerId && (status == null || status == 'sent'))
+        ? 'delivered'
+        : status;
+
+    IconData icon;
+    Color color;
+
+    switch (effectiveStatus) {
+      case 'seen':
+      case 'opened':
+        icon = Icons.done_all;
+        color = const Color(0xFF90CAF9); // light blue = seen
+        break;
+      case 'delivered':
+        icon = Icons.done_all;
+        color = Colors.white70; // double tick white = delivered
+        break;
+      default: // 'sent'
+        icon = Icons.done;
+        color = Colors.white54; // single tick = just sent
+    }
+
+    return Icon(icon, size: 14, color: color);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,31 +116,61 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 },
               )
             : null, // Hide back button if not needed
-        title: Consumer(
-          builder: (context, ref, child) {
-            final provider = ref.watch(chatProvider);
-            final messages = provider.getMessages(widget.roomId);
-            return Column(
-              children: [
-                Text(
-                  "Room #${widget.roomId} (${messages.length})",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-                const Text(
-                  "Online",
-                  style: TextStyle(fontSize: 12, color: Colors.greenAccent),
-                ),
-              ],
-            );
-          },
-        ),
-
         backgroundColor: backgroundColor,
         foregroundColor: whiteColor,
         centerTitle: true,
+        title: Consumer(
+          builder: (context, ref, child) {
+            final provider = ref.watch(chatProvider);
+            final isLoading = provider.loadingRooms[widget.roomId] ?? false;
+
+            // Priority order:
+            // 1. Already seeded in roomParticipants (covers recipientName + history)
+            // 2. Fallback: scan messages for other user's name
+            String? resolvedName = provider.roomParticipants[widget.roomId];
+
+            if (resolvedName == null) {
+              final messages = provider.getMessages(widget.roomId);
+              for (final m in messages) {
+                if (m.userId != widget.currentUserId) {
+                  resolvedName = m.senderName;
+                  break;
+                }
+              }
+            }
+
+            // Show spinner only while first loading AND name still unknown
+            if (resolvedName == null && isLoading) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Opening...',
+                    style: TextStyle(fontSize: 16, color: Colors.white),
+                  ),
+                ],
+              );
+            }
+
+            return Text(
+              resolvedName ?? 'Chat',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.white,
+              ),
+            );
+          },
+        ),
         actions: [
           IconButton(icon: const Icon(Icons.info_outline), onPressed: () {}),
         ],
@@ -118,13 +181,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             child: Consumer(
               builder: (context, ref, child) {
                 final provider = ref.watch(chatProvider);
-                final messages = provider.getMessages(widget.roomId);
+                final isLoading = provider.loadingRooms[widget.roomId] ?? false;
 
-                print(
-                  "ChatPage [Room ${widget.roomId}]: Rebuilding. Messages: ${messages.length}",
-                );
+                if (isLoading) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF6A11CB),
+                    ),
+                  );
+                }
+
+                final messages = provider.getMessages(widget.roomId);
+                
                 // Scroll to bottom when new messages arrive
                 _scrollToBottom();
+
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(
@@ -162,10 +233,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               maxWidth:
                                   MediaQuery.of(context).size.width * 0.75,
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 12,
-                              horizontal: 16,
-                            ),
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                             decoration: BoxDecoration(
                               gradient: isMe
                                   ? const LinearGradient(
@@ -192,14 +260,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 bottomRight: Radius.circular(isMe ? 0 : 20),
                               ),
                             ),
-                            child: Text(
-                              msg.message,
-                              style: TextStyle(
-                                color: isMe ? Colors.white : Colors.black87,
-                                fontSize: 16,
-                                height: 1.3,
+                              child: Column(
+                                crossAxisAlignment: isMe
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    msg.message,
+                                    style: TextStyle(
+                                      color: isMe ? Colors.white : Colors.black87,
+                                      fontSize: 15,
+                                      height: 1.4,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (isMe) ...[
+                                    const SizedBox(height: 4),
+                                    _buildMessageStatus(
+                                      msg.status,
+                                      hasServerId: msg.id != null,
+                                    ),
+                                  ],
+                                ],
                               ),
-                            ),
                           ),
                         ],
                       ),
@@ -253,7 +336,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       if (text.isEmpty) return;
 
                       ref.read(chatProvider.notifier).send(widget.roomId, text);
-
 
                       _controller.clear();
                       _scrollToBottom();

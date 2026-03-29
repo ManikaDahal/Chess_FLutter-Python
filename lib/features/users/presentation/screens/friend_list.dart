@@ -131,7 +131,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
     }).toList();
   }
 
-  void _startChat(int targetUserId) async {
+  void _startChat(int targetUserId, String targetUserName) async {
     if (_isActionInProgress) return;
     setState(() => _isActionInProgress = true);
 
@@ -146,7 +146,11 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ChatPage(roomId: roomId, currentUserId: widget.currentUserId),
+            builder: (_) => ChatPage(
+              roomId: roomId,
+              currentUserId: widget.currentUserId,
+              recipientName: targetUserName,
+            ),
           ),
         );
       }
@@ -689,7 +693,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildIconAction(Icons.chat_bubble_outline_rounded, Colors.blueAccent, () => _startChat(targetUserId)),
+        _buildIconAction(Icons.chat_bubble_outline_rounded, Colors.blueAccent, () => _startChat(targetUserId, username)),
         _buildIconAction(Icons.phone_outlined, Colors.greenAccent, () => _startCall(targetUserId, false)),
         _buildIconAction(Icons.videocam_outlined, Colors.purpleAccent, () => _startCall(targetUserId, true)),
         _buildIconAction(Icons.play_arrow_rounded, primaryYellow, () => _playGame(targetUserId, username)),
