@@ -121,10 +121,7 @@ class MasterForegroundService {
     }
 
     await FlutterForegroundTask.startService(
-      serviceTypes: [
-        ForegroundServiceTypes.microphone,
-        ForegroundServiceTypes.mediaProjection,
-      ],
+      serviceTypes: [],
       notificationTitle: 'Chess App',
       notificationText: 'Service is running',
       callback: masterStartCallback,

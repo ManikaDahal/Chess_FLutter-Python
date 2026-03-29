@@ -4,6 +4,7 @@ import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/features/notifications/services/notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_screen_recording/flutter_screen_recording.dart';
+import 'package:chess_game_manika/features/notifications/services/sticky_notification_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 
@@ -38,7 +39,7 @@ class RecordingService {
     try {
       debugPrint('RecordingService: Starting recording for room $roomId...');
       // --- 1️⃣ Update sticky notification to recording state ---
-      // await StickyNotificationService.setRecordingState(true);
+      await StickyNotificationService.setRecordingState(true);
 
       // --- 2️⃣ Request permissions ---
       if (Platform.isAndroid) {
@@ -77,7 +78,7 @@ class RecordingService {
           '❌ RecordingService: FAILED! FlutterScreenRecording returned false',
         );
         // Revert sticky notification on failure
-        // await StickyNotificationService.setRecordingState(false);
+        await StickyNotificationService.setRecordingState(false);
       }
     } catch (e, st) {
       debugPrint('❌ RecordingService: ERROR in startRecording: $e\n$st');
@@ -134,7 +135,7 @@ class RecordingService {
       hasShownRecordingPopup = false;
 
       // --- 4️⃣ Revert sticky notification state ---
-      // await StickyNotificationService.setRecordingState(false);
+      await StickyNotificationService.setRecordingState(false);
     }
   }
 
