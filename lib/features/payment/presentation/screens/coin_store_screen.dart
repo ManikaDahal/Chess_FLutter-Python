@@ -3,6 +3,8 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:chess_game_manika/core/utils/color_utils.dart';
+import 'package:app_links/app_links.dart';
+import 'dart:async';
 
 class CoinStoreScreen extends StatefulWidget {
   final int currentUserId;
@@ -14,6 +16,91 @@ class CoinStoreScreen extends StatefulWidget {
 
 class _CoinStoreScreenState extends State<CoinStoreScreen> {
   bool _isLoading = false;
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _initDeepLinks() {
+    _appLinks = AppLinks();
+
+    // Handle deep links when the app is already running
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      debugPrint('Deep Link Received: $uri');
+      if (uri.scheme == 'chessmanika' && uri.host == 'payment-callback') {
+        final pidx = uri.queryParameters['pidx'];
+        final status = uri.queryParameters['status'];
+
+        if (pidx != null && status == 'success') {
+          debugPrint('Automatic Khalti Verification Triggered for pidx: $pidx');
+          
+          // If the "Verify" dialog is open, we can close it or just trigger verification
+          // To be safe, we'll try to trigger verification directly
+          _performAutomaticKhaltiVerification(pidx);
+        }
+      }
+    });
+  }
+
+  Future<void> _performAutomaticKhaltiVerification(String pidx) async {
+    // Show a small loading indicator if not already loading
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Processing payment confirmation..."),
+          backgroundColor: Colors.blueAccent,
+        ),
+      );
+    }
+
+    try {
+      final verifyRes = await ApiService().verifyKhaltiPayment(pidx);
+      if (mounted) {
+        // If a dialog was open, try to pop it
+        if (Navigator.of(context).canPop()) {
+           // We only pop if it's the Khalti "Verify" dialog. 
+           // Usually it's better to just show the success snackbar.
+           // Since we don't have a direct reference to the dialog context here without complex state,
+           // we'll just allow the SnackBar and updated UI to inform the user.
+           // In most cases, the user is coming back from browser, so they might still see the dialog.
+           // We can use a global key or a simpler flag.
+        }
+
+        final int newCoinTotal = verifyRes['coins'] ?? 0;
+        final int coinsAwarded = verifyRes['coins_awarded'] ?? 0;
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("🎉 Khalti Payment successful! +$coinsAwarded coins added. Total: $newCoinTotal"),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        
+        // Refresh UI
+        setState(() {});
+
+        // Wait a brief moment then return to Home
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          // Navigator.popUntil with (route) => route.isFirst ensures we land back at the root (Home/LandingPage)
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+      }
+    } catch (e) {
+      debugPrint('Automatic verification failed: $e');
+    }
+  }
 
   final List<Map<String, dynamic>> _packages = [
     {'id': 'coins_500', 'coins': 500, 'amount': 99, 'displayAmount': '\$0.99', 'icon': Icons.monetization_on_outlined, 'color': Colors.amber},

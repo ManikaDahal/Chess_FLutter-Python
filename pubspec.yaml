@@ -73,6 +73,7 @@ dependencies:
   flutter_launcher_icons: ^0.14.4
   app_settings: ^7.0.0
   flutter_stripe: ^12.4.0
+  app_links: ^6.3.3
 
 dev_dependencies:
   flutter_test:

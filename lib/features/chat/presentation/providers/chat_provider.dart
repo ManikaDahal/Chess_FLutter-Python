@@ -186,7 +186,7 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
             payload: Map<String, dynamic>.from(data),
           );
         }
-      } else if (data['type'] == 'message_status') {
+      } else if (data['type'] == 'message_status' || data['type'] == 'message_status_update') {
         final int msgId = int.tryParse(data['message_id']?.toString() ?? '0') ?? 0;
         final String status = data['status'] ?? 'sent';
         _updateMessageStatus(msgId, status);
@@ -216,7 +216,9 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
             roomId: messages[i].roomId,
             senderName: messages[i].senderName,
             timestamp: messages[i].timestamp,
-            status: status,
+            isDelivered: status == 'delivered' || status == 'read' || status == 'seen',
+            isRead: status == 'read' || status == 'seen',
+            status: status == 'delivered' ? 'delivered' : (status == 'read' || status == 'seen' ? 'seen' : 'sent'),
           );
           found = true;
           break;
@@ -230,6 +232,24 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
 
     if (found) {
       state = state.copyWith(roomMessages: newRoomMsgs);
+    }
+  }
+
+  void _sendDeliveryReceipt(ChatMessage msg) {
+    if (msg.id == null || msg.userId == state.currentUserId) return;
+    if (msg.isDelivered || msg.isRead) return;
+
+    print("ChatNotifier: Sending delivery receipt for message ${msg.id}");
+    ChatWebsocketService().updateMessageStatus(msg.roomId, msg.id!, 'delivered');
+  }
+
+  void _sendReadReceipt(int roomId) {
+    final messages = state.roomMessages[roomId] ?? [];
+    for (final m in messages) {
+       if (m.id != null && m.userId != state.currentUserId && !m.isRead) {
+          print("ChatNotifier: Sending read receipt for message ${m.id}");
+          ChatWebsocketService().updateMessageStatus(roomId, m.id!, 'read');
+       }
     }
   }
 
@@ -282,10 +302,17 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
           "user_id": msg.userId,
           "message": msg.message,
           "sender_name": msg.senderName,
-          "status": "delivered", // Mark as delivered when showing notification
           if (trackingId != null) "trackingId": trackingId,
         },
       );
+    }
+
+    // Always acknowledgement delivery if app is online (receiving this broadcast)
+    if (!fromMe) {
+      _sendDeliveryReceipt(msg);
+      if (isVisible) {
+        _sendReadReceipt(msgRoomId);
+      }
     }
   }
 
@@ -321,7 +348,11 @@ class ChatNotifier extends Notifier<ChatState> with WidgetsBindingObserver {
     newUnreadCounts[roomId] = 0;
     ChatNotifier.currentActiveRoomId = roomId;
     state = state.copyWith(unreadCounts: newUnreadCounts, activeRoomId: roomId);
+    
+    // Send read receipts for all existing messages in this room
+    _sendReadReceipt(roomId);
   }
+
 
   /// Pre-seeds the display name for [roomId] so the header shows
   /// the correct name immediately without waiting for message history.

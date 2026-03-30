@@ -7,6 +7,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chess_game_manika/features/call/presentation/providers/call_provider.dart';
+import 'package:chess_game_manika/core/utils/route_const.dart';
+import 'package:chess_game_manika/core/utils/route_generator.dart';
 
 class CallScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -386,12 +388,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final shouldSendHangup = !fromPeer;
     final callNotifier = ref.read(callProvider.notifier);
 
-    // Navigate away NOW — removes Flutter from the equation before native teardown
+    // Navigate away NOW -- removes Flutter from the equation before native teardown
     if (mounted) {
-      Navigator.of(context).pop();
+      RouteGenerator.navigateToPageWithoutStack(
+        context,
+        Routes.bottomNavBarRoute,
+      );
     }
 
-    // Run all heavy cleanup AFTER the screen is gone — completely safe
+    // Run all heavy cleanup AFTER the screen is gone -- completely safe
     _runPostCallCleanup(
       signalingService: signalingService,
       recordingService: recordingService,
@@ -408,8 +413,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required bool sendHangup,
     required CallNotifier callNotifier,
   }) async {
-    // 1. PAUSE: Give the UI/OS a moment to stabilize after the pop/minimization
-    await Future.delayed(const Duration(milliseconds: 800));
+    // 1. PAUSE: Minimal wait for UI stabilization
+    await Future.delayed(const Duration(milliseconds: 200));
 
     // 2. STOP RECORDING.
     // We do this BEFORE ending signaling to ensure the audio/video tracks are still "alive"
@@ -418,7 +423,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (recordingService.isRecording) {
         debugPrint('PostCallCleanup: Stopping recording...');
         // Extra safety delay before stopping
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 100));
         await recordingService.stopRecording();
         debugPrint('PostCallCleanup: Recording stop logic completed');
       }
@@ -426,8 +431,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       debugPrint('PostCallCleanup: Recording stop error (non-fatal): $e');
     }
 
-    // 3. PAUSE: Let the recorder service finish and release its file locks/native resources
-    await Future.delayed(const Duration(milliseconds: 2000));
+    // 3. PAUSE: Let recorder release file locks
+    await Future.delayed(const Duration(milliseconds: 500));
 
     // 4. END SIGNALING / WebRTC. Releasing Camera/Mic now.
     try {
@@ -440,16 +445,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
 
     // 5. PAUSE: Final settle
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 200));
 
-    // 7. Restore global state
+    // 7. Restore basic global flags
     try {
       callNotifier.setActiveCallService(null);
       callNotifier.setIsMinimized(false);
       callNotifier.setActiveRoomId(null);
-      callNotifier.ensureRoomResidency(currentUserId);
+      
+      // REMOVED: callNotifier.ensureRoomResidency(currentUserId);
+      // NOTE: We no longer trigger a background reconnect here because
+      // the LandingPage/AuthChecker handles its own state on entry.
+      // Background reconnects in static context were causing 4-second app exits.
     } catch (e) {
-      debugPrint('PostCallCleanup: Room residency error (non-fatal): $e');
+      debugPrint('PostCallCleanup: Global state error (non-fatal): $e');
     }
   }
 

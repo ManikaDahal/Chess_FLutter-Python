@@ -189,6 +189,23 @@ class ChatWebsocketService {
     }
   }
 
+  void updateMessageStatus(int roomId, int messageId, String status) {
+    final channel = _channels[roomId];
+    if (channel == null) return;
+    try {
+      final data = {
+        "type": "message_$status", // message_delivered or message_read
+        "message_id": messageId,
+        "room_id": roomId,
+      };
+      print("ChatWebsocketService: Updating status: $data");
+      channel.sink.add(jsonEncode(data));
+    } catch (e) {
+      print("ChatWebsocketService: Error updating message status: $e");
+    }
+  }
+
+
   void requestHistory(int roomId) {
     final channel = _channels[roomId];
     if (channel == null) return;

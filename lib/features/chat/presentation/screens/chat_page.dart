@@ -5,12 +5,11 @@ import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-
-
 class ChatPage extends ConsumerStatefulWidget {
   final int roomId;
   final int currentUserId;
   final bool showBackButton;
+
   /// Optional: the other participant's display name.
   /// When provided it is shown immediately without waiting for messages.
   final String? recipientName;
@@ -27,9 +26,7 @@ class ChatPage extends ConsumerStatefulWidget {
   ConsumerState<ChatPage> createState() => _ChatPageState();
 }
 
-
 class _ChatPageState extends ConsumerState<ChatPage> {
-
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -60,7 +57,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-
   @override
   void dispose() {
     print("ChatPage: dispose called for Room ${widget.roomId}");
@@ -69,10 +65,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Widget _buildMessageStatus(String? status, {bool hasServerId = false}) {
-    // Messages confirmed by server (have an id) are at minimum 'delivered'
-    final effectiveStatus = (hasServerId && (status == null || status == 'sent'))
-        ? 'delivered'
-        : status;
+    final effectiveStatus = status;
+
 
     IconData icon;
     Color color;
@@ -185,14 +179,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                 if (isLoading) {
                   return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF6A11CB),
-                    ),
+                    child: CircularProgressIndicator(color: Color(0xFF6A11CB)),
                   );
                 }
 
                 final messages = provider.getMessages(widget.roomId);
-                
+
                 // Scroll to bottom when new messages arrive
                 _scrollToBottom();
 
@@ -260,29 +252,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                 bottomRight: Radius.circular(isMe ? 0 : 20),
                               ),
                             ),
-                              child: Column(
-                                crossAxisAlignment: isMe
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    msg.message,
-                                    style: TextStyle(
-                                      color: isMe ? Colors.white : Colors.black87,
-                                      fontSize: 15,
-                                      height: 1.4,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                            child: Column(
+                              crossAxisAlignment: isMe
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  msg.message,
+                                  style: TextStyle(
+                                    color: isMe ? Colors.white : Colors.black87,
+                                    fontSize: 15,
+                                    height: 1.4,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  if (isMe) ...[
-                                    const SizedBox(height: 4),
-                                    _buildMessageStatus(
-                                      msg.status,
-                                      hasServerId: msg.id != null,
-                                    ),
-                                  ],
+                                ),
+                                if (isMe) ...[
+                                  const SizedBox(height: 4),
+                                  _buildMessageStatus(
+                                    msg.status,
+                                    hasServerId: msg.id != null,
+                                  ),
                                 ],
-                              ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
