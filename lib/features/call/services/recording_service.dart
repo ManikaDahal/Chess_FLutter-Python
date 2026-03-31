@@ -40,7 +40,7 @@ class RecordingService {
       debugPrint('RecordingService: Starting recording for room $roomId...');
       
       // --- 1️⃣ STOP sticky notification to avoid double notification during call ---
-      await StickyNotificationService.stopService();
+     await StickyNotificationService.setRecordingState(true);
 
       // --- 2️⃣ Request permissions ---
       if (Platform.isAndroid) {
@@ -101,20 +101,18 @@ class RecordingService {
       _lastRecordingPath = path;
       _isRecording = false;
 
-      debugPrint('RecordingService: stopRecordScreen returned path: "$path"');
+      // --- 4️⃣ Restart sticky notification command immediately ---
+      try {
+        await StickyNotificationService.setRecordingState(false);
+      } catch (e) {
+        debugPrint('⚠️ RecordingService: Error resetting sticky notification: $e');
+      }
 
       if (path.isNotEmpty) {
         statusNotifier.value = RecordingStatus.saved;
         debugPrint('RecordingService: SUCCESS! File saved at $path');
 
-        // Show recording saved notification
-        NotificationService.showNotification(
-          title: "Recording Saved",
-          body: "Your call recording has been saved.",
-          payload: {'room_id': _currentRoomId ?? '0'},
-        );
-
-        // Upload recording in background
+        // Initiate upload in background
         debugPrint('RecordingService: Initiating upload for $path');
         _uploadRecording(path, _currentRoomId ?? '0');
       } else {
@@ -132,11 +130,12 @@ class RecordingService {
       if (statusNotifier.value != RecordingStatus.saved) {
         statusNotifier.value = RecordingStatus.idle;
       }
-      // Reset flag so subsequent calls can show the recording prompt
       hasShownRecordingPopup = false;
-
-      // --- 4️⃣ Restart sticky notification after call ends ---
-      await StickyNotificationService.startService();
+      
+      // Fallback reset
+      try {
+        await StickyNotificationService.setRecordingState(false);
+      } catch (_) {}
     }
   }
 

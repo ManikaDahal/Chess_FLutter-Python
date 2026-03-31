@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:chess_game_manika/core/utils/const.dart';
 import 'package:chess_game_manika/features/call/services/recording_service.dart';
 import 'package:chess_game_manika/features/call/services/signaling_service.dart';
+import 'package:chess_game_manika/features/notifications/services/sticky_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -460,6 +461,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     } catch (e) {
       debugPrint('PostCallCleanup: Global state error (non-fatal): $e');
     }
+    try {
+    debugPrint('PostCallCleanup: Resetting sticky notification to tips mode...');
+    //await StickyNotificationService.setRecordingState(false);
+    debugPrint('PostCallCleanup: Sticky notification reset.');
+  } catch (e) {
+    debugPrint('PostCallCleanup: Notification reset error (non-fatal): $e');
+  }
   }
 
   void _startCallRecording() async {

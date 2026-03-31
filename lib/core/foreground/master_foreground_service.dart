@@ -71,6 +71,16 @@ class MasterTaskHandler extends TaskHandler {
     if (data is bool) {
       _isRecording = data;
       _updateNotification();
+      
+      // If we are switching back to chess tips (recording = false), we run an autonomous
+      // fallback refresh 2 seconds later. This ensures that even if the screen-recording 
+      // plugin's native code clears ALL app notifications during its shutdown, the chess tips
+      // will securely restore themselves from within the background isolate!
+      if (!_isRecording) {
+        Future.delayed(const Duration(seconds: 2), () {
+          _updateNotification();
+        });
+      }
     }
   }
 
@@ -141,11 +151,15 @@ class MasterForegroundService {
   }
 
   static Future<void> updateState({required bool isRecording}) async {
-    if (await FlutterForegroundTask.isRunningService) {
-      FlutterForegroundTask.sendDataToTask(isRecording);
-    } else if (!isRecording) {
-      // If we want to start normal tips and it's not running
-      await startService();
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        FlutterForegroundTask.sendDataToTask(isRecording);
+      } else if (!isRecording) {
+        // If we want to start normal tips and it's not running
+        await startService();
+      }
+    } catch (e) {
+      print('MasterForegroundService updateState error: $e');
     }
   }
 
