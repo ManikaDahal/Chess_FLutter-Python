@@ -7,6 +7,7 @@ import 'package:chess_game_manika/features/invites/services/invite_services.dart
 import 'package:chess_game_manika/features/chat/presentation/providers/chat_provider.dart';
 import 'package:chess_game_manika/features/snake_game/presentation/screens/snake_game_screen.dart';
 import 'package:chess_game_manika/features/snake_game/data/snake_boards_data.dart';
+import 'package:chess_game_manika/features/home/presentation/screens/landing_page.dart';
 
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';

@@ -73,5 +73,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Chess Manika needs permission to find and connect to other players on your local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_chess-game._tcp</string>
+	</array>
 </dict>
 </plist>

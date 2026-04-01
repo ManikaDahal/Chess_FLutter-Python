@@ -4,9 +4,12 @@ import 'package:chess_game_manika/core/utils/route_const.dart';
 import 'package:chess_game_manika/core/utils/route_generator.dart';
 import 'package:chess_game_manika/features/game/presentation/screens/chess_board.dart';
 import 'package:chess_game_manika/features/users/presentation/screens/friend_list.dart';
+import 'package:chess_game_manika/features/multiplayer/presentation/local_lobby_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
+import 'dart:io';
 import 'package:chess_game_manika/features/payment/presentation/screens/coin_store_screen.dart';
 
 class LandingPage extends StatefulWidget {
@@ -252,6 +255,14 @@ class _LandingPageState extends State<LandingPage> {
                 );
               }
             },
+          ),
+          const SizedBox(height: 15),
+          _buildMainModeButton(
+            title: "HOTSPOT MODE (OFFLINE)",
+            subtitle: "Play with nearby friends without internet",
+            icon: Icons.wifi_tethering_rounded,
+            color: Colors.blueAccent,
+            onTap: () => _showPermissionExplanationDialog(),
           ),
           const SizedBox(height: 20),
           Row(
@@ -568,6 +579,135 @@ class _LandingPageState extends State<LandingPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showPermissionExplanationDialog() async {
+    // Show premium explanation dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF16213E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.security_rounded, color: Colors.orangeAccent),
+              SizedBox(width: 10),
+              Text("Local Discovery", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "To play with friends nearby, we need permission to discover local devices.",
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 15),
+              _buildPermInfo(Icons.wifi_rounded, "Nearby Devices", "Used to scan and broadcast game lobbies via mDNS."),
+              const SizedBox(height: 10),
+              _buildPermInfo(Icons.location_on_rounded, "Location", "Required by Android to detect local network neighbors (not used for tracking)."),
+              const SizedBox(height: 15),
+              const Text(
+                "If prompted, please select 'Allow' or 'While using the app'.",
+                style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("NOT NOW", style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orangeAccent,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () async {
+                Navigator.pop(context);
+                await _requestAndNavigate();
+              },
+              child: const Text("CONTINUE", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPermInfo(IconData icon, String title, String desc) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Colors.orangeAccent.withOpacity(0.8)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+              Text(desc, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _requestAndNavigate() async {
+    if (Platform.isAndroid) {
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.location,
+        Permission.nearbyWifiDevices,
+      ].request();
+
+      final bool isLocGranted = statuses[Permission.location]?.isGranted ?? false;
+      final bool isNearbyGranted = statuses[Permission.nearbyWifiDevices]?.isGranted ?? false;
+
+      if (isLocGranted || isNearbyGranted) {
+        _navigateToHotspot();
+      } else {
+        _showPermissionDeniedDialog();
+      }
+    } else {
+      _navigateToHotspot();
+    }
+  }
+
+  void _showPermissionDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text("Permissions Required", style: TextStyle(color: Colors.white)),
+        content: const Text(
+          "We cannot find nearby games without these permissions. Please enable them in app settings.",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              openAppSettings();
+            },
+            child: const Text("OPEN SETTINGS", style: TextStyle(color: Colors.orangeAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToHotspot() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocalLobbyScreen(isSnakeMode: widget.isSnakeMode),
       ),
     );
   }

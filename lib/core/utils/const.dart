@@ -8,11 +8,25 @@ class Constants {
   static const String apiFCMBaseUrl =
       "https://chess-backend-git-manika-dev-fcm-manikadahals-projects.vercel.app";
 
+  // Support dynamic WebSocket URL for Hotspot Mode
+  static String? localHostIp;
+  static int localPort = 8080;
+
   // WebSocket endpoint (Hugging Face) - handles call signaling only
-  static const String wsBaseUrl = "wss://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+  static String get wsBaseUrl {
+    if (localHostIp != null) {
+      return "ws://$localHostIp:$localPort";
+    }
+    return "wss://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+  }
+
   // HTTP endpoint for Video service (same as WebSocket but with https)
-  static const String videoBaseUrl =
-      "https://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+  static String get videoBaseUrl {
+    if (localHostIp != null) {
+      return "http://$localHostIp:$localPort";
+    }
+    return "https://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+  }
 
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();

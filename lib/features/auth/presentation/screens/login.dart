@@ -556,6 +556,46 @@ class _LoginState extends ConsumerState<Login> {
                 ),
               ),
 
+              SizedBox(height: 16),
+              // Play Offline / Guest Mode Button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    // Set as Guest
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('loggedIn', true);
+                    await prefs.setInt('userId', 999); // Placeholder for Guest
+                    await prefs.setString('email', 'guest@local');
+                    
+                    ref.read(authProvider.notifier).login(999, 'guest@local');
+                    
+                    if (mounted) {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => BottomNavBarWrapper()),
+                      );
+                      DisplaySnackbar.show(context, "Entering Guest Mode (Offline)");
+                    }
+                  },
+                  icon: const Icon(Icons.wifi_off_rounded, color: Colors.grey),
+                  label: const Text(
+                    "Play Offline / Guest Mode",
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+
               SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
