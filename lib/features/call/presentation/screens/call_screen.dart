@@ -462,12 +462,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       debugPrint('PostCallCleanup: Global state error (non-fatal): $e');
     }
     try {
-    debugPrint('PostCallCleanup: Resetting sticky notification to tips mode...');
-    //await StickyNotificationService.setRecordingState(false);
-    debugPrint('PostCallCleanup: Sticky notification reset.');
-  } catch (e) {
-    debugPrint('PostCallCleanup: Notification reset error (non-fatal): $e');
-  }
+      debugPrint('PostCallCleanup: Resetting sticky notification to tips mode...');
+      // Small delay ensures screen recording plugin has fully cleared its own notification first
+      await Future.delayed(const Duration(milliseconds: 500));
+      await StickyNotificationService.setRecordingState(false);
+      debugPrint('PostCallCleanup: Sticky notification reset.');
+    } catch (e) {
+      debugPrint('PostCallCleanup: Notification reset error (non-fatal): $e');
+    }
   }
 
   void _startCallRecording() async {

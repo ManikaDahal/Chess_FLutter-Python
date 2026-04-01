@@ -112,9 +112,11 @@ class RecordingService {
         statusNotifier.value = RecordingStatus.saved;
         debugPrint('RecordingService: SUCCESS! File saved at $path');
 
-        // Initiate upload in background
-        debugPrint('RecordingService: Initiating upload for $path');
-        _uploadRecording(path, _currentRoomId ?? '0');
+        // Initiate upload in background (Delayed by 5 seconds to prevent immediate resource contention)
+        debugPrint('RecordingService: Initiating upload for $path in 5 seconds...');
+        Future.delayed(const Duration(seconds: 5), () {
+          _uploadRecording(path, _currentRoomId ?? '0');
+        });
       } else {
         statusNotifier.value = RecordingStatus.failed;
         debugPrint('❌ RecordingService: FAILED! path is empty');
