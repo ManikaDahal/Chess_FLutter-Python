@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -17,10 +18,16 @@ class LocalGameServer {
     this.onClientConnected = onClientConnected;
     _hasNotifiedHost = false;
 
-    // shelf_web_socket ^2.x requires two-param callback: (WebSocketChannel, String?)
-    final handler = webSocketHandler((WebSocketChannel clientSocket, String? protocol) {
-      print('[LocalServer] New TCP connection received. Waiting for join handshake...');
+    // Use shelf_web_socket to create the core WebSocket logic
+    final wsHandler = webSocketHandler((WebSocketChannel clientSocket, String? protocol) {
+      final clientId = clientSocket.hashCode;
       _clients.add(clientSocket);
+      
+      // Notify the client that they are connected to the relay pool.
+      final ack = jsonEncode({'type': 'connected', 'status': 'ok', 'client_id': clientId});
+      clientSocket.sink.add(ack);
+      
+      print('[LocalServer] New WebSocket client ($clientId). Total: ${_clients.length}');
 
       clientSocket.stream.listen(
         (message) {
@@ -28,20 +35,27 @@ class LocalGameServer {
             final data = jsonDecode(message.toString()) as Map<String, dynamic>;
             print('[LocalServer] Received: $data');
 
-            // Trigger host navigation ONLY when we receive a real join message.
-            // This prevents port probes / NSD health checks / ghost reconnects
-            // from accidentally firing onClientConnected on bare connection.
             if (!_hasNotifiedHost && data['type'] == 'join') {
+              // We could potentially check data['user_id'] here, but for local mode,
+              // the first join message is the trigger.
               _hasNotifiedHost = true;
               print('[LocalServer] Valid join handshake received — notifying host!');
               this.onClientConnected?.call();
             }
 
-            // Broadcast to all OTHER connected clients (move relay)
-            for (final client in List<WebSocketChannel>.from(_clients)) {
-              if (client != clientSocket) {
-                client.sink.add(message);
+            // Broadcast to all OTHER connected clients (move/msg relay)
+            final otherClients = _clients.where((c) => c != clientSocket).toList();
+            if (otherClients.isNotEmpty) {
+              print('[LocalServer] Relaying message from $clientId to ${otherClients.length} peer(s)');
+              for (final client in otherClients) {
+                try {
+                  client.sink.add(message);
+                } catch (e) {
+                  print('[LocalServer] Error relaying from $clientId: $e');
+                }
               }
+            } else {
+              print('[LocalServer] No peers to relay from $clientId. Pool size: ${_clients.length}');
             }
           } catch (e) {
             print('[LocalServer] Ignoring non-JSON message: $e');
@@ -66,29 +80,56 @@ class LocalGameServer {
       );
     });
 
-    try {
-      _server = await io.serve(
-        handler,
-        InternetAddress.anyIPv4,
-        8080,
-        shared: true,
-      );
-      print('[LocalServer] Running on ${_server!.address.address}:${_server!.port}');
-      return _server!.port;
-    } catch (e) {
-      print('[LocalServer] Error starting server: $e');
-      rethrow;
+    // Wrapper handler to capture the remote IP before upgrading to WebSocket
+    final Handler combinedHandler = (Request request) {
+      final connectionInfo = request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
+      final remoteAddr = connectionInfo?.remoteAddress.address;
+
+      print('[LocalServer] Incoming ${request.method} from $remoteAddr');
+
+      // IMMEDIATE TRIGGER: If a REMOTE device (not loopback) connects,
+      // notify the host immediately to restore "works first try" behavior.
+      if (!_hasNotifiedHost && remoteAddr != null && remoteAddr != '127.0.0.1') {
+        _hasNotifiedHost = true;
+        print('[LocalServer] Remote client ($remoteAddr) connected — notifying host!');
+        this.onClientConnected?.call();
+      }
+
+      return wsHandler(request);
+    };
+
+    int retryCount = 0;
+    while (retryCount < 2) {
+      try {
+        _server = await io.serve(
+          combinedHandler,
+          InternetAddress.anyIPv4,
+          8080,
+          shared: true,
+        );
+        print('[LocalServer] Successfully running on ${_server!.address.address}:${_server!.port}');
+        return _server!.port;
+      } catch (e) {
+        retryCount++;
+        print('[LocalServer] Binding failed (Attempt $retryCount/2): $e');
+        if (retryCount >= 2) rethrow;
+        // Wait 500ms before retrying to let the OS release port 8080
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
     }
+    throw Exception("Failed to start server after retries.");
   }
 
-  void stop() {
-    _server?.close(force: true);
+  Future<void> stop() async {
+    print('[LocalServer] Stopping server...');
+    await _server?.close(force: true);
+    _server = null;
     for (var client in List<WebSocketChannel>.from(_clients)) {
-      client.sink.close();
+      try { client.sink.close(); } catch (_) {}
     }
     _clients.clear();
     _hasNotifiedHost = false;
-    print('[LocalServer] Server stopped.');
+    print('[LocalServer] Server fully stopped.');
   }
 }
 

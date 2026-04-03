@@ -202,6 +202,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
   }
 
   void _onRemoteMediaTypeChanged() {
+    if (_signalingService == null) return;
     final mediaType = _signalingService!.remoteMediaTypeNotifier.value;
     if (mounted && mediaType != null) {
       print("[GAME CALL] 🏢 Remote media type detected: $mediaType");
@@ -210,7 +211,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
   }
 
   void _onLocalStreamChanged() {
-    if (!_isRendererReady) return;
+    if (!_isRendererReady || _signalingService == null) return;
     final localStream = _signalingService!.localStreamNotifier.value;
     if (mounted) {
       // Always re-assign to ensure renderer picks up changes (e.g. tracks added)
@@ -221,7 +222,7 @@ class _GameBoardState extends ConsumerState<GameBoard>
   }
 
   void _onRemoteStreamChanged() {
-    if (!_isRendererReady) return;
+    if (!_isRendererReady || _signalingService == null) return;
     final remoteStream = _signalingService!.remoteStreamNotifier.value;
     if (mounted && remoteStream != null) {
       print(

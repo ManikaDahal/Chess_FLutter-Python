@@ -22,127 +22,118 @@ class GameWebsocketService {
   int? _currentRoomId;
   int? get currentRoomId => _currentRoomId;
 
+  Completer<void>? _connectionReady;
+
+  bool get isLocal => Constants.localHostIp != null;
+
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
-  // When disconnect() is called manually, this flag blocks the async onDone
-  // handler from scheduling a new reconnect timer after we've already cleaned up.
   bool _preventReconnect = false;
 
   Future<void> connect(int roomId, {bool forceReconnect = false}) async {
-    // If it's already the same room and not forced, do nothing
     if (!forceReconnect && _isConnected && _currentRoomId == roomId) {
       print("GameWebsocketService [Room $roomId]: Already connected.");
       return;
     }
 
-    // Force disconnect if switching rooms
     if (_isConnected || _channel != null) {
-      print(
-        "GameWebsocketService: Switching from $_currentRoomId to $roomId. Cleaning up...",
-      );
+      print("GameWebsocketService: Cleaning up existing connection before connecting to $roomId...");
       disconnect();
-      // Small pause to allow socket cleanup
-
       await Future.delayed(const Duration(milliseconds: 200));
     }
 
-    // Allow reconnects again — this is an intentional connection attempt
     _preventReconnect = false;
-
     _currentRoomId = roomId;
-    // In local P2P mode (localHostIp set), the server is a plain WebSocket echo server
-    // with no path routing. For online mode, use the full Django consumer path.
-    final bool isLocal = Constants.localHostIp != null;
-    final url = isLocal
-        ? Constants.wsBaseUrl  // ws://ip:port  (no path)
-        : "${Constants.wsBaseUrl}/ws/game/$roomId";
-    print("GameWebsocketService: Connecting to $url... (localMode: $isLocal)");
-    print("DEBUG: Final WebSocket URL: $url");
 
+    final url = isLocal
+        ? Constants.wsBaseUrl 
+        : "${Constants.wsBaseUrl}/ws/game/$roomId";
+    
     _reconnectTimer?.cancel();
 
-    try {
-      // Wake up the server before connecting (Render sleeps on free tier)
-      // Skip probe entirely in local P2P mode.
-      if (!isLocal) {
-        ApiService().probe(ApiBase.render).catchError((e) {
-          print("GameWebsocketService: Probe failed (non-critical): $e");
-        });
-      }
+    // Connection Retry Loop (3 attempts)
+    int retryCount = 0;
+    while (retryCount < 3) {
+      try {
+        final uri = Uri.parse(url);
+        print("GameWebsocketService: Connecting to $uri (Attempt ${retryCount + 1})...");
+        
+        _channel = WebSocketChannel.connect(uri);
+        _connectionReady = Completer<void>();
 
-      var uri = Uri.parse(url);
-      // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
-      if (uri.port == 0) {
-        uri = uri.replace(port: uri.scheme == 'wss' ? 443 : 80);
-      }
-      _channel = WebSocketChannel.connect(uri);
-
-      // Optimisticaly set connected as soon as we start listening
-      // This allows the UI to attempt sending moves without waiting for a heartbeat
-      _isConnected = true;
-      if (!_connectionController.isClosed) {
-        _connectionController.add(true);
-      }
-      _startHeartbeat(roomId);
-
-      _channel!.stream.listen(
-        (message) {
-          _lastMessageTime = DateTime.timestamp();
-          try {
-            final data = jsonDecode(message);
-
-            // If we receive ANY valid JSON, we are definitely connected
-            if (!_isConnected) {
-              _isConnected = true;
-              if (!_connectionController.isClosed) {
-                _connectionController.add(true);
-              }
-              _startHeartbeat(roomId);
-            }
-
-            if (!_controller.isClosed) {
-              _controller.add(data);
-            }
-            print("Game message received [Room $roomId]: $data");
-          } catch (e) {
-            print(
-              "Error decoding Game WebSocket message: $e\nMessage: $message",
-            );
+        if (!isLocal) {
+          // Online mode: set connected optimistically
+          _isConnected = true;
+          if (!_connectionController.isClosed) {
+            _connectionController.add(true);
           }
-        },
-        onDone: () {
-          print("Game WebSocket [Room $roomId] onDone. Cleaning up...");
+          _connectionReady?.complete();
+        }
+        
+        // Listen to the stream immediately to catch the handshake
+        _channel!.stream.listen(
+          (message) {
+            _lastMessageTime = DateTime.timestamp();
+            try {
+              final data = jsonDecode(message);
+
+              // Handshake logic: If we receive valid JSON, the relay is active
+              if (!_isConnected) {
+                _isConnected = true;
+                if (!_connectionController.isClosed) {
+                  _connectionController.add(true);
+                }
+                if (!(_connectionReady?.isCompleted ?? true)) {
+                  _connectionReady?.complete();
+                }
+                _startHeartbeat(roomId);
+              }
+
+              if (!_controller.isClosed) {
+                _controller.add(data);
+              }
+              if (isLocal) {
+                print("[GAME SYNC] Received local move/msg: $data");
+              }
+            } catch (e) {
+              print("Error decoding Game WebSocket message: $e\nMessage: $message");
+            }
+          },
+          onDone: () {
+            print("Game WebSocket [Room $roomId] onDone. Cleaning up...");
+            _cleanup();
+            _scheduleReconnect(roomId);
+          },
+          onError: (error) {
+            print("Game WebSocket [Room $roomId] Error: $error");
+            _cleanup();
+            _scheduleReconnect(roomId);
+          },
+        );
+
+        // If we reached here without error, we break the retry loop
+        break; 
+
+      } catch (e) {
+        retryCount++;
+        print("GameWebsocketService: Connect failed: $e. Retrying in 500ms...");
+        if (retryCount >= 3) {
+          print("GameWebsocketService: Max retries reached.");
           _cleanup();
           _scheduleReconnect(roomId);
-        },
-        onError: (error, stackTrace) {
-          print(
-            "Game WebSocket FATAL ERROR [Room $roomId]: $error\n$stackTrace",
-          );
-          _cleanup();
-          _scheduleReconnect(roomId);
-        },
-      );
-    } catch (e) {
-      print("Failed to connect Game WebSocket [Room $roomId]: $e");
-      _cleanup();
-      _scheduleReconnect(roomId);
+          return;
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
     }
   }
 
   void _scheduleReconnect(int roomId) {
-    // If disconnect() was called manually, do NOT reschedule — the async onDone
-    // fires after disconnect() returns and would otherwise create a ghost timer.
-    if (_preventReconnect) {
-      print('GameWebsocketService: Reconnect suppressed (manual disconnect).');
-      return;
-    }
+    if (_preventReconnect) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 5), () {
-      print(
-        "GameWebsocketService: Attempting auto-reconnect for room $roomId...",
-      );
+      print("GameWebsocketService: Attempting auto-reconnect...");
       connect(roomId);
     });
   }
@@ -155,73 +146,55 @@ class GameWebsocketService {
     _pingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       if (_isConnected && _channel != null) {
         final now = DateTime.timestamp();
-        if (_lastMessageTime != null &&
-            now.difference(_lastMessageTime!).inSeconds > 60) {
-          print(
-            "GameWebsocketService [Room $roomId]: Zombie connection detected. Reconnecting...",
-          );
-          _channel?.sink.close();
+        if (_lastMessageTime != null && now.difference(_lastMessageTime!).inSeconds > 60) {
+          print("GameWebsocketService: Connection stale. reconnecting...");
           _cleanup();
-          _scheduleReconnect(roomId);
-          return;
+          connect(roomId);
+        } else {
+          _channel!.sink.add(jsonEncode({"type": "ping"}));
         }
-        _channel!.sink.add(jsonEncode({"type": "ping", "room_id": roomId}));
       } else {
         timer.cancel();
       }
     });
   }
 
-  void _cleanup() {
-    bool wasConnected = _isConnected;
-    _pingTimer?.cancel();
-    _isConnected = false;
-    _currentRoomId = null;
-    _channel = null;
-    if (wasConnected) {
-      if (!_connectionController.isClosed) {
-        _connectionController.add(false);
-      }
+  void sendMove(int roomId, int senderUserId, int fromRow, int fromCol, int toRow, int toCol) async {
+    if (isLocal && _connectionReady != null) {
+      await _connectionReady!.future.timeout(const Duration(seconds: 2)).catchError((_) => null);
     }
-  }
 
-  void sendMove(
-    int roomId,
-    int senderUserId,
-    int fromRow,
-    int fromCol,
-    int toRow,
-    int toCol,
-  ) {
     if (_channel == null || !_isConnected) {
-      print(
-        "GameWebsocketService: Cannot send move, not connected! (Room: $roomId)",
-      );
+      print("GameWebsocketService: Cannot send move, not connected!");
       return;
     }
 
     final data = {
       "type": "move",
-      "room_id": roomId, // Explicitly include for backend/client parity
+      "room_id": roomId,
       "sender_id": senderUserId,
       "from_row": fromRow,
       "from_col": fromCol,
       "to_row": toRow,
       "to_col": toCol,
     };
+    if (isLocal) print("[GAME SYNC] Sending local move: $data");
     _channel!.sink.add(jsonEncode(data));
   }
 
-  void sendJoin(int roomId, int userId) {
+  void sendJoin(int roomId, int userId) async {
+    if (isLocal && _connectionReady != null) {
+      await _connectionReady!.future.timeout(const Duration(seconds: 2)).catchError((_) => null);
+      await Future.delayed(const Duration(milliseconds: 100)); 
+    }
     if (_channel == null || !_isConnected) return;
+    if (isLocal) print("[GAME SYNC] Sending local join: $userId");
     _channel!.sink.add(jsonEncode({"type": "join", "room_id": roomId, "user_id": userId}));
   }
 
   void sendLeave(int roomId, int userId) {
     if (_channel == null || !_isConnected) return;
-    _channel!.sink.add(
-      jsonEncode({"type": "user_left", "room_id": roomId, "user_id": userId}),
-    );
+    _channel!.sink.add(jsonEncode({"type": "user_left", "room_id": roomId, "user_id": userId}));
   }
 
   void resetGame(int roomId) {
@@ -231,9 +204,19 @@ class GameWebsocketService {
 
   void disconnect() {
     print("GameWebsocketService: Manually disconnecting...");
-    _preventReconnect = true;   // Block any async onDone from scheduling a reconnect
+    _preventReconnect = true;
     _reconnectTimer?.cancel();
+    _pingTimer?.cancel();
     _channel?.sink.close();
     _cleanup();
+  }
+
+  void _cleanup() {
+    _isConnected = false;
+    _currentRoomId = null;
+    _channel = null;
+    if (!_connectionController.isClosed) {
+      _connectionController.add(false);
+    }
   }
 }

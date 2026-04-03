@@ -35,6 +35,7 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
     // game session is cancelled before the server is started again.
     GameWebsocketService().disconnect();
     Constants.localHostIp = null;
+    Constants.localPort = 8080; // Default local port
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLocationService();
@@ -148,14 +149,20 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
 
       print("[LocalLobby] Hosting with IP: $myIp");
 
+      // Stop any existing server and disconnect stale sockets first.
+      await _server.stop();
+      GameWebsocketService().disconnect();
+      
+      // Artificial delay to let the OS release port 8080
+      await Future.delayed(const Duration(milliseconds: 200));
+
       // Start the server first — port is assigned by OS
       int? port;
       port = await _server.start(
         onClientConnected: () {
           // When a joiner connects, navigate the HOST to GameBoard
           if (!mounted) return;
-          Constants.localHostIp =
-              "127.0.0.1"; // Host connects to its own server via loopback
+          Constants.localHostIp = "127.0.0.1";
           Constants.localPort = port!;
           _navigateToGame(amIWhite: true); // Host is always White
         },
@@ -234,13 +241,14 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
     return bestIp;
   }
 
-  void _stopHosting() {
-    _server.stop();
+  Future<void> _stopHosting() async {
+    await _server.stop();
     _discovery.stop();
     // Kill any pending reconnect timer in the GameWebsocketService singleton
     // so it doesn't reconnect to port 8080 when we start hosting again.
     GameWebsocketService().disconnect();
     Constants.localHostIp = null;
+    Constants.localPort = 8080; 
     setState(() {
       _isHosting = false;
       _waitingForPlayer = false;
@@ -480,9 +488,10 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
   @override
   void dispose() {
     _discovery.stop();
-    _server.stop();
+    _server.stop(); // Can't await in dispose, but close is fire-and-forget here
     GameWebsocketService().disconnect();
     Constants.localHostIp = null;
+    Constants.localPort = 8080;
     _nameController.dispose();
     super.dispose();
   }
