@@ -1,5 +1,6 @@
 import 'package:bonsoir/bonsoir.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'dart:io';
 
 class LocalDiscoveryService {
   BonsoirBroadcast? _broadcast;
@@ -9,13 +10,39 @@ class LocalDiscoveryService {
   /// Advertise the local game to others
   Future<void> startBroadcasting(String name, int port) async {
     try {
-      final info = NetworkInfo();
-      final String? ipAddress = await info.getWifiIP();
+      // Improved IP detection: scan all interfaces to find the Host IP (even on Hotspot)
+      String? ipAddress;
+      try {
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+          includeLinkLocal: false,
+        );
+        for (final interface in interfaces) {
+          for (final addr in interface.addresses) {
+            final ip = addr.address;
+            // Prefer Hotspot IPs (192.168.43.1, etc.) or common private ranges
+            if (!addr.isLoopback && ip != '0.0.0.0') {
+               if (ip.startsWith('192.168.43.') || ip.startsWith('172.20.10.')) {
+                 ipAddress = ip;
+                 break;
+               }
+               // Fallback to any private IP if we haven't found a hotspot one yet
+               ipAddress ??= ip;
+            }
+          }
+          if (ipAddress?.startsWith('192.168.43.') == true) break;
+        }
+      } catch (e) {
+        print("[Discovery] Interface scan failed: $e");
+      }
+
+      // Final fallback if manual scan failed
+      ipAddress ??= await NetworkInfo().getWifiIP();
+
       print("[Discovery] Attempting to broadcast. My Local IP: $ipAddress Port: $port");
 
       if (ipAddress == null || ipAddress.isEmpty) {
         print("[Discovery] Error: Could not retrieve Local IP! Check WiFi/Location permissions.");
-        // We still attempt to broadcast, but clients might not be able to connect via IP attribute
       }
 
       // Create a service and broadcast it
@@ -39,6 +66,10 @@ class LocalDiscoveryService {
   /// Look for other games on the network
   Future<void> startScanning(Function(BonsoirService) onFound) async {
     try {
+      if (_discovery != null) {
+        _discovery!.stop();
+        _discovery = null;
+      }
       _discovery = BonsoirDiscovery(type: _serviceType);
       final discovery = _discovery!;
       await discovery.initialize();

@@ -44,9 +44,13 @@ class GameWebsocketService {
     }
 
     _currentRoomId = roomId;
-    // REMOVE TRIALING SLASH: Some proxies/servers (like Render/Daphne) are sensitive to this
-    final url = "${Constants.wsBaseUrl}/ws/game/$roomId";
-    print("GameWebsocketService: Connecting to $url...");
+    // In local P2P mode (localHostIp set), the server is a plain WebSocket echo server
+    // with no path routing. For online mode, use the full Django consumer path.
+    final bool isLocal = Constants.localHostIp != null;
+    final url = isLocal
+        ? Constants.wsBaseUrl  // ws://ip:port  (no path)
+        : "${Constants.wsBaseUrl}/ws/game/$roomId";
+    print("GameWebsocketService: Connecting to $url... (localMode: $isLocal)");
     print("DEBUG: Final WebSocket URL: $url");
 
     _reconnectTimer?.cancel();

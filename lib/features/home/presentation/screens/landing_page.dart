@@ -6,7 +6,6 @@ import 'package:chess_game_manika/features/game/presentation/screens/chess_board
 import 'package:chess_game_manika/features/users/presentation/screens/friend_list.dart';
 import 'package:chess_game_manika/features/multiplayer/presentation/local_lobby_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:chess_game_manika/core/api/api_services.dart';
 import 'dart:io';
@@ -24,7 +23,6 @@ class LandingPage extends StatefulWidget {
 
 class _LandingPageState extends State<LandingPage> {
   Map<String, dynamic>? profileData;
-  bool _loading = true;
 
   // Live progress tracking
   final ValueNotifier<int> _coinsNotifier = ValueNotifier<int>(0);
@@ -43,16 +41,13 @@ class _LandingPageState extends State<LandingPage> {
       if (mounted) {
         setState(() {
           profileData = data;
-          _loading = false;
           _coinsNotifier.value = data['coins'] ?? 0;
           _rankNotifier.value = data['rank_name'] ?? "Novice";
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _loading = false;
-        });
+        setState(() {});
       }
     }
   }
