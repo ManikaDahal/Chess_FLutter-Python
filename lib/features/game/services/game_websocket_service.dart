@@ -25,6 +25,10 @@ class GameWebsocketService {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
+  // When disconnect() is called manually, this flag blocks the async onDone
+  // handler from scheduling a new reconnect timer after we've already cleaned up.
+  bool _preventReconnect = false;
+
   Future<void> connect(int roomId, {bool forceReconnect = false}) async {
     // If it's already the same room and not forced, do nothing
     if (!forceReconnect && _isConnected && _currentRoomId == roomId) {
@@ -43,6 +47,9 @@ class GameWebsocketService {
       await Future.delayed(const Duration(milliseconds: 200));
     }
 
+    // Allow reconnects again — this is an intentional connection attempt
+    _preventReconnect = false;
+
     _currentRoomId = roomId;
     // In local P2P mode (localHostIp set), the server is a plain WebSocket echo server
     // with no path routing. For online mode, use the full Django consumer path.
@@ -57,10 +64,12 @@ class GameWebsocketService {
 
     try {
       // Wake up the server before connecting (Render sleeps on free tier)
-      // We don't await this to avoid blocking the actual WebSocket connection attempt
-      ApiService().probe(ApiBase.render).catchError((e) {
-        print("GameWebsocketService: Probe failed (non-critical): $e");
-      });
+      // Skip probe entirely in local P2P mode.
+      if (!isLocal) {
+        ApiService().probe(ApiBase.render).catchError((e) {
+          print("GameWebsocketService: Probe failed (non-critical): $e");
+        });
+      }
 
       var uri = Uri.parse(url);
       // Fix: Use proper default ports if not explicitly set (avoids :0 issues on some platforms)
@@ -123,6 +132,12 @@ class GameWebsocketService {
   }
 
   void _scheduleReconnect(int roomId) {
+    // If disconnect() was called manually, do NOT reschedule — the async onDone
+    // fires after disconnect() returns and would otherwise create a ghost timer.
+    if (_preventReconnect) {
+      print('GameWebsocketService: Reconnect suppressed (manual disconnect).');
+      return;
+    }
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 5), () {
       print(
@@ -216,6 +231,7 @@ class GameWebsocketService {
 
   void disconnect() {
     print("GameWebsocketService: Manually disconnecting...");
+    _preventReconnect = true;   // Block any async onDone from scheduling a reconnect
     _reconnectTimer?.cancel();
     _channel?.sink.close();
     _cleanup();

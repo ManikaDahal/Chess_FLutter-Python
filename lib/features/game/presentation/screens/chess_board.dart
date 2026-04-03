@@ -482,16 +482,37 @@ class _GameBoardState extends ConsumerState<GameBoard>
       });
 
       if (widget.isMultiplayer) {
-        _setupEmbeddedCall(); // Initialize the embedded call first
+        final bool isLocalMode = Constants.localHostIp != null;
 
-        // SYNC: Populate callProvider with game context for the overlay
-        ref.read(callProvider.notifier).setChessContext(
-          roomId: widget.roomId,
-          currentUserId: widget.currentUserId,
-          opponentId: widget.opponentId,
-          amIWhite: widget.amIWhite,
-        );
-        ref.read(callProvider.notifier).userSignalingService = _signalingService;
+        if (!isLocalMode) {
+          // Online mode only: Set up WebRTC call via signaling server
+          _setupEmbeddedCall();
+
+          // SYNC: Populate callProvider with game context for the overlay
+          ref.read(callProvider.notifier).setChessContext(
+            roomId: widget.roomId,
+            currentUserId: widget.currentUserId,
+            opponentId: widget.opponentId,
+            amIWhite: widget.amIWhite,
+          );
+          ref.read(callProvider.notifier).userSignalingService = _signalingService;
+
+          _signalingConnSub = _signalingService!.connectionStream.listen((
+            connected,
+          ) {
+            // Log only — no snackbar to avoid post-leave UI noise
+            print('[GAME CALL] Signaling ${connected ? 'connected' : 'disconnected'}.');
+          });
+
+          _setupRecordingListener();
+        } else {
+          // Local P2P mode: call not supported — show a clear status
+          print("[GAME] 📡 Local P2P mode detected. Skipping call/signaling setup.");
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            ref.read(chessProvider.notifier).setCallStatus("Local Mode — No Call");
+          });
+        }
 
         // Reactive listener for Game Over
         ref.listenManual(chessProvider, (previous, next) {
@@ -501,30 +522,15 @@ class _GameBoardState extends ConsumerState<GameBoard>
         });
 
         print(
-          "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}",
+          "[GAME] Init Room: ${widget.roomId}, Me: ${widget.currentUserId}, Opponent: ${widget.opponentId}, amIWhite: ${widget.amIWhite}, localMode: $isLocalMode",
         );
 
         _gameConnSub = _gameService.connectionStream.listen((connected) {
-          if (!mounted) return;
-          _showTransientSnackBar(
-            connected ? "Game Server Connected" : "Game Server Disconnected",
-            color: connected ? Colors.green : Colors.red,
-          );
-          if (connected) {
+          // Log only — no snackbar to avoid noise on every connect/reconnect
+          print('[GAME] WebSocket ${connected ? 'connected' : 'disconnected'}.');
+          if (connected && mounted) {
             _gameService.sendJoin(widget.roomId, widget.currentUserId);
           }
-        });
-
-        _signalingConnSub = _signalingService!.connectionStream.listen((
-          connected,
-        ) {
-          if (!mounted) return;
-          _showTransientSnackBar(
-            connected
-                ? "Signaling Service Connected"
-                : "Signaling Service Offline",
-            color: connected ? Colors.blue : Colors.orange,
-          );
         });
 
         // Use Notifier to manage game logic and WebSocket stream
@@ -536,35 +542,21 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ref.read(chatProvider.notifier).init(
-            widget.roomId,
-            widget.currentUserId,
-            setAsActive: true,
-          );
+          if (!isLocalMode) {
+            ref.read(chatProvider.notifier).init(
+              widget.roomId,
+              widget.currentUserId,
+              setAsActive: true,
+            );
+          }
         });
-        
-        _setupRecordingListener();
       }
     } catch (e, st) {
       print("GameBoard FATAL ERROR in initState: $e\n$st");
     }
   }
 
-  void _showTransientSnackBar(String message, {Color? color}) {
-    if (!mounted) return;
-    // Delay to ensure ScaffoldMessenger is accessible
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: color,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    });
-  }
+
 
   Future<void> _initRenderers() async {
     try {
@@ -641,10 +633,17 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
     _localRenderer.dispose();
     _remoteRenderer.dispose();
-    // SEND LEAVE SIGNAL
+    // SEND LEAVE SIGNAL, then fully disconnect so the singleton's auto-reconnect
+    // timer doesn't fire and accidentally trigger onClientConnected on re-host.
     if (widget.isMultiplayer) {
       _gameService.sendLeave(widget.roomId, widget.currentUserId);
     }
+    // Disconnect stops the reconnect timer on the singleton — critical for local mode.
+    _gameService.disconnect();
+
+    // Clear local mode IP so the next session starts clean
+    Constants.localHostIp = null;
+
     // Clear game context from callProvider
     if (ref.read(callProvider).activeChessRoomId == widget.roomId) {
       ref.read(callProvider.notifier).clearChessContext();

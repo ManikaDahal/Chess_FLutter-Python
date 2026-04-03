@@ -7,6 +7,7 @@ import '../../../core/networking/local_discovery_service.dart';
 import '../../../core/networking/local_game_server.dart';
 import '../../../core/utils/const.dart';
 import '../../game/presentation/screens/chess_board.dart';
+import '../../game/services/game_websocket_service.dart';
 
 class LocalLobbyScreen extends StatefulWidget {
   final bool isSnakeMode;
@@ -30,6 +31,11 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
   @override
   void initState() {
     super.initState();
+    // Ensure any stale GameWebsocketService reconnect timer from a previous
+    // game session is cancelled before the server is started again.
+    GameWebsocketService().disconnect();
+    Constants.localHostIp = null;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLocationService();
     });
@@ -178,42 +184,34 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
   Future<String?> _getLocalIp() async {
     String? bestIp;
     
-    // 1. Try WiFi client IP first (when connected to a router)
-    try {
-      final info = NetworkInfo();
-      final wifiIp = await info.getWifiIP();
-      if (wifiIp != null && wifiIp.isNotEmpty && wifiIp != '0.0.0.0') {
-        bestIp = wifiIp;
-      }
-    } catch (_) {}
-
-    // 2. Scan all network interfaces (works for hotspot hosts)
+    // 1. Scan all network interfaces (works for hotspot hosts and WiFi)
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
         includeLinkLocal: false,
       );
       for (final interface in interfaces) {
-        // Skip cellular/mobile data interfaces if we have other options
+        // Skip cellular/mobile data interfaces
         if (interface.name.contains('rmnet') || interface.name.contains('pdp_ip')) continue;
 
         for (final addr in interface.addresses) {
           final ip = addr.address;
           if (addr.isLoopback || ip == '0.0.0.0') continue;
 
-          // TOP PRIORITY: Known Hotspot ranges
+          // TOP PRIORITY: Known standard Android Hotspot ranges
           if (ip.startsWith('192.168.43.') || ip.startsWith('172.20.10.')) {
-            print("[LocalLobby] Found Hotspot IP via interface '${interface.name}': $ip");
+            print("[LocalLobby] Found known Hotspot IP via '${interface.name}': $ip");
             return ip;
           }
 
-          // SECOND PRIORITY: Standard local WiFi ranges (avoiding 10.x carrier IPs if possible)
-          if (ip.startsWith('192.168.')) {
+          // SECOND PRIORITY: Any 192.168.x or 172.x range WiFi
+          if (ip.startsWith('192.168.') || ip.startsWith('172.')) {
             bestIp = ip;
-          } else if (ip.startsWith('172.') && bestIp == null) {
-            bestIp = ip;
-          } else if (ip.startsWith('10.') && bestIp == null) {
-            // Keep 10.x only as a last resort fallback
+          }
+
+          // THIRD PRIORITY: 10.x.x.x — valid on many Android hotspots & corporate WiFi
+          if (ip.startsWith('10.') && bestIp == null) {
+            print("[LocalLobby] Found 10.x IP via '${interface.name}': $ip");
             bestIp = ip;
           }
         }
@@ -222,12 +220,26 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
       print("[LocalLobby] NetworkInterface scan failed: $e");
     }
 
+    // 2. Fallback: try network_info_plus WiFi IP
+    if (bestIp == null) {
+      try {
+        final info = NetworkInfo();
+        final wifiIp = await info.getWifiIP();
+        if (wifiIp != null && wifiIp.isNotEmpty && wifiIp != '0.0.0.0') {
+          bestIp = wifiIp;
+        }
+      } catch (_) {}
+    }
+
     return bestIp;
   }
 
   void _stopHosting() {
     _server.stop();
     _discovery.stop();
+    // Kill any pending reconnect timer in the GameWebsocketService singleton
+    // so it doesn't reconnect to port 8080 when we start hosting again.
+    GameWebsocketService().disconnect();
     Constants.localHostIp = null;
     setState(() {
       _isHosting = false;
@@ -258,7 +270,10 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => GameBoard(
-          currentUserId: 1, // Placeholder for local P2P
+          // Host (White) = user 1, Joiner (Black) = user 2.
+          // This ensures received moves (sender_id from the OTHER user)
+          // don't match our own currentUserId and get correctly applied.
+          currentUserId: amIWhite ? 1 : 2,
           roomId: 9999, // Constant room ID for local mode
           isMultiplayer: true,
           amIWhite: amIWhite,
@@ -443,9 +458,17 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
 
   Widget _buildQuickLink(String label, String ip, TextEditingController controller, StateSetter setDialogState) {
     return ActionChip(
-      label: Text(label, style: const TextStyle(fontSize: 10, color: Colors.white70)),
-      backgroundColor: Colors.white10,
-      padding: EdgeInsets.zero,
+      label: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      backgroundColor: const Color(0xFF1565C0), // solid deep blue — clearly visible
+      side: const BorderSide(color: Colors.blueAccent, width: 0.8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       onPressed: () {
         setDialogState(() {
           controller.text = ip;
@@ -458,6 +481,8 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
   void dispose() {
     _discovery.stop();
     _server.stop();
+    GameWebsocketService().disconnect();
+    Constants.localHostIp = null;
     _nameController.dispose();
     super.dispose();
   }
@@ -661,7 +686,7 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          "Make sure both devices are on the same WiFi",
+                          "Both devices must be on same WiFi.\nGames joined via IP won't appear here.",
                           style: TextStyle(color: Colors.white24, fontSize: 12),
                           textAlign: TextAlign.center,
                         ),

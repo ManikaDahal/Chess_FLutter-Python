@@ -26,8 +26,10 @@ class LocalDiscoveryService {
                  ipAddress = ip;
                  break;
                }
-               // Fallback to any private IP if we haven't found a hotspot one yet
-               ipAddress ??= ip;
+               // Accept any private range including 10.x (some Android hotspots use it)
+               if (ip.startsWith('192.168.') || ip.startsWith('172.') || ip.startsWith('10.')) {
+                 ipAddress ??= ip;
+               }
             }
           }
           if (ipAddress?.startsWith('192.168.43.') == true) break;
