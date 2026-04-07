@@ -1,25 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chess_game_manika/core/services/connectivity_service.dart';
 
-class ConnectivityBanner extends StatelessWidget {
+class ConnectivityBanner extends ConsumerWidget {
   final Widget child;
 
   const ConnectivityBanner({super.key, required this.child});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final connectivityState = ref.watch(connectivityProvider);
+    
     return Stack(
       children: [
         child,
-        StreamBuilder<List<ConnectivityResult>>(
-          stream: Connectivity().onConnectivityChanged,
-          builder: (context, snapshot) {
-            final results = snapshot.data ?? [];
-            // If results is empty, assume we are still checking or connected
-            // Only show banner if ConnectivityResult.none is the only/major result
-            final isNone = results.isNotEmpty && results.every((r) => r == ConnectivityResult.none);
-
-            if (!isNone) return const SizedBox.shrink();
+        connectivityState.when(
+          data: (isOnline) {
+            if (isOnline) return const SizedBox.shrink();
 
             return Positioned(
               top: 0,
@@ -42,12 +39,11 @@ class ConnectivityBanner extends StatelessWidget {
                         )
                       ],
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    child: Row(
                       children: [
-                        Icon(Icons.wifi_off, color: Colors.white, size: 20),
-                        SizedBox(width: 12),
-                        Text(
+                        const Icon(Icons.wifi_off, color: Colors.white, size: 20),
+                        const SizedBox(width: 12),
+                        const Text(
                           "No Internet Connection",
                           style: TextStyle(
                             color: Colors.white,
@@ -55,6 +51,8 @@ class ConnectivityBanner extends StatelessWidget {
                             fontSize: 14,
                           ),
                         ),
+                        const Spacer(),
+                        _buildOfflineButton(context, ref),
                       ],
                     ),
                   ),
@@ -62,8 +60,35 @@ class ConnectivityBanner extends StatelessWidget {
               ),
             );
           },
+          loading: () => const SizedBox.shrink(),
+          error: (e, st) => const SizedBox.shrink(),
         ),
       ],
+    );
+  }
+
+  Widget _buildOfflineButton(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      onTap: () {
+        ref.read(offlineModeProvider.notifier).setOfflineMode(true);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: Colors.white.withOpacity(0.4)),
+        ),
+        child: const Text(
+          "OFFLINE MODE",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
     );
   }
 }

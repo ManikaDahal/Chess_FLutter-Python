@@ -16,7 +16,8 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-
+import 'package:chess_game_manika/core/services/connectivity_service.dart';
+import 'package:chess_game_manika/features/offline/presentation/screens/offline_lobby_screen.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -58,7 +59,7 @@ Future<void> main() async {
     // 2. Initialize Firebase early
     await Firebase.initializeApp();
     print("2. Firebase initialized");
-    
+
     // Initialize Crashlytics only on supported platforms
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       try {
@@ -67,9 +68,11 @@ Future<void> main() async {
           print("Crashlytics catch: FlutterError.onError");
           FirebaseCrashlytics.instance.recordFlutterFatalError(details);
         };
-        
+
         PlatformDispatcher.instance.onError = (error, stack) {
-          print("Crashlytics catch: PlatformDispatcher.instance.onError - $error");
+          print(
+            "Crashlytics catch: PlatformDispatcher.instance.onError - $error",
+          );
           FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
           return true;
         };
@@ -79,7 +82,7 @@ Future<void> main() async {
     } else {
       print("3. SKIPPING Crashlytics (unsupported platform)");
     }
-    
+
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     print("4. Firebase Messaging setup done");
 
@@ -96,18 +99,16 @@ Future<void> main() async {
     // 6. User data initialization is now handled by authProvider
 
     print("9. Calling runApp...");
-    runApp(
-      ProviderScope(
-        child: const MyApp(),
-      ),
-    );
-
+    runApp(ProviderScope(child: const MyApp()));
   } catch (e, stack) {
-
     print("!!! CONFIGURATION ERROR IN main(): $e !!!");
     print(stack);
     // Even if config fails, try to show something so it doesn't just go black
-    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Error starting app: $e")))));
+    runApp(
+      MaterialApp(
+        home: Scaffold(body: Center(child: Text("Error starting app: $e"))),
+      ),
+    );
   }
 }
 
@@ -136,13 +137,42 @@ class AuthChecker extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Read authProvider to decide routing dynamically
+    final connectivityState = ref.watch(connectivityProvider);
+    final isInOfflineMode = ref.watch(offlineModeProvider);
+
+    // 1. If we are already explicitly in offline mode, show the lobby.
+    if (isInOfflineMode) {
+      return const OfflineLobbyScreen();
+    }
+
+    // 2. Wait for initial connectivity data to decide the path.
+    return connectivityState.when(
+      data: (isOnline) {
+        if (!isOnline) {
+          // If starting offline, record the mode and switch to offline hub.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(offlineModeProvider.notifier).setOfflineMode(true);
+          });
+          return const OfflineLobbyScreen();
+        }
+
+        // 3. If online, proceed to normal account check.
+        return _buildAuthFlow(ref);
+      },
+      loading: () => const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, st) => _buildAuthFlow(ref), // Fallback to auth check on error
+    );
+  }
+
+  Widget _buildAuthFlow(WidgetRef ref) {
     final authState = ref.watch(authProvider);
 
     return authState.when(
       data: (state) {
         if (state.isAuthenticated) {
-          // BottomNavBarWrapper will now safely assume user exists
           return BottomNavBarWrapper();
         } else {
           return const Login();

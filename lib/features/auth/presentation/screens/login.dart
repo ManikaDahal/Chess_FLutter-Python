@@ -20,6 +20,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chess_game_manika/features/auth/presentation/providers/auth_provider.dart';
 import 'package:app_settings/app_settings.dart';
+import 'package:chess_game_manika/core/services/connectivity_service.dart';
 
 class Login extends ConsumerStatefulWidget {
   const Login({super.key});
@@ -570,13 +571,10 @@ class _LoginState extends ConsumerState<Login> {
                     await prefs.setString('email', 'guest@local');
                     
                     ref.read(authProvider.notifier).login(999, 'guest@local');
+                    ref.read(offlineModeProvider.notifier).setOfflineMode(true);
                     
                     if (mounted) {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => BottomNavBarWrapper()),
-                      );
-                      DisplaySnackbar.show(context, "Entering Guest Mode (Offline)");
+                      DisplaySnackbar.show(context, "Entering Offline Mode");
                     }
                   },
                   icon: const Icon(Icons.wifi_off_rounded, color: Colors.grey),
