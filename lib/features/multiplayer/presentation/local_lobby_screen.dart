@@ -159,11 +159,12 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
       // Start the server first — port is assigned by OS
       int? port;
       port = await _server.start(
-        onClientConnected: () {
+        onClientConnected: (serverPort) {
           // When a joiner connects, navigate the HOST to GameBoard
           if (!mounted) return;
           Constants.localHostIp = "127.0.0.1";
-          Constants.localPort = port!;
+          Constants.localPort = serverPort;
+          print("[LocalLobby] Client connected to port $serverPort — navigating host.");
           _navigateToGame(amIWhite: true); // Host is always White
         },
       );
@@ -247,13 +248,13 @@ class _LocalLobbyScreenState extends State<LocalLobbyScreen> {
     // Kill any pending reconnect timer in the GameWebsocketService singleton
     // so it doesn't reconnect to port 8080 when we start hosting again.
     GameWebsocketService().disconnect();
-    Constants.localHostIp = null;
-    Constants.localPort = 8080; 
     setState(() {
       _isHosting = false;
       _waitingForPlayer = false;
       _hostingIp = null;
     });
+    Constants.localHostIp = null;
+    Constants.localPort = 8080; 
     _showSnackBar("Stopped hosting.");
   }
 

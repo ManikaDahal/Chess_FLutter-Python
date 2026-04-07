@@ -9,12 +9,12 @@ class LocalGameServer {
   HttpServer? _server;
   final List<WebSocketChannel> _clients = [];
 
-  /// Called when the first joiner connects.
-  VoidCallback? onClientConnected;
+  /// Called when the first joiner connects, providing the active server port.
+  PortCallback? onClientConnected;
 
   bool _hasNotifiedHost = false;
 
-  Future<int> start({VoidCallback? onClientConnected}) async {
+  Future<int> start({PortCallback? onClientConnected}) async {
     this.onClientConnected = onClientConnected;
     _hasNotifiedHost = false;
 
@@ -36,11 +36,11 @@ class LocalGameServer {
             print('[LocalServer] Received: $data');
 
             if (!_hasNotifiedHost && data['type'] == 'join') {
-              // We could potentially check data['user_id'] here, but for local mode,
-              // the first join message is the trigger.
               _hasNotifiedHost = true;
               print('[LocalServer] Valid join handshake received — notifying host!');
-              this.onClientConnected?.call();
+              if (_server != null) {
+                this.onClientConnected?.call(_server!.port);
+              }
             }
 
             // Broadcast to all OTHER connected clients (move/msg relay)
@@ -92,7 +92,9 @@ class LocalGameServer {
       if (!_hasNotifiedHost && remoteAddr != null && remoteAddr != '127.0.0.1') {
         _hasNotifiedHost = true;
         print('[LocalServer] Remote client ($remoteAddr) connected — notifying host!');
-        this.onClientConnected?.call();
+        if (_server != null) {
+          this.onClientConnected?.call(_server!.port);
+        }
       }
 
       return wsHandler(request);
@@ -133,5 +135,5 @@ class LocalGameServer {
   }
 }
 
-// Typedef so we don't need to import flutter just for VoidCallback
-typedef VoidCallback = void Function();
+// Typedef so we don't need to import flutter just for the callback signature
+typedef PortCallback = void Function(int port);

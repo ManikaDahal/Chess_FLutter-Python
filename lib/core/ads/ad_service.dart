@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AdService {
   static final AdService _instance = AdService._internal();
@@ -10,9 +11,9 @@ class AdService {
   RewardedAd? _rewardedAd;
   bool _isAdLoading = false;
 
-  // Test Ad Unit IDs
-  final String _androidRewardedUnitId = 'ca-app-pub-3940256099942544/5224354917';
-  final String _iosRewardedUnitId = 'ca-app-pub-3940256099942544/1712485313';
+  // Ad Unit IDs from .env
+  final String _androidRewardedUnitId = dotenv.get('ADMOB_ANDROID_REWARDED_UNIT_ID', fallback: '');
+  final String _iosRewardedUnitId = dotenv.get('ADMOB_IOS_REWARDED_UNIT_ID', fallback: '');
 
   String get rewardedAdUnitId {
     if (Platform.isAndroid) {

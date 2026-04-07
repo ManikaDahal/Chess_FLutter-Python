@@ -15,6 +15,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'dart:io';
 import 'dart:ui';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -41,12 +43,16 @@ Future<void> main() async {
     WidgetsFlutterBinding.ensureInitialized();
     print("1. WidgetsFlutterBinding initialized");
 
+    // Load environment variables
+    await dotenv.load(fileName: ".env");
+    print("Environment variables loaded");
+
     // Initialize Mobile Ads
     await AdService().initialize();
     print("Ads initialized");
 
     // Initialize Stripe
-    Stripe.publishableKey = "pk_test_51TFB8RK6P5b4mTJTc8M593ZOXEJN2voOuMk2MRODYA7DnnwZu4PgnBfGtU0Mzea4Jhrh1qL3r0hndG6LKlyK8pGw00RmxJo9g9";
+    Stripe.publishableKey = dotenv.get('STRIPE_PUBLISHABLE_KEY', fallback: '');
     await Stripe.instance.applySettings();
 
     // 2. Initialize Firebase early

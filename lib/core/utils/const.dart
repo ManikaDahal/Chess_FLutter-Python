@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 class Constants {
-  // CHANGE: Split into two URLs for dual deployment architecture
   // REST API endpoint (Hugging Face) - handles login, signup, profile, users, etc.
-  static const String apiBaseUrl = "https://manikadahal-chess-auth-backend-manika-dahal.hf.space";
-  //For testing FCM in new branch
-  static const String apiFCMBaseUrl =
-      "https://chess-backend-git-manika-dev-fcm-manikadahals-projects.vercel.app";
+  static String get apiBaseUrl =>
+      dotenv.get('API_BASE_URL', fallback: 'https://fallback-auth.example.com');
+
+  // FCM API endpoint for notifications
+  // static String get apiFCMBaseUrl =>
+  //     dotenv.get('API_FCM_BASE_URL', fallback: 'https://fallback-fcm.example.com');
 
   // Support dynamic WebSocket URL for Hotspot Mode
   static String? localHostIp;
@@ -17,7 +20,7 @@ class Constants {
     if (localHostIp != null) {
       return "ws://$localHostIp:$localPort";
     }
-    return "wss://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+    return dotenv.get('WS_BASE_URL', fallback: 'wss://fallback-ws.example.com');
   }
 
   // HTTP endpoint for Video service (same as WebSocket but with https)
@@ -25,7 +28,7 @@ class Constants {
     if (localHostIp != null) {
       return "http://$localHostIp:$localPort";
     }
-    return "https://manikadahal-chess-websocket-backend-manika-dahal.hf.space";
+    return dotenv.get('VIDEO_BASE_URL', fallback: 'https://fallback-ws.example.com');
   }
 
   static final GlobalKey<NavigatorState> navigatorKey =
